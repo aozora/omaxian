@@ -1,0 +1,19 @@
+#!/bin/bash
+# omarchy:summary=Exit 0 only when the current X session is a live i3 session
+# omarchy:hidden=true
+#
+# Used by omarchy-launch-shell / i3_bar / omarchy-restart-shell so the
+# Quickshell host never comes up under XFCE (or other full DEs), even if a
+# leftover I3SOCK or xdg-autostart path tries to start it.
+
+# Full desktop environments must never host the omaxian shell.
+blob="${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_DESKTOP:-}:${DESKTOP_SESSION:-}:${GDMSESSION:-}"
+case "${blob,,}" in
+	*xfce*|*gnome*|*kde*|*plasma*|*mate*|*cinnamon*|*lxqt*|*budgie*|*lxde*)
+		exit 1
+		;;
+esac
+
+# Drop a possibly-stale I3SOCK so i3-msg uses the live X property / socket.
+unset I3SOCK
+i3-msg -t get_version >/dev/null 2>&1

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# omarchy:summary=Toggle notification do-not-disturb mode (dunst)
+
+set -euo pipefail
+
+if command -v dunstctl >/dev/null 2>&1; then
+  paused=$(dunstctl is-paused 2>/dev/null || echo false)
+  if [[ $paused == true ]]; then
+    dunstctl set-paused false
+  else
+    dunstctl set-paused true
+  fi
+fi
+
+omarchy-shell -q omarchy.indicators refresh || true

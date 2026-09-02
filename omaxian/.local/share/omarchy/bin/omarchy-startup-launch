@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+# omarchy:summary=Launch extra desktop apps listed in ~/.config/omarchy/startup.json
+# omarchy:group=setup
+
+"""Launch extra session apps listed in ~/.config/omarchy/startup.json.
+
+Called at the end of i3_autostart (which is exec_always — reload + restart).
+A per-login lock under $XDG_RUNTIME_DIR ensures apps launch only once per
+X session, not on every i3 reload/restart. Pass --force to bypass.
+
+Session daemons (dunst, picom, mpd, …) stay hardcoded in i3_autostart; this
+only starts user-selected desktop apps.
+
+Each apps[] entry is { "desktopId": "brave", "enabled": true }. Order is
+launch order. enabled:false is skipped. Missing .desktop files are skipped
+with a log line, not a fatal error.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+
+STARTUP_PATH = os.path.expanduser("~/.config/omarchy/startup.json")
+
+
+def log(msg: str) -> None:
+    print(f"omarchy-startup-launch: {msg}", file=sys.stderr)
+
+
+def session_lock_dir() -> str:
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/omarchy-{os.getuid()}"
+    return os.path.join(runtime, "omarchy-startup-launch.lock")
+
+
+def claim_session_once(force: bool) -> bool:
+    """Return True if this process should launch apps.
+
+    mkdir is atomic: only the first caller in this login session succeeds.
+    $XDG_RUNTIME_DIR is wiped on logout, so the next login runs again.
+    """
+    if force:
+        return True
+    path = session_lock_dir()
+    try:
+        os.makedirs(path, exist_ok=False)
+        return True
+    except FileExistsError:
+        log("already ran this session — skipping (pass --force to override)")
+        return False
+    except OSError as exc:
+        log(f"could not create session lock {path}: {exc}")
+        # Fail open: better a duplicate launch than no startups at all.
+        return True
+
+
+def desktop_id(raw: str) -> str:
+    value = str(raw or "").strip()
+    if value.lower().endswith(".desktop"):
+        value = value[: -len(".desktop")]
+    return value
+
+
+def load_apps(path: str) -> list[dict]:
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        log(f"could not read {path}: {exc}")
+        return []
+    if not isinstance(data, dict) or not isinstance(data.get("apps"), list):
+        return []
+    seen: set[str] = set()
+    out: list[dict] = []
+    for item in data["apps"]:
+        if isinstance(item, str):
+            ident = desktop_id(item)
+            enabled = True
+        elif isinstance(item, dict):
+            ident = desktop_id(str(item.get("desktopId") or item.get("id") or ""))
+            enabled = item.get("enabled", True) is not False
+        else:
+            continue
+        if not ident or ident in seen:
+            continue
+        seen.add(ident)
+        out.append({"desktopId": ident, "enabled": enabled})
+    return out
+
+
+def launch(ident: str) -> None:
+    desktop = ident if ident.endswith(".desktop") else f"{ident}.desktop"
+    try:
+        subprocess.Popen(
+            ["setsid", "-f", "gtk-launch", desktop],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        log(f"skipped {desktop}: {exc}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    force = "--force" in args
+    if not claim_session_once(force):
+        return 0
+    for app in load_apps(STARTUP_PATH):
+        if not app["enabled"]:
+            continue
+        launch(app["desktopId"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy.clock",
+  "name": "Clock",
+  "version": "1.0.0",
+  "author": "Omarchy",
+  "description": "Date/time label with a calendar popup",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Clock",
+    "description": "Date/time label with a calendar popup",
+    "category": "Time",
+    "allowMultiple": false,
+    "schema": [
+      {
+        "key": "format",
+        "type": "select",
+        "label": "Clock format",
+        "description": "Bar label format. Right-clicking the clock also cycles this.",
+        "defaultValue": "dddd HH:mm",
+        "options": [
+          { "value": "dddd HH:mm", "label": "dddd HH:mm" },
+          { "value": "dddd h:mm AP", "label": "dddd h:mm AM/PM" },
+          { "value": "dddd HH:mm:ss", "label": "dddd HH:mm:ss" },
+          { "value": "dddd h:mm:ss AP", "label": "dddd h:mm:ss AM/PM" },
+          { "value": "HH:mm", "label": "HH:mm" },
+          { "value": "h:mm AP", "label": "h:mm AM/PM" },
+          { "value": "ddd d MMM HH:mm", "label": "ddd d MMM HH:mm" },
+          { "value": "ddd d MMM h:mm AP", "label": "ddd d MMM h:mm AM/PM" },
+          { "value": "d MMMM 'W'ww yyyy", "label": "d MMMM Wxx yyyy" },
+          { "value": "yyyy-MM-dd HH:mm", "label": "yyyy-MM-dd HH:mm" }
+        ]
+      },
+      {
+        "key": "formatAlt",
+        "type": "string",
+        "label": "Alternate format",
+        "description": "Extra format included in the right-click cycle.",
+        "defaultValue": "d MMMM 'W'ww yyyy"
+      },
+      {
+        "key": "weekStartDay",
+        "type": "select",
+        "label": "Week starts on",
+        "defaultValue": "monday",
+        "options": [
+          { "value": "sunday", "label": "Sunday" },
+          { "value": "monday", "label": "Monday" }
+        ]
+      },
+      {
+        "key": "birthYear",
+        "type": "integer",
+        "label": "Birth year",
+        "description": "Optional memento mori year. 0 hides the life bar.",
+        "defaultValue": 0,
+        "from": 0,
+        "to": 2100
+      },
+      {
+        "key": "lifeExpectancy",
+        "type": "integer",
+        "label": "Life expectancy",
+        "defaultValue": 80,
+        "from": 1,
+        "to": 120
+      }
+    ]
+  }
+}

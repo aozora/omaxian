@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.settings",
+  "name": "Settings",
+  "version": "0.1.0",
+  "author": "omaxian",
+  "description": "Tabbed editor for bar, dock, widgets, plugins, appearance, and startup apps",
+  "kinds": ["panel"],
+  "entryPoints": { "panel": "Panel.qml" }
+}

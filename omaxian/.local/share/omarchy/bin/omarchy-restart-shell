@@ -1,0 +1,113 @@
+#!/bin/bash
+
+# omarchy:summary=Restart the Omarchy Quickshell host (X11 port)
+# omarchy:examples=omarchy-restart-shell
+#
+# Hard-stop supervisor + quickshell (including whoever holds the launch
+# lock), then start one fresh omarchy-launch-shell with a live I3SOCK.
+
+set -euo pipefail
+
+export OMARCHY_PATH="${OMARCHY_PATH:-$HOME/.local/share/omarchy}"
+case ":$PATH:" in
+	*":$OMARCHY_PATH/bin:"*) ;;
+	*) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
+esac
+CONFIG_DIR="$OMARCHY_PATH/shell"
+LOG="$HOME/.local/state/omarchy/shell.log"
+LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/omarchy-$UID"
+LOCK_FILE="$LOCK_DIR/launch-shell.lock"
+PID_FILE="$LOCK_DIR/launch-shell.pid"
+
+[[ -f $CONFIG_DIR/shell.qml ]] || { echo "omarchy shell config not found: $CONFIG_DIR" >&2; exit 1; }
+mkdir -p "$(dirname "$LOG")" "$LOCK_DIR"
+
+# QS 0.3.0's execDetached (menu → Util.execDetached → this script) does not
+# fully detach: killing quickshell can SIGHUP this process before relaunch.
+# Re-enter under setsid once so the kill+start sequence outlives the shell.
+if [[ ${OMARCHY_RESTART_DETACHED:-} != 1 ]]; then
+	echo "omarchy-restart-shell: detaching before stop/relaunch…" | tee -a "$LOG"
+	setsid -f env OMARCHY_RESTART_DETACHED=1 OMARCHY_PATH="$OMARCHY_PATH" PATH="$PATH" \
+		${DISPLAY:+DISPLAY="$DISPLAY"} ${I3SOCK:+I3SOCK="$I3SOCK"} \
+		${DBUS_SESSION_BUS_ADDRESS:+DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"} \
+		${XDG_RUNTIME_DIR:+XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"} \
+		"$0" "$@" >>"$LOG" 2>&1
+	exit 0
+fi
+
+# Always tear down leftovers; only relaunch inside a live i3 session.
+allow_start=0
+if omarchy-session-is-i3; then
+	allow_start=1
+else
+	echo "omarchy-restart-shell: not an i3 session — stopping shell only (no relaunch)" | tee -a "$LOG"
+fi
+
+echo "omarchy-restart-shell: stopping old shell…" | tee -a "$LOG"
+
+# 1) Kill by recorded supervisor pid (most precise).
+if [[ -f $PID_FILE ]]; then
+	old_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+	if [[ -n ${old_pid:-} ]] && kill -0 "$old_pid" 2>/dev/null; then
+		kill -TERM "$old_pid" 2>/dev/null || true
+	fi
+fi
+
+# 2) Kill any lock holders (covers a wedged flock without a matching name).
+if [[ -f $LOCK_FILE ]]; then
+	fuser -k "$LOCK_FILE" >/dev/null 2>&1 || true
+fi
+
+# 3) Name-based cleanup (supervisor + qs).
+pkill -f 'omarchy-launch-shell' 2>/dev/null || true
+while timeout 5 quickshell kill -p "$CONFIG_DIR" >/dev/null 2>&1; do :; done
+pkill -f "quickshell .*-p ${CONFIG_DIR}" 2>/dev/null || true
+
+for _ in $(seq 1 50); do
+	if ! pgrep -f 'omarchy-launch-shell' >/dev/null \
+		&& ! pgrep -f "quickshell .*-p ${CONFIG_DIR}" >/dev/null; then
+		break
+	fi
+	# Escalate if something ignores TERM.
+	pkill -9 -f 'omarchy-launch-shell' 2>/dev/null || true
+	pkill -9 -f "quickshell .*-p ${CONFIG_DIR}" 2>/dev/null || true
+	sleep 0.1
+done
+rm -f "$PID_FILE"
+sleep 0.2
+
+# Ensure the replacement sees a live socket (i3_bar may have unset I3SOCK).
+if sock="$(i3 --get-socketpath 2>/dev/null)" && [[ -S $sock ]]; then
+	export I3SOCK="$sock"
+fi
+
+if (( ! allow_start )); then
+	echo "omarchy-restart-shell: stopped (i3-only shell; no relaunch outside i3)" | tee -a "$LOG"
+	exit 0
+fi
+
+echo "omarchy-restart-shell: starting omarchy-launch-shell (I3SOCK=${I3SOCK:-<unset>})…" | tee -a "$LOG"
+# Inherit DISPLAY / I3SOCK / DBUS from this process; only pin QS_WIDGETS_ONLY
+# and OMARCHY_PATH explicitly.
+setsid nohup env \
+	QS_WIDGETS_ONLY="${QS_WIDGETS_ONLY:-1}" \
+	OMARCHY_PATH="$OMARCHY_PATH" \
+	${I3SOCK:+I3SOCK="$I3SOCK"} \
+	omarchy-launch-shell >>"$LOG" 2>&1 &
+
+for _ in $(seq 1 50); do
+	if omarchy-shell -q shell ping >/dev/null 2>&1; then
+		# Confirm a supervisor actually holds the lock — a stale qs can
+		# answer ping while the new launch-shell failed to start.
+		if [[ -f $PID_FILE ]] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+			echo "omarchy-restart-shell: ready" | tee -a "$LOG"
+			exit 0
+		fi
+		# Ping ok but no supervisor yet — keep waiting briefly.
+	fi
+	sleep 0.1
+done
+
+echo "omarchy-restart-shell: shell did not become ready after restart." >&2
+echo "omarchy-restart-shell: FAILED — see $LOG" | tee -a "$LOG"
+exit 1

@@ -1,0 +1,6 @@
+#!/bin/bash
+# omarchy:summary=Live-reload running terminals after a theme change
+# omarchy:hidden=true
+# alacritty watches its imported files and reloads on its own.
+# kitty reloads its config (and includes) on SIGUSR1.
+pkill -SIGUSR1 -x kitty 2>/dev/null || true

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.media",
+  "name": "Media",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Popup now-playing controller for MPRIS players, incl. MPD via mpDris2 (local)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Media.qml" },
+  "barWidget": { "displayName": "Media", "category": "Local", "allowMultiple": false }
+}

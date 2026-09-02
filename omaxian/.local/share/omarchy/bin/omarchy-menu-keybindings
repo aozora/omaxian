@@ -1,0 +1,5 @@
+#!/bin/bash
+
+# omarchy:summary=Show the session keybinding cheat-sheet
+
+exec omarchy-shell help toggle

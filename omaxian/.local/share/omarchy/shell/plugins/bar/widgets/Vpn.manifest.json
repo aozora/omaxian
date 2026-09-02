@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.vpn",
+  "name": "Vpn",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Local Vpn widget (interim, pre-Phase-5)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Vpn.qml" },
+  "barWidget": { "displayName": "Vpn", "category": "Local", "allowMultiple": false }
+}

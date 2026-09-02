@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+## Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
+##
+## Script to manage brightness on Archcraft.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+icon_path() { "$SCRIPT_DIR/dunst_icon" "$1" 2>/dev/null || true; }
+
+# Graphics card
+CARD=`ls /sys/class/backlight | head -n 1`
+
+# Get brightness
+get_backlight() {
+	if [[ "$CARD" == *"intel_"* ]]; then
+		BNESS=`xbacklight -get`
+		LIGHT=${BNESS%.*}
+	else
+		LIGHT=$(printf "%.0f\n" `light -G`)
+	fi
+	echo "${LIGHT}%"
+}
+
+# Get icons
+get_icon() {
+	backlight="$(get_backlight)"
+	current="${backlight%%%}"
+	if [[ ("$current" -ge "0") && ("$current" -le "20") ]]; then
+		icon="$(icon_path brightness-20.png)"
+	elif [[ ("$current" -ge "20") && ("$current" -le "40") ]]; then
+		icon="$(icon_path brightness-40.png)"
+	elif [[ ("$current" -ge "40") && ("$current" -le "60") ]]; then
+		icon="$(icon_path brightness-60.png)"
+	elif [[ ("$current" -ge "60") && ("$current" -le "80") ]]; then
+		icon="$(icon_path brightness-80.png)"
+	elif [[ ("$current" -ge "80") && ("$current" -le "100") ]]; then
+		icon="$(icon_path brightness-100.png)"
+	fi
+}
+
+# Notify — Phase 4: prefer the Quickshell OSD (plugins/osd), fall back to dunst.
+notify_bl() {
+	local bl val
+	bl="$(get_backlight)"
+	val="${bl%\%}"
+	if command -v omarchy-shell >/dev/null 2>&1 &&
+		omarchy-shell osd show "{\"icon\":\"brightness\",\"value\":\"$val\",\"message\":\"\"}" >/dev/null 2>&1; then
+		return 0
+	fi
+	get_icon
+	args=(dunstify -u low -h string:x-dunst-stack-tag:obbacklight)
+	[[ -n "$icon" ]] && args+=(-i "$icon")
+	"${args[@]}" "Brightness : $bl"
+}
+
+# Increase brightness
+inc_backlight() {
+	if [[ "$CARD" == *"intel_"* ]]; then
+		xbacklight -inc 10 && notify_bl
+	else
+		light -A 5 && notify_bl
+	fi
+}
+
+# Decrease brightness
+dec_backlight() {
+	if [[ "$CARD" == *"intel_"* ]]; then
+		xbacklight -dec 10 && notify_bl
+	else
+		light -U 5 && notify_bl
+	fi
+}
+
+# Execute accordingly
+if [[ "$1" == "--get" ]]; then
+	get_backlight
+elif [[ "$1" == "--inc" ]]; then
+	inc_backlight
+elif [[ "$1" == "--dec" ]]; then
+	dec_backlight
+else
+	get_backlight
+fi

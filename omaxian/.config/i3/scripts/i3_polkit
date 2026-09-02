@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+## Start a PolicyKit authentication agent (required for pkexec, Synaptic, etc.)
+
+polkit_running() {
+	local proc
+	for proc in \
+		xfce-polkit \
+		polkit-mate-authentication-agent-1 \
+		polkit-gnome-authentication-agent-1 \
+		lxqt-policykit-agent \
+		lxpolkit; do
+		if pgrep -x "$proc" >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+launch_agent() {
+	local agent="$1"
+	[[ -x "$agent" ]] || return 1
+	"$agent" >/dev/null 2>&1 &
+	disown
+	return 0
+}
+
+if polkit_running; then
+	exit 0
+fi
+
+agents=(
+	/usr/libexec/polkit-mate-authentication-agent-1
+	/usr/lib/xfce-polkit/xfce-polkit
+	/usr/libexec/xfce-polkit/xfce-polkit
+	/usr/lib/policykit-1-gnome/polkit-gnome-authentication-agent-1
+	/usr/libexec/polkit-gnome-authentication-agent-1
+	/usr/bin/lxqt-policykit-agent
+	/usr/bin/lxpolkit
+)
+
+for agent in "${agents[@]}"; do
+	if launch_agent "$agent"; then
+		exit 0
+	fi
+done
+
+echo "i3_polkit: no authentication agent found (install mate-polkit or xfce-polkit)" >&2
+exit 1

@@ -1,0 +1,18 @@
+#!/bin/bash
+# omarchy:summary=Restart the audio server (PulseAudio).
+# omarchy:examples=omarchy restart audio
+#
+# X11/Devuan port: upstream restarts pipewire/wireplumber via `systemctl --user`.
+# This box runs PulseAudio with autospawn — killing it makes the next client
+# (or `pactl`) respawn a fresh daemon.
+set -uo pipefail
+echo "Restarting PulseAudio..."
+pulseaudio -k 2>/dev/null || true
+sleep 1
+pactl info >/dev/null 2>&1 || pulseaudio --start 2>/dev/null || true
+if pactl info >/dev/null 2>&1; then
+  echo "PulseAudio is back up."
+else
+  echo "PulseAudio did not come back — try 'pulseaudio --start' manually." >&2
+  exit 1
+fi

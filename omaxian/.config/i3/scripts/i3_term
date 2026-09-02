@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+## Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
+##
+## Default terminal launcher (kitty + i3 config)
+
+DIR="$HOME/.config/i3"
+CONFIG="$DIR/kitty/kitty.conf"
+
+if [[ "$1" == "--float" ]]; then
+	shift
+	exec kitty --class 'kitty-float' --config "$CONFIG" "$@"
+elif [[ "$1" == "--full" ]]; then
+	shift
+	exec kitty --class 'kitty-fullscreen' --config "$CONFIG" \
+		--start-as fullscreen \
+		--override 'window_padding_width=30' \
+		--override 'font_size=14' \
+		--override 'background_opacity=0.95' \
+		"$@"
+else
+	exec kitty --config "$CONFIG" "$@"
+fi

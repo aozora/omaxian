@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# omarchy:summary=Reboot the machine
+# omarchy:examples=omarchy system reboot
+
+set -euo pipefail
+
+command -v omarchy-osd >/dev/null 2>&1 &&
+  omarchy-osd -i reboot -m "Rebooting" >/dev/null 2>&1 || true
+
+exec loginctl reboot

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.notifications",
+  "name": "Notifications",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Local Notifications widget (interim, pre-Phase-5)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Notifications.qml" },
+  "barWidget": { "displayName": "Notifications", "category": "Local", "allowMultiple": false }
+}

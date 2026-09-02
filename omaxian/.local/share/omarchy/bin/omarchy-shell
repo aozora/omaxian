@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# omarchy:summary=Send an IPC call to the running Omarchy shell
+# omarchy:args=[-q] <target> <method> [args...]
+# omarchy:examples=omarchy-shell shell ping | omarchy-shell -q omarchy.indicators refresh
+#
+# Devuan/X11 port of upstream omarchy-quattro/bin/omarchy-shell. Only change:
+# the out-of-session display recovery scans /tmp/.X11-unix instead of the
+# Wayland socket dir. Everything else (qs ipc call, timeout + error parsing)
+# is upstream.
+
+QUIET=0
+if [[ ${1:-} == "-q" ]]; then
+  QUIET=1
+  shift
+fi
+
+fail() {
+  (( QUIET )) && exit 0
+  echo "$1" >&2
+  exit 1
+}
+
+if (( $# == 0 )) || [[ $1 == "-h" || $1 == "--help" ]]; then
+  cat <<USAGE
+Usage: omarchy-shell [-q] <target> <method> [args...]
+
+Forwards an IPC call to the running Omarchy shell. The shell is expected
+to already be running; this command does not start it.
+
+Options:
+  -q  Quiet best-effort mode. Suppress output and return success even when
+      the shell, target, method, or arguments are unavailable.
+
+Examples:
+  omarchy-shell shell ping
+  omarchy-shell -q omarchy.indicators refresh
+  omarchy-shell shell listPlugins
+  omarchy-shell shell toggle omarchy.menu '{"menu":"root"}'
+USAGE
+  exit 0
+fi
+
+(( $# >= 2 )) || fail "Usage: omarchy-shell <target> <method> [args...]"
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
+[[ -f $OMARCHY_PATH/shell/shell.qml ]] || fail "omarchy-shell config not found: $OMARCHY_PATH/shell/shell.qml"
+
+# qs matches instances by display; a caller from outside the session (ssh/TTY
+# omarchy-restart-shell) has none, so recover it from the X socket.
+if [[ -z ${DISPLAY:-} ]]; then
+  sock=$(ls /tmp/.X11-unix/X[0-9]* 2>/dev/null | head -n1)
+  [[ -n $sock ]] && export DISPLAY=":${sock##*/X}"
+fi
+
+if [[ $1 == "shell" && ( $2 == "summon" || $2 == "toggle" ) ]] && (( $# == 3 )); then
+  set -- "$1" "$2" "$3" "{}"
+fi
+
+# The -- keeps function names that shadow qs subcommands (e.g. show) as
+# positionals. qs reports connection failures with a nonzero exit; IPC-level
+# failures (unknown target/function, bad arguments) go to stdout with exit 0.
+ipc_timeout=${OMARCHY_SHELL_IPC_TIMEOUT:-2s}
+output=$(timeout --kill-after=1s "$ipc_timeout" qs ipc -n -p "$OMARCHY_PATH/shell" call -- "$@" 2>/dev/null)
+ipc_status=$?
+
+if (( ipc_status == 124 || ipc_status == 137 )); then
+  fail "omarchy-shell is not responding"
+elif (( ipc_status != 0 )); then
+  fail "omarchy-shell is not running"
+fi
+
+case $output in
+  "Target not found." | "Function not found." | "Too few arguments provided"* | "Too many arguments provided"*)
+    fail "$output"
+    ;;
+  "Not ready to accept queries yet"*)
+    fail "omarchy-shell is not ready"
+    ;;
+esac
+
+if (( !QUIET )) && [[ -n $output ]]; then
+  echo "$output"
+fi
+exit 0

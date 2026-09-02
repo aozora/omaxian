@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.network",
+  "name": "Network",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Local Network widget (interim, pre-Phase-5)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Network.qml" },
+  "barWidget": { "displayName": "Network", "category": "Local", "allowMultiple": false }
+}

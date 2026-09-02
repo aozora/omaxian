@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.themes",
+  "name": "Themes",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Visual Omarchy theme picker (local)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "ThemeButton.qml" },
+  "barWidget": { "displayName": "Themes", "category": "Local", "allowMultiple": false }
+}

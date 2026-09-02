@@ -1,0 +1,341 @@
+#!/bin/bash
+
+# omarchy:summary=Assess an Omarchy community shell plugin for X11/i3 port compatibility
+# omarchy:group=plugin
+# omarchy:args=<plugin-dir | git-url | owner/repo> [--ref <branch|tag|sha>] [--json] [--keep] [--verbose]
+# omarchy:examples=omarchy-plugin-check ./my-plugin | omarchy-plugin-check https://github.com/acme/omarchy-foo.git --json
+#
+# Local-only (no upstream counterpart). Static analysis: reads the plugin's
+# manifest.json + QML/JS/shell sources and reports platform couplings this
+# Devuan/i3/X11 port (omaxian) had to transform away from stock Omarchy
+# (Arch + Hyprland + Wayland + PipeWire + systemd).
+#
+# It NEVER installs, enables, clones into ~/.config/omarchy/plugins, or runs
+# any plugin code. Plugins run unsandboxed inside the long-lived shell
+# process — review the source yourself before enabling.
+#
+# Exit codes:
+#   0  compatible      — no blockers, no known-transform patches needed
+#   1  needs patching  — only couplings with a known transform (T1/T2/T3/pactl/...)
+#   2  incompatible    — a coupling with no X11 backend, or an invalid manifest
+#
+# Reference: docs/omarchy-port/omarchy-migration.md §2 · docs/omarchy-port/deltas.md
+
+set -uo pipefail
+
+# ----------------------------------------------------------------- args
+
+TARGET="" ; REF="" ; JSON=0 ; KEEP=0 ; VERBOSE=0
+
+die() { echo "omarchy-plugin-check: $*" >&2; exit 2; }
+say() { ((JSON)) || echo "$*" >&2; }
+
+usage() {
+  cat <<'USAGE'
+omarchy-plugin-check — assess an Omarchy community shell plugin for
+compatibility with this Devuan/i3/X11 port before you install it.
+
+Usage:
+  omarchy-plugin-check <plugin-dir>
+  omarchy-plugin-check <git-url> [--ref <branch|tag|sha>]
+  omarchy-plugin-check <owner/repo>            # shorthand for github.com/owner/repo
+
+Options:
+  --ref <r>   check out branch/tag/sha after cloning (default: repo HEAD, shallow)
+  --json      machine-readable report on stdout
+  --keep      keep the clone (prints its path) instead of deleting it
+  --verbose   also list the desktop-agnostic APIs that work as-is
+  -h, --help  this text
+
+Static analysis only. Never installs, enables, or runs plugin code.
+
+Exit: 0 compatible · 1 needs patching (known transform) · 2 incompatible / bad manifest
+USAGE
+  exit 0
+}
+
+while (( $# )); do
+  case "$1" in
+    --ref)     REF="${2:-}"; shift 2 || die "--ref needs a value" ;;
+    --ref=*)   REF="${1#*=}"; shift ;;
+    --json)    JSON=1; shift ;;
+    --keep)    KEEP=1; shift ;;
+    --verbose|-v) VERBOSE=1; shift ;;
+    -h|--help) usage ;;
+    -*)        die "unknown option: $1" ;;
+    *)         [[ -z $TARGET ]] || die "unexpected argument: $1"; TARGET="$1"; shift ;;
+  esac
+done
+[[ -n $TARGET ]] || die "need a plugin dir, git URL, or owner/repo (see --help)"
+
+for t in git jq grep awk find mktemp; do command -v "$t" >/dev/null || die "missing tool: $t"; done
+
+# ----------------------------------------------------------------- resolve target
+
+is_url() {
+  case "$1" in
+    http://*|https://*|git://*|ssh://*|git@*) return 0 ;;
+    *.git) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+WORKDIR="" ; SOURCE_DESC="$TARGET"
+cleanup() { [[ -n $WORKDIR && $KEEP -eq 0 ]] && rm -rf "$WORKDIR"; }
+trap 'cleanup' EXIT
+
+if [[ -d $TARGET && ! $TARGET =~ ^https?:// ]]; then
+  PLUGIN_DIR="${TARGET%/}"
+else
+  URL="$TARGET"
+  if ! is_url "$URL"; then
+    if [[ $URL =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+      URL="https://github.com/$URL"
+    elif [[ $URL == github.com/* || $URL == gitlab.com/* || $URL == codeberg.org/* ]]; then
+      URL="https://$URL"
+    else
+      die "not a directory and not a recognizable git URL: $TARGET"
+    fi
+  fi
+  WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/omarchy-plugin-check.XXXXXX")"
+  PLUGIN_DIR="$WORKDIR/plugin"
+  SOURCE_DESC="$URL${REF:+ @ $REF}"
+  say "Cloning $URL ${REF:+(ref $REF) }..."
+  export GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -oBatchMode=yes}"
+  if [[ -n $REF ]]; then
+    git clone --quiet -- "$URL" "$PLUGIN_DIR" || die "clone failed: $URL"
+    git -C "$PLUGIN_DIR" -c advice.detachedHead=false checkout --quiet "$REF" \
+      || die "no such ref in $URL: $REF"
+  else
+    git clone --quiet --depth 1 -- "$URL" "$PLUGIN_DIR" || die "clone failed: $URL"
+  fi
+  ((KEEP)) && say "Clone kept at: $PLUGIN_DIR"
+fi
+
+[[ -d $PLUGIN_DIR ]] || die "plugin directory vanished: $PLUGIN_DIR"
+
+# ----------------------------------------------------------------- findings sink
+
+FINDINGS="$(mktemp)"
+trap 'cleanup; rm -f "$FINDINGS"' EXIT
+# fields: SEVERITY \t CATEGORY \t LOCATION \t DETAIL
+add() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$FINDINGS"; }
+rel() { printf '%s' "${1#"$PLUGIN_DIR"/}"; }
+
+transform_for() {
+  case "$1" in
+    hyprland-ipc)              echo "T3 -> Quickshell.I3" ;;
+    layer-shell|wayland-module) echo "T1 -> plain PanelWindow/PopupWindow (full-screen -> Ui/CenteredModal)" ;;
+    focus-grab)                echo "T2 -> PopupWindow.grabFocus" ;;
+    pipewire)                  echo "route via Services/Audio.qml (pactl)" ;;
+    hypr-tools)                echo "i3-msg / xrandr / picom" ;;
+    arch-pkg)                  echo "apt / 'apt list --upgradable'" ;;
+    systemd)                   echo "setsid / sv (runit) / loginctl(elogind)" ;;
+    wl-clipboard)              echo "xclip / xsel" ;;
+    wl-screenshot)             echo "maim / slop / ffmpeg" ;;
+    greetd)                    echo "n/a on this port" ;;
+    idle)                      echo "NONE - no X11 ext-idle-notify backend" ;;
+    session-lock)              echo "NONE - use i3lock, not WlSessionLock" ;;
+    toplevel)                  echo "NONE - would need i3-msg -t get_tree rework" ;;
+    *)                         echo "-" ;;
+  esac
+}
+
+# ----------------------------------------------------------------- manifest
+
+MANIFEST="$PLUGIN_DIR/manifest.json"
+manifest_ok=1 ; pid="" ; kinds_str=""
+
+if [[ ! -f $MANIFEST ]]; then
+  add MANIFEST manifest "manifest.json" "file not found"
+  manifest_ok=0
+elif ! jq -e . "$MANIFEST" >/dev/null 2>&1; then
+  add MANIFEST manifest "manifest.json" "not valid JSON"
+  manifest_ok=0
+else
+  pid="$(jq -r '.id // ""' "$MANIFEST")"
+  kinds_str="$(jq -r '(.kinds // []) | join(", ")' "$MANIFEST")"
+
+  [[ "$(jq -r '.schemaVersion // empty' "$MANIFEST")" == "1" ]] \
+    || { add MANIFEST schema "manifest.json" "schemaVersion must be exactly 1"; manifest_ok=0; }
+
+  for f in id name version kinds entryPoints; do
+    jq -e --arg f "$f" 'has($f)' "$MANIFEST" >/dev/null 2>&1 \
+      || { add MANIFEST field "manifest.json" "missing required field: $f"; manifest_ok=0; }
+  done
+
+  [[ $pid =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+    || { add MANIFEST id "manifest.json" "invalid plugin id: '$pid'"; manifest_ok=0; }
+  [[ $pid == omarchy.* ]] \
+    && { add MANIFEST id "manifest.json" "id uses the reserved omarchy.* namespace"; manifest_ok=0; }
+
+  jq -e '(.kinds | type) == "array" and (.kinds | length) > 0' "$MANIFEST" >/dev/null 2>&1 \
+    || { add MANIFEST kinds "manifest.json" "kinds must be a non-empty array"; manifest_ok=0; }
+
+  while IFS= read -r ep; do
+    [[ -z $ep ]] && continue
+    case "$ep" in
+      /*|*..*) add MANIFEST entrypoint "manifest.json" "unsafe entry point path: $ep"; manifest_ok=0 ;;
+      *) [[ -f "$PLUGIN_DIR/$ep" ]] \
+           || { add MANIFEST entrypoint "manifest.json" "entry point file missing: $ep"; manifest_ok=0; } ;;
+    esac
+  done < <(jq -r '.entryPoints // {} | to_entries[] | .value' "$MANIFEST" 2>/dev/null)
+
+  while IFS=: read -r k epk; do
+    [[ -z $k ]] && continue
+    jq -e --arg k "$k" '(.kinds // []) | index($k) != null' "$MANIFEST" >/dev/null 2>&1 || continue
+    jq -e --arg e "$epk" '(.entryPoints // {}) | has($e)' "$MANIFEST" >/dev/null 2>&1 \
+      || { add MANIFEST kind "manifest.json" "kind '$k' requires entryPoints.$epk"; manifest_ok=0; }
+  done <<'EOF'
+bar:bar
+bar-widget:barWidget
+menu:menu
+overlay:overlay
+panel:panel
+service:service
+EOF
+
+  if find "$PLUGIN_DIR" -name .git -prune -o -type l -print 2>/dev/null | grep -q .; then
+    add MANIFEST symlink "$(rel "$PLUGIN_DIR")" "contains symlink(s) — PluginRegistry rejects these"
+    manifest_ok=0
+  fi
+fi
+
+# ----------------------------------------------------------------- source scan
+
+mapfile -t QMLJS   < <(find "$PLUGIN_DIR" -type f \( -name '*.qml' -o -name '*.js' -o -name '*.mjs' \) -not -path '*/.git/*' | sort)
+mapfile -t ALLTEXT < <(find "$PLUGIN_DIR" -type f -not -path '*/.git/*' | sort)
+
+scan() { # SEVERITY CATEGORY REGEX FILE...
+  local sev="$1" cat="$2" re="$3"; shift 3
+  (( $# )) || return 0
+  grep -HnIE "$re" "$@" 2>/dev/null | while IFS= read -r hit; do
+    local path="${hit%%:*}" rest="${hit#*:}"
+    local ln="${rest%%:*}" txt="${rest#*:}"
+    txt="$(printf '%s' "$txt" | sed 's/^[[:space:]]*//' | cut -c1-140)"
+    add "$sev" "$cat" "$(rel "$path"):$ln" "$txt"
+  done
+}
+
+if (( ${#QMLJS[@]} )); then
+  # blockers — no X11 backend, no transform
+  scan BLOCK idle         '\bIdleMonitor\b'                                                  "${QMLJS[@]}"
+  scan BLOCK session-lock '\bWlSessionLock(Surface)?\b'                                      "${QMLJS[@]}"
+  scan BLOCK toplevel     '\bToplevelManager\b|activeToplevel|\.toplevels\b|\bScreencopyManager\b|\bScreencopy\b' "${QMLJS[@]}"
+  # patchable — known transform exists
+  scan PATCH hyprland-ipc   'import[[:space:]]+Quickshell\.Hyprland|\bHyprland\.[A-Za-z]'    "${QMLJS[@]}"
+  scan PATCH layer-shell    '\bWlrLayershell\b|\bWlrKeyboardFocus\b|\bWlrLayer\.'            "${QMLJS[@]}"
+  scan PATCH wayland-module 'import[[:space:]]+Quickshell\.Wayland\b'                        "${QMLJS[@]}"
+  scan PATCH focus-grab     '\bHyprlandFocusGrab\b'                                          "${QMLJS[@]}"
+  scan PATCH pipewire       'Quickshell\.Services\.Pipewire|\bPwNode|\bPwObjectTracker\b|\bPipewire\.[A-Za-z]' "${QMLJS[@]}"
+  scan PATCH greetd         'Quickshell\.Services\.Greetd|\bGreetd\.[A-Za-z]'               "${QMLJS[@]}"
+fi
+
+if (( ${#ALLTEXT[@]} )); then
+  scan PATCH hypr-tools    '\bhypr(ctl|pm|paper|lock)\b|\bswa(ybg|ylock|ymsg)\b'            "${ALLTEXT[@]}"
+  scan PATCH arch-pkg      '\b(pacman|yay|paru|pamac|checkupdates|makepkg|pikaur)\b'        "${ALLTEXT[@]}"
+  scan PATCH systemd       '\bsystemctl\b|\bsystemd-run\b|\bsystemd-cat\b|\bsystemd-inhibit\b|\bjournalctl\b|\buwsm\b' "${ALLTEXT[@]}"
+  scan PATCH wl-clipboard  '\bwl-copy\b|\bwl-paste\b|\bwl-clipboard\b|\bcliphist\b|\bwlr-randr\b' "${ALLTEXT[@]}"
+  scan PATCH wl-screenshot '\bgrim\b|\bslurp\b|\bwl-screenrec\b|\bwf-recorder\b'            "${ALLTEXT[@]}"
+  scan PATCH pipewire      '\bwpctl\b|\bpw-cli\b|\bpw-dump\b|\bpw-metadata\b'               "${ALLTEXT[@]}"
+  scan PATCH launcher-tool '\b(walker|wofi|fuzzel|tofi|bemenu)\b'                           "${ALLTEXT[@]}"
+fi
+
+# reassurance signal (never affects the verdict)
+if (( ${#QMLJS[@]} )); then
+  scan NOTE ok-service 'Quickshell\.Services\.(Mpris|Notifications|UPower|Polkit|SystemTray)|Quickshell\.(Bluetooth|Networking)\b' "${QMLJS[@]}"
+fi
+
+# ----------------------------------------------------------------- verdict
+
+count() { awk -F'\t' -v s="$1" '$1==s' "$FINDINGS" | wc -l | tr -d ' '; }
+n_block="$(count BLOCK)" ; n_patch="$(count PATCH)" ; n_note="$(count NOTE)"
+
+if (( manifest_ok == 0 )) || (( n_block > 0 )); then
+  verdict="incompatible" ; exit_code=2
+elif (( n_patch > 0 )); then
+  verdict="needs-patching" ; exit_code=1
+else
+  verdict="compatible" ; exit_code=0
+fi
+
+qs_version="$(quickshell --version 2>/dev/null | head -1 | awk '{print $2}')"
+qs_version="${qs_version:-unknown}"
+
+# ----------------------------------------------------------------- output
+
+if (( JSON )); then
+  jq -Rn \
+    --arg source "$SOURCE_DESC" \
+    --arg id "$pid" \
+    --arg kinds "$kinds_str" \
+    --arg verdict "$verdict" \
+    --argjson exit "$exit_code" \
+    --argjson manifest_valid "$([[ $manifest_ok -eq 1 ]] && echo true || echo false)" \
+    --arg qs "$qs_version" \
+    '
+    def tf($c):
+      { "hyprland-ipc":"T3","layer-shell":"T1","wayland-module":"T1","focus-grab":"T2",
+        "pipewire":"pactl","hypr-tools":"i3-msg/xrandr","arch-pkg":"apt","systemd":"setsid/sv",
+        "wl-clipboard":"xclip","wl-screenshot":"maim/slop","launcher-tool":"rofi","greetd":"n/a",
+        "idle":"none","session-lock":"none","toplevel":"none" }[$c] // "-";
+    [ inputs | select(length > 0) | split("\t")
+      | { severity:.[0], category:.[1], location:.[2], detail:.[3], transform: tf(.[1]) } ] as $f
+    | { source:$source, id:$id, kinds:$kinds, quickshell:$qs,
+        verdict:$verdict, exit:$exit, manifest_valid:$manifest_valid,
+        blockers:  [ $f[] | select(.severity=="BLOCK") ],
+        patchable: [ $f[] | select(.severity=="PATCH") ],
+        manifest:  [ $f[] | select(.severity=="MANIFEST") ],
+        notes:     [ $f[] | select(.severity=="NOTE") ] }
+    ' "$FINDINGS"
+  exit "$exit_code"
+fi
+
+hr()  { printf '%s\n' "--------------------------------------------------------------------------"; }
+grp() { # SEVERITY  TITLE
+  local sev="$1" title="$2" n; n="$(count "$sev")"
+  (( n == 0 )) && return
+  printf '\n%s (%d)\n' "$title" "$n"
+  local cats c; cats="$(awk -F'\t' -v s="$sev" '$1==s{print $2}' "$FINDINGS" | sort -u)"
+  while IFS= read -r c; do
+    [[ -z $c ]] && continue
+    printf '  %-14s  fix: %s\n' "$c" "$(transform_for "$c")"
+    awk -F'\t' -v s="$sev" -v c="$c" '$1==s && $2==c {printf "      %-42s %s\n", $3, $4}' "$FINDINGS"
+  done <<< "$cats"
+}
+
+hr
+printf 'omarchy-plugin-check\n'
+printf '  source:     %s\n' "$SOURCE_DESC"
+printf '  id:         %s\n' "${pid:-<none>}"
+printf '  kinds:      %s\n' "${kinds_str:-<none>}"
+printf '  quickshell: %s (installed)\n' "$qs_version"
+hr
+
+printf '\nMANIFEST\n'
+if (( manifest_ok )); then
+  printf '  ok\n'
+else
+  awk -F'\t' '$1=="MANIFEST"{printf "  FAIL  %-24s %s\n", $2, $4}' "$FINDINGS"
+fi
+
+grp BLOCK "INCOMPATIBLE — no X11 backend / no transform"
+grp PATCH "NEEDS PATCHING — known transform exists"
+if (( VERBOSE )) && (( n_note > 0 )); then
+  printf '\nOK SIGNALS — desktop-agnostic, work as-is (%d)\n' "$n_note"
+  awk -F'\t' '$1=="NOTE"{printf "      %-42s %s\n", $3, $4}' "$FINDINGS"
+fi
+
+printf '\n' ; hr
+case "$verdict" in
+  incompatible)   printf 'VERDICT: INCOMPATIBLE  (exit 2)\n' ;;
+  needs-patching) printf 'VERDICT: NEEDS PATCHING  (exit 1)\n' ;;
+  compatible)     printf 'VERDICT: COMPATIBLE  (exit 0)\n' ;;
+esac
+printf '  %s blocker(s), %s patchable, manifest %s\n' \
+  "$n_block" "$n_patch" "$([[ $manifest_ok -eq 1 ]] && echo ok || echo INVALID)"
+printf '  transforms: docs/omarchy-port/omarchy-migration.md §2 · deltas.md\n'
+printf '  static analysis only — plugins run unsandboxed; review the source before enabling.\n'
+hr
+
+exit "$exit_code"

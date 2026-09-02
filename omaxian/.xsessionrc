@@ -1,0 +1,19 @@
+# Sourced by /etc/X11/Xsession.d/40x11-common_xsessionrc (lightdm runs sessions
+# through /etc/X11/Xsession) *before* the window manager starts, so anything
+# exported here reaches i3 itself and therefore every keybind exec and
+# autostart child it spawns.
+#
+# Must exist at ~/.xsessionrc to take effect — deploy.sh installs it.
+#
+# PATH / OMARCHY_PATH are set for every X session (including XFCE) so terminals
+# can still call `omarchy-*` helpers. The Quickshell host itself is gated:
+# omarchy-launch-shell / i3_bar refuse to start outside a live i3 session.
+#
+# This is why `export PATH=…` inside scripts/i3_autostart never worked for
+# keybinds: that export only affects i3_autostart's own children, not i3.
+# `omarchy-shell` / `omarchy-*` live in $OMARCHY_PATH/bin, so without this the
+# volume/brightness OSD, theme keybinds, and `i3_quickshell_toggle` all fall
+# back / fail with "command not found".
+
+export OMARCHY_PATH="$HOME/.local/share/omarchy"
+export PATH="$OMARCHY_PATH/bin:$HOME/.local/bin:$HOME/bin:$PATH"

@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# omarchy:summary=Launch a URL in the default browser
+# omarchy:args=<url>
+
+set -euo pipefail
+
+if (( $# < 1 )); then
+  echo "Usage: omarchy-launch-webapp <url>" >&2
+  exit 1
+fi
+
+exec xdg-open "$1"

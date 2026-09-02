@@ -1,0 +1,13 @@
+## Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
+## GTK/X settings for Devuan/Debian (common theme names).
+
+Net/ThemeName "Adwaita-dark"
+Net/IconThemeName "Papirus-Dark"
+Gtk/CursorThemeName "Adwaita"
+Net/EnableEventSounds "0"
+Net/EnableInputFeedbackSounds "0"
+Xft/DPI "-1"
+Xft/Hinting 1
+Xft/HintStyle "hintslight"
+Xft/Antialias 1
+Xft/RGBA "none"

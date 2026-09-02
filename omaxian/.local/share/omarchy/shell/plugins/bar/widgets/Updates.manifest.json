@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.updates",
+  "name": "Updates",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Local Updates widget (interim, pre-Phase-5)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Updates.qml" },
+  "barWidget": { "displayName": "Updates", "category": "Local", "allowMultiple": false }
+}

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.menu",
+  "name": "Menu",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Opens the Omarchy menu (apps + commands); right-click is the command runner",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "MenuButton.qml"
+  },
+  "barWidget": {
+    "displayName": "Menu",
+    "category": "Local",
+    "allowMultiple": false,
+    "defaults": {
+      "icon": "󰄛",
+      "iconFont": ""
+    },
+    "schema": [
+      {
+        "key": "icon",
+        "type": "string",
+        "label": "Icon glyph",
+        "description": "Single glyph shown on the bar. Default is the Archcraft cat (U+F011B). Must exist in the bar font unless iconFont is set.",
+        "defaultValue": "󰄛"
+      },
+      {
+        "key": "iconFont",
+        "type": "string",
+        "label": "Icon font",
+        "description": "Optional font family for the glyph (e.g. a Nerd Font or omarchy). Leave empty to use the bar font.",
+        "defaultValue": ""
+      }
+    ]
+  }
+}

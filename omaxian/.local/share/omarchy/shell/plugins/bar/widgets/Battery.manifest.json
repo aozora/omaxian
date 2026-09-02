@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.battery",
+  "name": "Battery",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Local Battery widget (interim, pre-Phase-5)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Battery.qml" },
+  "barWidget": { "displayName": "Battery", "category": "Local", "allowMultiple": false }
+}

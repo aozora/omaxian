@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# omarchy:summary=Shut down the machine
+# omarchy:examples=omarchy system shutdown
+
+set -euo pipefail
+
+command -v omarchy-osd >/dev/null 2>&1 &&
+  omarchy-osd -i shutdown -m "Shutting down" >/dev/null 2>&1 || true
+
+exec loginctl poweroff

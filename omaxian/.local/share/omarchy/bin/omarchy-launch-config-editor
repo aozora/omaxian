@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# omarchy:summary=Open a config file in the user's editor
+# omarchy:args=<path>
+
+set -euo pipefail
+
+path="${1-}"
+if [[ -z $path ]]; then
+  echo "Usage: omarchy-launch-config-editor <path>" >&2
+  exit 1
+fi
+
+command -v omarchy-notification-send >/dev/null 2>&1 &&
+  omarchy-notification-send -u low "Editing config file" "$path"
+
+if command -v omarchy-launch-editor >/dev/null 2>&1; then
+  exec omarchy-launch-editor "$path"
+fi
+
+if [[ -n ${VISUAL:-} ]]; then
+  # shellcheck disable=SC2086
+  exec $VISUAL "$path"
+fi
+if [[ -n ${EDITOR:-} ]]; then
+  # shellcheck disable=SC2086
+  exec $EDITOR "$path"
+fi
+if [[ -x /opt/sublime_text/sublime_text ]]; then
+  exec /opt/sublime_text/sublime_text "$path"
+fi
+if command -v xdg-open >/dev/null 2>&1; then
+  exec xdg-open "$path"
+fi
+
+echo "omarchy-launch-config-editor: no editor found" >&2
+exit 1

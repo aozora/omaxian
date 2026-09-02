@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.mode",
+  "name": "Binding mode",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "i3 binding-mode indicator (local)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "BindingMode.qml" },
+  "barWidget": { "displayName": "Binding mode", "category": "Local", "allowMultiple": false }
+}

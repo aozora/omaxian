@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.wallpapers",
+  "name": "Wallpapers",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Theme wallpaper picker (local)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "WallpaperButton.qml" },
+  "barWidget": { "displayName": "Wallpapers", "category": "Local", "allowMultiple": false }
+}

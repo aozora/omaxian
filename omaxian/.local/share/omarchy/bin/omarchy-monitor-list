@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# omarchy:summary=Print xrandr outputs, modes, and lid state as JSON
+# omarchy:group=monitor
+
+set -euo pipefail
+
+if ! omarchy-cmd-present xrandr jq; then
+  echo "xrandr and jq are required" >&2
+  exit 1
+fi
+
+query=$(xrandr --query)
+
+lid_present=false
+lid_closed=false
+for f in /proc/acpi/button/lid/LID*/state /sys/class/lid/LID*/state; do
+  [[ -r "$f" ]] || continue
+  lid_present=true
+  state=$(awk '{print $2}' "$f" 2>/dev/null)
+  [[ "$state" == "closed" ]] && lid_closed=true
+  break
+done
+
+outputs_json=$(awk '
+  function flush_output() {
+    if (name == "") return
+    modes_str = ""
+    for (i = 0; i < mode_count; i++) {
+      if (i > 0) modes_str = modes_str ","
+      modes_str = modes_str "\"" modes[i] "\""
+    }
+    printf "{\"name\":\"%s\",\"connected\":%s,\"primary\":%s,\"enabled\":%s,\"isLaptopPanel\":%s,\"currentMode\":%s,\"preferredMode\":%s,\"modes\":[%s],\"position\":{\"x\":%s,\"y\":%s}}\n", \
+      name, connected, primary, enabled, is_laptop, \
+      (current_mode == "" ? "null" : "\"" current_mode "\""), \
+      (preferred_mode == "" ? "null" : "\"" preferred_mode "\""), \
+      modes_str, pos_x, pos_y
+  }
+  /^[A-Za-z0-9_-]+ (connected|disconnected)/ {
+    flush_output()
+    name = $1
+    connected = ($2 == "connected") ? "true" : "false"
+    primary = ($0 ~ / primary( |$)/) ? "true" : "false"
+    enabled = "false"
+    current_mode = ""
+    preferred_mode = ""
+    pos_x = "null"; pos_y = "null"
+    mode_count = 0
+    is_laptop = (name ~ /^(eDP|LVDS|DSI)/) ? "true" : "false"
+    if (match($0, /[0-9]+x[0-9]+\+[0-9]+\+[0-9]+/)) {
+      geom = substr($0, RSTART, RLENGTH)
+      split(geom, parts, /[x+]/)
+      current_mode = parts[1] "x" parts[2]
+      pos_x = parts[3]; pos_y = parts[4]
+      enabled = "true"
+    }
+    next
+  }
+  /^[[:space:]]+[0-9]+x[0-9]+/ {
+    mode = $1
+    modes[mode_count++] = mode
+    if ($0 ~ /\*/) current_mode = mode
+    if ($0 ~ /\+/) preferred_mode = mode
+    next
+  }
+  END { flush_output() }
+' <<<"$query" | jq -s '.')
+
+jq -n --argjson outputs "$outputs_json" --argjson lidPresent "$lid_present" --argjson lidClosed "$lid_closed" \
+  '{outputs: $outputs, lidPresent: $lidPresent, lidClosed: $lidClosed}'

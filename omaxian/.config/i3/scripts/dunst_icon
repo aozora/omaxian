@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Resolve a dunst notification icon on Devuan/Debian (Archcraft paths are not available).
+
+name="${1##*/}"
+
+# Archcraft filename -> Papirus / freedesktop candidates
+case "$name" in
+	picture.png) candidates=(image-x-generic.svg image-x-generic.png) ;;
+	timer.png) candidates=(appointment-soon.svg appointment-soon-symbolic.svg) ;;
+	themes.png) candidates=(preferences-desktop-theme.svg preferences-desktop-theme-symbolic.svg) ;;
+	hourglass.png) candidates=(hourglass.svg appointment-soon.svg) ;;
+	palette.png) candidates=(applications-graphics.svg color-picker.svg) ;;
+	volume-mute.png) candidates=(audio-volume-muted.svg audio-volume-muted-symbolic.svg) ;;
+	volume-low.png) candidates=(audio-volume-low.svg audio-volume-low-symbolic.svg) ;;
+	volume-mid.png) candidates=(audio-volume-medium.svg audio-volume-medium-symbolic.svg) ;;
+	volume-high.png) candidates=(audio-volume-high.svg audio-volume-high-symbolic.svg) ;;
+	microphone.png) candidates=(microphone-sensitivity-high.svg audio-input-microphone.svg) ;;
+	microphone-mute.png) candidates=(microphone-sensitivity-muted.svg microphone-off.svg) ;;
+	brightness-20.png) candidates=(display-brightness-low.svg display-brightness-low-symbolic.svg) ;;
+	brightness-40.png) candidates=(display-brightness-low.svg) ;;
+	brightness-60.png) candidates=(display-brightness-medium.svg display-brightness-medium-symbolic.svg) ;;
+	brightness-80.png) candidates=(display-brightness-high.svg) ;;
+	brightness-100.png) candidates=(display-brightness-high.svg display-brightness-high-symbolic.svg) ;;
+	*) candidates=("$name") ;;
+esac
+
+search_dirs=(
+	"$HOME/.config/i3/icons/dunst"
+	"/usr/share/icons/Papirus/22x22/status"
+	"/usr/share/icons/Papirus/16x16/status"
+	"/usr/share/icons/Papirus/22x22/apps"
+	"/usr/share/icons/Adwaita/symbolic/status"
+)
+
+for dir in "${search_dirs[@]}"; do
+	[[ -d "$dir" ]] || continue
+	for c in "${candidates[@]}"; do
+		if [[ -f "$dir/$c" ]]; then
+			echo "$dir/$c"
+			exit 0
+		fi
+	done
+done
+
+# Optional local override with original Archcraft-style names
+if [[ -f "$HOME/.config/i3/icons/dunst/$name" ]]; then
+	echo "$HOME/.config/i3/icons/dunst/$name"
+	exit 0
+fi
+
+exit 1

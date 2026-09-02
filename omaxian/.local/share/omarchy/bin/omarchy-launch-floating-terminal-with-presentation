@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# omarchy:summary=Launch a floating terminal and run a command
+# omarchy:args=<command>
+#
+# X11/i3: upstream uses uwsm-app + xdg-terminal-exec + gum presentation.
+# Here: kitty-float via i3_term, then a keypress to dismiss.
+
+set -euo pipefail
+
+if (( $# < 1 )); then
+  echo "Usage: omarchy-launch-floating-terminal-with-presentation <command>" >&2
+  exit 1
+fi
+
+cmd="$*"
+term="${HOME}/.config/i3/scripts/i3_term"
+if [[ ! -x $term ]]; then
+  echo "omarchy-launch-floating-terminal-with-presentation: i3_term not found" >&2
+  exit 1
+fi
+
+exec "$term" --float -e bash -lc "$cmd; echo; read -n1 -s -r -p 'Done. Press any key to close.'"

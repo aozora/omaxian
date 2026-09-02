@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.dock",
+  "name": "Dock",
+  "version": "0.1.0",
+  "author": "omaxian",
+  "description": "Persistent bottom dock — pinned app launcher with a running-app indicator (local, MVP)",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": { "panel": "Panel.qml" }
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.monitor",
+  "name": "Monitor",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "xrandr resolution picker with autorandr-style output profiles",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Panel.qml" },
+  "barWidget": { "displayName": "Monitor", "category": "Local", "allowMultiple": false }
+}

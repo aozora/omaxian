@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+## Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
+##
+## Simple script to pick color quickly.
+## Devuan/Debian: gpick (xcolor is Arch-only).
+
+color=$(gpick -p -s -o --no-newline -c color_web_hex 2>/dev/null)
+safe_name=${color#\#}
+image=/tmp/${safe_name}.png
+
+main() {
+	if [[ -n "$color" ]]; then
+		printf '%s' "$color" | xclip -selection clipboard
+		convert -size 48x48 xc:"$color" "$image"
+		dunstify -u low -h string:x-dunst-stack-tag:obcolorpicker -i "$image" "$color, copied to clipboard."
+	fi
+}
+
+main

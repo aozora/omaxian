@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.bluetooth",
+  "name": "Bluetooth",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Local Bluetooth widget (interim, pre-Phase-5)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Bluetooth.qml" },
+  "barWidget": { "displayName": "Bluetooth", "category": "Local", "allowMultiple": false }
+}

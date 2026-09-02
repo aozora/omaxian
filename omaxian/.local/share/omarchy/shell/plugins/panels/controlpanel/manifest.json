@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.controlpanel",
+  "name": "Control Panel",
+  "version": "0.1.0",
+  "author": "omaxian",
+  "description": "Consolidated tabbed panel — audio, bluetooth, wallpaper, theme, monitor (local)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Panel.qml" },
+  "barWidget": {
+    "displayName": "Control Panel",
+    "description": "One bar icon for audio, bluetooth, wallpaper, theme, and monitor settings",
+    "category": "Local",
+    "allowMultiple": false
+  }
+}

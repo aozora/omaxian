@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# omarchy:summary=Set one output's mode/off/primary/position, then persist the result as its profile
+# omarchy:group=monitor
+# omarchy:args=<output> <mode>|--off [--primary] [--position <right-of|left-of|above|below>:<other>]
+
+set -euo pipefail
+
+if ! omarchy-cmd-present xrandr jq; then
+  echo "xrandr and jq are required" >&2
+  exit 1
+fi
+
+usage() {
+  echo "Usage: omarchy-monitor-set <output> <mode>|--off [--primary] [--position <right-of|left-of|above|below>:<other>]" >&2
+  exit 1
+}
+
+output="${1:-}"
+mode_arg="${2:-}"
+[[ -z $output || -z $mode_arg ]] && usage
+shift 2
+
+primary=false
+position_type=""
+position_of=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --primary)
+      primary=true
+      shift
+      ;;
+    --position)
+      [[ -z "${2:-}" ]] && usage
+      position_type="${2%%:*}"
+      position_of="${2#*:}"
+      case "$position_type" in
+        right-of | left-of | above | below) ;;
+        *) usage ;;
+      esac
+      [[ -z $position_of || $position_of == "$position_type" ]] && usage
+      shift 2
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+cmd=(xrandr --output "$output")
+if [[ $mode_arg == "--off" ]]; then
+  cmd+=(--off)
+else
+  cmd+=(--mode "$mode_arg")
+fi
+[[ -n $position_type ]] && cmd+=(--"$position_type" "$position_of")
+[[ $primary == "true" ]] && cmd+=(--primary)
+
+"${cmd[@]}"
+
+omarchy-monitor-apply --snapshot
+
+omarchy-monitor-list

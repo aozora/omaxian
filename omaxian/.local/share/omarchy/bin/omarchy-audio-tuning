@@ -1,0 +1,6 @@
+#!/bin/bash
+# omarchy:summary=Speaker-tuning DSP chain (PipeWire filter-chain) — not supported on this PulseAudio/X11 port.
+# Stub: the audio panel and switch scripts call `fronted-sink` to skip a
+# tuning's virtual sink; with no tuning there is nothing to skip, so every
+# subcommand prints nothing and succeeds.
+exit 0

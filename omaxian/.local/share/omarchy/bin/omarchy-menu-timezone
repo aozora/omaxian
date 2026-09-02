@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# omarchy:summary=Select and set the system timezone
+# omarchy:group=menu
+# omarchy:name=timezone
+#
+# Devuan/elogind: no timedatectl. List zoneinfo and write /etc/timezone +
+# /etc/localtime via pkexec/sudo.
+
+set -euo pipefail
+
+list_timezones() {
+  if command -v timedatectl >/dev/null 2>&1; then
+    timedatectl list-timezones
+    return
+  fi
+  find /usr/share/zoneinfo -type f ! -name '*.tab' ! -name '*.list' \
+    ! -name 'leapseconds' ! -name 'tzdata.zi' ! -name 'posixrules' \
+    | sed 's|^/usr/share/zoneinfo/||' \
+    | grep -Ev '^(posix|right)/' \
+    | sort
+}
+
+timezone=$(list_timezones | omarchy-menu-select "Set timezone" -- --width 520 --maxheight 520) || exit 1
+[[ -n $timezone ]] || exit 1
+
+zone="/usr/share/zoneinfo/$timezone"
+[[ -f $zone ]] || { echo "omarchy-menu-timezone: unknown timezone $timezone" >&2; exit 1; }
+
+as_root() {
+  if (( EUID == 0 )); then
+    "$@"
+  elif command -v pkexec >/dev/null 2>&1; then
+    pkexec "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+as_root ln -sf "$zone" /etc/localtime
+printf '%s\n' "$timezone" | as_root tee /etc/timezone >/dev/null
+
+omarchy-shell -q omarchy.clock refresh || true
+omarchy-notification-send "Timezone is now set to $timezone"

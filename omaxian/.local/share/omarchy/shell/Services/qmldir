@@ -1,0 +1,4 @@
+module qs.Services
+singleton Audio 1.0 Audio.qml
+singleton BarPalette 1.0 BarPalette.qml
+singleton I3Windows 1.0 I3Windows.qml

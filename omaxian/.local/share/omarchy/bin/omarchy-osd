@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# omarchy:summary=Show the Omarchy on-screen display (X11 port shim).
+# omarchy:args=[-i <icon-name>] [-p <0-100>] [-m <message>]
+#
+# Upstream omarchy-osd drives the Hyprland-era OSD. Here it forwards to the
+# Quickshell plugins/osd IPC with the same payload shape i3_volume /
+# i3_brightness use ({icon,value,message}); `icon` is a name the OSD maps
+# (volume / volume-{low,medium,high,muted} / microphone / microphone-muted).
+
+icon="" value="" message=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -i | --icon)    icon="${2:-}"; shift 2 ;;
+    -p | --percent) value="${2:-}"; shift 2 ;;
+    -m | --message) message="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+payload=$(jq -cn --arg i "$icon" --arg v "$value" --arg m "$message" \
+  '{icon:$i, value:$v, message:$m}')
+
+if command -v omarchy-shell >/dev/null 2>&1 &&
+   omarchy-shell osd show "$payload" >/dev/null 2>&1; then
+  exit 0
+fi
+
+command -v dunstify >/dev/null 2>&1 &&
+  dunstify -u low -h string:x-dunst-stack-tag:omarchy-osd "${message:-${value:-}%}"

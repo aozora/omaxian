@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+
+## Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
+## Volume control for PulseAudio/PipeWire via pactl (Devuan/Debian).
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+notify_cmd=(dunstify -u low -h string:x-dunst-stack-tag:obvolume)
+
+icon_path() {
+	"$SCRIPT_DIR/dunst_icon" "$1" 2>/dev/null || true
+}
+
+# Phase 4: show the Quickshell OSD (plugins/osd). $1 = icon name
+# (volume / volume-low / volume-medium / volume-high / volume-muted /
+# microphone / microphone-muted), $2 = 0-100 value (empty for a text-only
+# OSD), $3 = optional message (a non-empty message shows text, not the bar).
+# Falls back to dunstify when omarchy-shell isn't on PATH / the host is down.
+osd_show() {
+	local ic="$1" val="${2:-}" msg="${3:-}"
+	if command -v omarchy-shell >/dev/null 2>&1 &&
+		omarchy-shell osd show "{\"icon\":\"$ic\",\"value\":\"$val\",\"message\":\"$msg\"}" >/dev/null 2>&1; then
+		return 0
+	fi
+	local args=("${notify_cmd[@]}")
+	local png; png="$(icon_path "${ic}.png")"
+	[[ -n "$png" ]] && args+=(-i "$png")
+	"${args[@]}" "${msg:-Volume : ${val}%}"
+}
+
+get_volume() {
+	if command -v pactl >/dev/null 2>&1; then
+		pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null | grep -oE '[0-9]+%' | head -1 | tr -d '%'
+	elif command -v pamixer >/dev/null 2>&1; then
+		pamixer --get-volume 2>/dev/null
+	else
+		echo 0
+	fi
+}
+
+is_muted() {
+	if command -v pactl >/dev/null 2>&1; then
+		[[ "$(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null)" == *yes* ]]
+	elif command -v pamixer >/dev/null 2>&1; then
+		pamixer --get-mute 2>/dev/null | grep -q true
+	else
+		return 1
+	fi
+}
+
+get_icon() {
+	current="$(get_volume)"
+	if is_muted || [[ "${current:-0}" -eq 0 ]]; then
+		icon="$(icon_path volume-mute.png)"
+	elif [[ "$current" -le 30 ]]; then
+		icon="$(icon_path volume-low.png)"
+	elif [[ "$current" -le 60 ]]; then
+		icon="$(icon_path volume-mid.png)"
+	else
+		icon="$(icon_path volume-high.png)"
+	fi
+}
+
+notify_user() {
+	local v name
+	v="$(get_volume)"
+	if is_muted || [[ "${v:-0}" -eq 0 ]]; then name="volume-muted"
+	elif [[ "$v" -le 30 ]]; then name="volume-low"
+	elif [[ "$v" -le 60 ]]; then name="volume-medium"
+	else name="volume-high"; fi
+	osd_show "$name" "$v"
+}
+
+volume_backend() {
+	command -v pactl >/dev/null 2>&1 || command -v pamixer >/dev/null 2>&1
+}
+
+mpd_is_playing() {
+	command -v mpc >/dev/null 2>&1 || return 1
+	mpc status 2>/dev/null | grep -qE '^\[playing\]'
+}
+
+# MPD software volume is separate from @DEFAULT_SINK@; keep them in sync while playing.
+mpd_volume_sync() {
+	local delta="$1"
+	mpd_is_playing || return 0
+	mpc volume "${delta}" >/dev/null 2>&1
+}
+
+inc_volume() {
+	if command -v pactl >/dev/null 2>&1; then
+		is_muted && pactl set-sink-mute @DEFAULT_SINK@ 0
+		pactl set-sink-volume @DEFAULT_SINK@ +5%
+	elif command -v pamixer >/dev/null 2>&1; then
+		pamixer -u 2>/dev/null
+		pamixer -i 5 --allow-boost 2>/dev/null
+	fi
+	mpd_volume_sync +5
+	notify_user
+}
+
+dec_volume() {
+	if command -v pactl >/dev/null 2>&1; then
+		is_muted && pactl set-sink-mute @DEFAULT_SINK@ 0
+		pactl set-sink-volume @DEFAULT_SINK@ -5%
+	elif command -v pamixer >/dev/null 2>&1; then
+		pamixer -u 2>/dev/null
+		pamixer -d 5 2>/dev/null
+	fi
+	mpd_volume_sync -5
+	notify_user
+}
+
+toggle_mute() {
+	if command -v pactl >/dev/null 2>&1; then
+		pactl set-sink-mute @DEFAULT_SINK@ toggle
+	elif command -v pamixer >/dev/null 2>&1; then
+		pamixer -t 2>/dev/null
+	fi
+	if is_muted; then
+		osd_show "volume-muted" "0" "Muted"
+	else
+		notify_user
+	fi
+}
+
+toggle_mic() {
+	local muted=""
+	if command -v pactl >/dev/null 2>&1; then
+		pactl set-source-mute @DEFAULT_SOURCE@ toggle
+		pactl get-source-mute @DEFAULT_SOURCE@ 2>/dev/null | grep -q yes && muted=1
+	elif command -v pamixer >/dev/null 2>&1; then
+		pamixer --default-source -t 2>/dev/null
+		pamixer --default-source --get-mute 2>/dev/null | grep -q true && muted=1
+	else
+		return 1
+	fi
+	if [[ -n "$muted" ]]; then
+		osd_show "microphone-muted" "" "Microphone off"
+	else
+		osd_show "microphone" "" "Microphone on"
+	fi
+}
+
+if volume_backend; then
+	case "$1" in
+		--get) get_volume ;;
+		--inc) inc_volume ;;
+		--dec) dec_volume ;;
+		--toggle) toggle_mute ;;
+		--toggle-mic) toggle_mic ;;
+		*) echo "$(get_volume)%" ;;
+	esac
+else
+	dunstify -u low "'pactl' or 'pamixer' is not installed."
+fi

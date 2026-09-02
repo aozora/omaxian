@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+## Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
+
+# i3 directory
+DIR="$HOME/.config/i3"
+
+# xfce4-power-manager (and anything else) can D-Bus-activate xfce4-notifyd or
+# lxqt-notificationd into org.freedesktop.Notifications; either one blocks
+# dunst from that name and then `dunstctl` fails ("No such interface
+# org.dunstproject.cmd0"). Kill any impostor, then (re)start dunst. The
+# ~/.local/share/dbus-1/services override makes dunst the activatable daemon
+# so a later respawn also picks dunst, but starting it here avoids the race.
+pkill -f 'xfce4/notifyd/xfce4-notifyd' 2>/dev/null && sleep 0.2
+pkill -f 'lxqt-notificationd' 2>/dev/null && sleep 0.2
+pkill -x dunst 2>/dev/null && sleep 0.1
+
+setsid dunst -config "$DIR"/dunstrc &
+disown

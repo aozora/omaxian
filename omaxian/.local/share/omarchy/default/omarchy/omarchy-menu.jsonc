@@ -1,0 +1,81 @@
+{
+  // Omaxian port of Omarchy v4.0.2 omarchy-menu.jsonc.
+  // Install/Remove trees and Hyprland/Arch/unported-plugin leaves are omitted
+  // (empty submenus hide themselves). Actions are rewired to i3/elogind/X11.
+
+  // Root
+  "apps": {"icon": "󰀻", "label": "Apps", "aliases": ["app", "applications"], "provider": "apps"},
+  "learn": {"icon": "󰧑", "label": "Learn"},
+  "trigger": {"icon": "󱓞", "label": "Trigger"},
+  "style": {"icon": "", "label": "Style"},
+  "setup": {"icon": "", "label": "Setup", "aliases": ["settings"]},
+  "update": {"icon": "", "label": "Update", "aliases": ["restart", "refresh"]},
+  "about": {"icon": "", "label": "About", "action": "omarchy-launch-webapp 'https://omaxian.org'"},
+  "system": {"icon": "", "label": "System", "aliases": ["power-menu"]},
+
+  // System
+  "system.lock": {"icon": "", "label": "Lock", "action": "omarchy-system-lock"},
+  "system.suspend": {"icon": "󰒲", "label": "Suspend", "when": "! omarchy-toggle-enabled suspend-off", "action": "loginctl suspend"},
+  "system.hibernate": {"icon": "󰤁", "label": "Hibernate", "when": "grep -q disk /sys/power/state 2>/dev/null", "action": "loginctl hibernate"},
+  "system.logout": {"icon": "󰍃", "label": "Logout", "action": "omarchy-system-logout"},
+  "system.reboot": {"icon": "󰜉", "label": "Reboot", "action": "omarchy-system-reboot"},
+  "system.shutdown": {"icon": "󰐥", "label": "Shutdown", "action": "omarchy-system-shutdown"},
+
+  // Learn
+  "learn.keybindings": {"icon": "", "label": "Keybindings", "action": "omarchy-menu-keybindings"},
+  "learn.omarchy": {"icon": "", "label": "Omarchy", "action": "omarchy-launch-webapp 'https://omarchy.org/manual/'"},
+  "learn.neovim": {"icon": "", "label": "Neovim", "action": "omarchy-launch-webapp 'https://www.lazyvim.org/keymaps'"},
+  "learn.bash": {"icon": "󱆃", "label": "Bash", "action": "omarchy-launch-webapp 'https://devhints.io/bash'"},
+
+  // Trigger
+  "trigger.reminder": {"icon": "󰢌", "label": "Reminder", "aliases": ["reminder"]},
+  "trigger.reminder.set": {"icon": "󰢌", "label": "Set one", "aliases": ["reminder-set", "remind"], "action": "omarchy-reminder -i"},
+  "trigger.reminder.show": {"icon": "󰢌", "label": "Show all", "action": "omarchy-reminder show"},
+  "trigger.reminder.clear": {"icon": "󰢌", "label": "Clear all", "action": "omarchy-reminder clear"},
+  "trigger.capture": {"icon": "", "label": "Capture", "aliases": ["capture", "screenshot"]},
+  "trigger.capture.screenshot": {"icon": "", "label": "Screenshot", "action": "$HOME/.config/i3/scripts/i3_screenshot --area"},
+  "trigger.capture.color": {"icon": "󰃉", "label": "Color", "action": "$HOME/.config/i3/scripts/i3_colorpicker"},
+  "trigger.toggle": {"icon": "󰔎", "label": "Toggle", "aliases": ["toggle", "toggles"]},
+  "trigger.toggle.idle-lock": {"icon": "󰅶", "label": "Stay Awake", "action": "omarchy-toggle-idle"},
+  "trigger.toggle.notifications": {"icon": "󰂛", "label": "Notifications", "action": "omarchy-toggle-notification-silencing"},
+  "trigger.toggle.nightlight": {"icon": "󰔎", "label": "Nightlight", "action": "omarchy-toggle-nightlight"},
+  "trigger.toggle.top-bar": {"icon": "󰍜", "label": "Menu Bar", "action": "omarchy-toggle-bar"},
+  "trigger.toggle.battery-percentage": {"icon": "󰁹", "label": "Battery Percentage", "when": "omarchy-battery-present", "action": "omarchy-shell omarchy.power togglePercentage"},
+  "trigger.tests": {"icon": "󰓅", "label": "Speed Test"},
+  "trigger.tests.network-speedtest": {"icon": "󰓅", "label": "Network Speed Test", "action": "omarchy-shell shell summon omarchy.speedtest"},
+  "trigger.tests.disk-speedtest": {"icon": "󰋊", "label": "Disk Speed Test", "action": "omarchy-shell shell summon omarchy.disk-speedtest"},
+
+  // Style — open Control Panel tabs (theme/wallpapers bar widgets are off the
+  // default layout; their IPC targets are re-exported by omaxian.controlpanel).
+  "style.theme": {"icon": "󰸌", "label": "Theme", "aliases": ["theme", "themes"], "action": "omarchy-shell -q omaxian.controlpanel showTab theme"},
+  "style.background": {"icon": "", "label": "Background", "aliases": ["background", "wallpaper"], "action": "omarchy-shell -q omaxian.controlpanel showTab wallpaper"},
+
+  // Setup
+  "setup.settings": {"icon": "", "label": "Settings", "aliases": ["preferences", "config"], "action": "omarchy-shell shell toggle omaxian.settings"},
+  "setup.monitors": {"icon": "󰍹", "label": "Monitors", "action": "omarchy-shell shell toggle omaxian.monitor"},
+  "setup.keybindings": {"icon": "", "label": "Keybindings", "when": "[[ -f ~/.config/i3/config.d/02_keybindings.conf ]]", "action": "omarchy-launch-config-editor \"$HOME/.config/i3/config.d/02_keybindings.conf\""},
+  "setup.network": {"icon": "󰛳", "label": "Network", "aliases": ["network"]},
+  "setup.network.dns": {"icon": "󰇖", "label": "DNS", "aliases": ["dns"]},
+  "setup.network.dns.dhcp": {"icon": "󰩟", "label": "DHCP", "checked": "[[ \"$(omarchy-dns)\" == \"DHCP\" ]]", "action": "omarchy-dns DHCP"},
+  "setup.network.dns.cloudflare": {"icon": "󰅟", "label": "Cloudflare", "checked": "[[ \"$(omarchy-dns)\" == \"Cloudflare\" ]]", "action": "omarchy-dns Cloudflare"},
+  "setup.network.dns.google": {"icon": "󰊭", "label": "Google", "checked": "[[ \"$(omarchy-dns)\" == \"Google\" ]]", "action": "omarchy-dns Google"},
+  "setup.network.dns.custom": {"icon": "", "label": "Custom", "checked": "[[ \"$(omarchy-dns)\" == \"Custom\" ]]", "action": "omarchy-launch-floating-terminal-with-presentation 'omarchy-dns Custom'"},
+  "setup.network.qr": {"icon": "󰐲", "label": "QR Code", "aliases": ["wifi-qr"], "when": "[[ $(omarchy-network-status) == wifi* ]]", "action": "omarchy-shell shell summon omarchy.wifiqr"},
+  "setup.plugin": {"icon": "󰐱", "label": "Plugins", "aliases": ["plugin", "plugins"]},
+  "setup.plugin.enable": {"icon": "󰄬", "label": "Enable Plugin", "action": "omarchy-menu-plugin enable"},
+  "setup.plugin.disable": {"icon": "󰅖", "label": "Disable Plugin", "action": "omarchy-menu-plugin disable"},
+  "setup.plugin.add": {"icon": "󰖟", "label": "Add Plugin", "action": "omarchy-launch-floating-terminal-with-presentation 'omarchy-plugin-add'"},
+  "setup.plugin.clone": {"icon": "󰆏", "label": "Clone Plugin", "action": "omarchy-menu-plugin clone"},
+  "setup.plugin.remove": {"icon": "󰭌", "label": "Remove Plugin", "when": "compgen -G \"$HOME/.config/omarchy/plugins/*/manifest.json\"", "action": "omarchy-menu-plugin remove"},
+  "setup.config": {"icon": "", "label": "Config"},
+  "setup.config.xcompose": {"icon": "󰞅", "label": "XCompose", "action": "omarchy-launch-config-editor ~/.XCompose"},
+
+  // Update — restart-shell self-detaches before killing QS (see bin/).
+  "update.process": {"icon": "", "label": "Process", "title": "Restart"},
+  "update.process.shell": {"icon": "󰍜", "label": "Shell", "action": "omarchy-restart-shell"},
+  "update.hardware": {"icon": "󰇅", "label": "Hardware", "title": "Restart"},
+  "update.hardware.audio": {"icon": "", "label": "Audio", "action": "omarchy-launch-floating-terminal-with-presentation omarchy-restart-audio"},
+  "update.timezone": {"icon": "", "label": "Timezone", "action": "omarchy-menu-timezone"},
+  "update.password": {"icon": "", "label": "Password"},
+  "update.password.user": {"icon": "", "label": "User", "action": "omarchy-launch-floating-terminal-with-presentation passwd"}
+}

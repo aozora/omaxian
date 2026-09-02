@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+
+## Screen lock for i3 / Devuan (elogind). Prefer a real locker; loginctl alone
+## often no-ops unless xss-lock or a screensaver is registered.
+
+notify_fail() {
+	command -v dunstify >/dev/null 2>&1 \
+		&& dunstify -u normal "Screen lock failed" \
+			"Install i3lock-fancy (and i3lock) or start xfce4-screensaver."
+}
+
+detect_wm() {
+	if pgrep -x i3 >/dev/null 2>&1; then
+		echo i3
+	elif [[ "${XDG_CURRENT_DESKTOP:-}" == *[Xx][Ff][Cc][Ee]* ]] \
+		|| [[ "${DESKTOP_SESSION:-}" == *[Xx][Ff][Cc][Ee]* ]] \
+		|| pgrep -x xfce4-session >/dev/null 2>&1; then
+		echo xfce
+	else
+		echo generic
+	fi
+}
+
+try_xfce_screensaver() {
+	command -v xfce4-screensaver-command >/dev/null 2>&1 \
+		|| return 1
+	xfce4-screensaver-command -l 2>/dev/null
+}
+
+try_i3lock_fancy() {
+	if command -v i3lock-fancy >/dev/null 2>&1; then
+		if command -v maim >/dev/null 2>&1; then
+			exec i3lock-fancy -- maim
+		fi
+		exec i3lock-fancy
+	fi
+	command -v i3lock >/dev/null 2>&1 || return 1
+	exec i3lock -e -f -c 1e1e2e
+}
+
+try_slock() {
+	command -v slock >/dev/null 2>&1 || return 1
+	exec slock
+}
+
+try_loginctl() {
+	command -v loginctl >/dev/null 2>&1 || return 1
+	# Only useful when xss-lock / screensaver registered a session lock handler
+	loginctl lock-session 2>/dev/null
+}
+
+case "$(detect_wm)" in
+	xfce)
+		command -v xflock4 >/dev/null 2>&1 && exec xflock4
+		;;
+esac
+
+try_xfce_screensaver && exit 0
+try_i3lock_fancy
+try_slock
+try_loginctl && exit 0
+
+notify_fail
+exit 1

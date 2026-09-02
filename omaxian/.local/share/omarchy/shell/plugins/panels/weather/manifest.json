@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy.weather",
+  "name": "Weather",
+  "version": "1.0.0",
+  "author": "Omarchy",
+  "description": "Weather pill with detail popup",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Weather",
+    "description": "Weather pill with detail popup",
+    "category": "Info",
+    "allowMultiple": false,
+    "settingsForm": "weatherSettings",
+    "schema": [
+      {
+        "key": "unit",
+        "type": "select",
+        "label": "Temperature unit",
+        "description": "Empty follows the locale / country. Location is set from the weather popup.",
+        "defaultValue": "",
+        "options": [
+          { "value": "", "label": "Auto" },
+          { "value": "metric", "label": "Metric (°C)" },
+          { "value": "imperial", "label": "Imperial (°F)" }
+        ]
+      },
+      {
+        "key": "refreshMinutes",
+        "type": "integer",
+        "label": "Refresh interval (minutes)",
+        "defaultValue": 15,
+        "from": 1,
+        "to": 120
+      }
+    ]
+  }
+}

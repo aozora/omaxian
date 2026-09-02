@@ -1,0 +1,168 @@
+#!/bin/bash
+
+# omarchy:summary=Launch the Omarchy Quickshell host, supervised, with a log
+# omarchy:hidden=true
+#
+# Devuan/X11 port of upstream omarchy-quattro/bin/omarchy-launch-shell.
+# Supervises quickshell (relaunch budget + log). Quickshell's file-watch
+# reload stays off; omarchy-restart-shell is the deliberate restart path.
+
+export OMARCHY_PATH="${OMARCHY_PATH:-$HOME/.local/share/omarchy}"
+case ":$PATH:" in
+	*":$OMARCHY_PATH/bin:"*) ;;
+	*) export PATH="$OMARCHY_PATH/bin:$PATH" ;;
+esac
+CONFIG_DIR="$OMARCHY_PATH/shell"
+LOG="$HOME/.local/state/omarchy/shell.log"
+
+[[ -f $CONFIG_DIR/shell.qml ]] || { echo "omarchy shell config not found: $CONFIG_DIR" >&2; exit 1; }
+
+# Never start under XFCE / GNOME / … — only a live i3 session hosts the shell.
+# Check before touching state dirs so a DE session stays clean.
+if ! omarchy-session-is-i3; then
+	echo "omarchy-launch-shell: refusing to start outside an i3 session (XDG=${XDG_CURRENT_DESKTOP:-?} session=${DESKTOP_SESSION:-?})" >&2
+	exit 0
+fi
+
+mkdir -p "$(dirname "$LOG")"
+
+# Quickshell.I3 needs a live socket path in the environment. i3_bar / i3_autostart
+# deliberately unset a possibly-stale I3SOCK so `i3-msg` falls back to the X
+# property — but that leaves Quickshell unable to connect ("Cannot connect to
+# socket" → invalid QML context → no bar/dock). Re-resolve the live path here.
+resolve_i3sock() {
+	local sock
+	sock="$(i3 --get-socketpath 2>/dev/null || true)"
+	if [[ -n $sock && -S $sock ]]; then
+		export I3SOCK="$sock"
+		return 0
+	fi
+	local dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/i3"
+	# shellcheck disable=SC2231
+	for sock in "$dir"/ipc-socket.*; do
+		[[ -S $sock ]] || continue
+		export I3SOCK="$sock"
+		return 0
+	done
+	return 1
+}
+if ! resolve_i3sock; then
+	echo "omarchy-launch-shell: warning: could not resolve I3SOCK — bar may fail" >&2
+fi
+
+# Single-instance via flock. Restart uses flock -u / fuser -k on this file
+# before relaunching so we never sit behind a dead holder for 10s and then
+# exit "healthy" while the UI is gone.
+LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/omarchy-$UID"
+LOCK_FILE="$LOCK_DIR/launch-shell.lock"
+mkdir -p "$LOCK_DIR"
+exec 8>"$LOCK_FILE"
+if ! flock -n 8; then
+	# Another copy holds the lock. If it is actually serving IPC, stay out.
+	if timeout 2 omarchy-shell -q shell ping >/dev/null 2>&1; then
+		echo "omarchy-launch-shell: already running (lock held, shell ping ok) — exiting" >&2
+		exit 0
+	fi
+	# Lock held but shell dead/stuck — try to wait briefly, then fail loudly
+	# (restart-shell is responsible for killing the holder).
+	echo "omarchy-launch-shell: lock held but shell not pinging — waiting 3s" >&2
+	if flock -w 3 8; then
+		:
+	else
+		echo "omarchy-launch-shell: still locked — giving up (run omarchy-restart-shell)" >&2
+		exit 1
+	fi
+fi
+echo "$$" >"$LOCK_DIR/launch-shell.pid"
+echo "omarchy-launch-shell: starting pid=$$ I3SOCK=${I3SOCK:-<unset>} OMARCHY_PATH=$OMARCHY_PATH" >&2
+
+# Repair a stale DBUS_SESSION_BUS_ADDRESS before launching. It gets inherited
+# across an `i3 restart` or from a detached subshell and can point at a
+# dbus-daemon socket from a previous login; quickshell then hands that dead
+# address to every app it launches, so GUI apps (thunar, xfce-*, anything
+# DBusActivatable) start and immediately exit ("Could not connect: No such
+# file or directory"). Point it back at the live session bus.
+dbus_sock() { local a=${DBUS_SESSION_BUS_ADDRESS#unix:path=}; printf '%s' "${a%%,*}"; }
+if [[ ${DBUS_SESSION_BUS_ADDRESS:-} != unix:path=* || ! -S $(dbus_sock) ]]; then
+	unset DBUS_SESSION_BUS_ADDRESS
+	if [[ -S ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus ]]; then
+		export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus"
+	else
+		_mid=$(cat /var/lib/dbus/machine-id /etc/machine-id 2>/dev/null | head -n1)
+		_dnum=${DISPLAY##*:}; _dnum=${_dnum%%.*}
+		_bus_file="$HOME/.dbus/session-bus/${_mid}-${_dnum:-0}"
+		if [[ -r $_bus_file ]]; then
+			# shellcheck disable=SC1090
+			. "$_bus_file"
+			[[ ${DBUS_SESSION_BUS_ADDRESS:-} == unix:path=* && -S $(dbus_sock) ]] \
+				&& export DBUS_SESSION_BUS_ADDRESS || unset DBUS_SESSION_BUS_ADDRESS
+		fi
+	fi
+	unset _mid _dnum _bus_file
+fi
+
+run_shell() {
+	# Re-resolve in case i3 restarted under us and the socket path changed.
+	resolve_i3sock || true
+	QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
+		quickshell -n -p "$CONFIG_DIR" >>"$LOG" 2>&1 &
+	shell_pid=$!
+
+	local status
+	while true; do
+		wait "$shell_pid"
+		status=$?
+		kill -0 "$shell_pid" 2>/dev/null || break
+	done
+
+	shell_pid=""
+	return $status
+}
+
+compositor_alive() {
+	local attempt
+	for attempt in 1 2 3; do
+		i3-msg -t get_version >/dev/null 2>&1 && return 0
+		(( attempt < 3 )) && sleep 0.5
+	done
+	return 1
+}
+
+terminating=0
+shell_pid=""
+
+stop() {
+	terminating=1
+	[[ -n $shell_pid ]] && kill -TERM "$shell_pid" 2>/dev/null
+	return 0
+}
+trap stop HUP INT TERM
+
+attempts=0
+window_started=$SECONDS
+
+while true; do
+	(( terminating )) && exit 0
+
+	run_shell
+	status=$?
+
+	(( terminating )) && exit 0
+	(( status == 0 )) && exit 0
+
+	compositor_alive || exit 0
+
+	if (( SECONDS - window_started > 60 )); then
+		attempts=0
+		window_started=$SECONDS
+	fi
+
+	if (( ++attempts > 5 )); then
+		logger -t omarchy-shell "Giving up on the Omarchy shell after $attempts relaunches in under a minute." 2>/dev/null
+		echo "omarchy-launch-shell: giving up after $attempts relaunches in <60s" >&2
+		exit 1
+	fi
+
+	logger -t omarchy-shell "Omarchy shell exited with status $status; relaunching." 2>/dev/null
+	sleep 1
+done

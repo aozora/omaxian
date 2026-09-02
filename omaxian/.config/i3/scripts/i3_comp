@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+## Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
+
+# i3 directory
+DIR="$HOME/.config/i3"
+
+# Terminate if picom is already running
+killall -q picom
+
+# Wait until the processes have been shut down
+while pgrep -u $UID -x picom >/dev/null; do sleep 1; done
+
+# picom's glx backend + software OpenGL fails to damage-redraw (invisible bar
+# until workspace switch; menus freeze; popups show borders only). That is
+# llvmpipe/softpipe/swrast — not VirGL/Venus guest 3D, which keeps glx.
+# Override anytime with PICOM_BACKEND=xrender|glx.
+picom_backend="${PICOM_BACKEND:-}"
+if [[ -z $picom_backend ]]; then
+	renderer="$(glxinfo -B 2>/dev/null | awk -F': ' '/OpenGL renderer string/{print tolower($2); exit}')"
+	case $renderer in
+		*llvmpipe*|*softpipe*|*swrast*)
+			picom_backend=xrender
+			;;
+	esac
+fi
+
+# Launch picom
+if [[ -n $picom_backend ]]; then
+	picom --config "$DIR"/picom.conf --backend "$picom_backend" &
+else
+	picom --config "$DIR"/picom.conf &
+fi

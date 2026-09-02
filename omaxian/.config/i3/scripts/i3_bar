@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+## Launch the Quickshell "omarchy-shell" host. The QS plugin-host bar
+## (plugins/bar) is the visible bar. polybar was retired in Phase 8 and its
+## config removed. The invisible LocalHost Bar/ popup host was retired
+## 2026-08-31 (all widgets are now plugins/bar/widgets/).
+## See docs/omarchy-port/phase-8.md.
+
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
+case ":$PATH:" in *":$OMARCHY_PATH/bin:"*) ;; *) export PATH="$OMARCHY_PATH/bin:$PATH" ;; esac
+
+# Omaxian shell is i3-only — never launch under XFCE or another DE.
+if ! omarchy-session-is-i3 2>/dev/null; then
+	echo "i3_bar: not an i3 session — skipping omarchy-launch-shell" >&2
+	exit 0
+fi
+
+# i3 keeps its startup I3SOCK in /proc/environ even across an in-place restart,
+# so it can point at a dead socket (ipc-socket.<old-pid>). The QS shell tree
+# would inherit that and every `i3-msg` call (workspace click, logout, …) would
+# fail. Drop it here — `i3-msg` then uses the live I3_SOCKET_PATH X property.
+unset I3SOCK
+
+# --- Quickshell host (omarchy-shell plugin host) ---------------------------
+# omarchy-launch-shell supervises quickshell (relaunch budget + log to
+# ~/.local/state/omarchy/shell.log); it does not daemonize, so background it.
+# QS_WIDGETS_ONLY=1 keeps the local Bar/ popup host at 1px — the visible bar
+# is plugins/bar, which ignores this env var.
+#
+# Launch-shell re-resolves a live I3SOCK via `i3 --get-socketpath` before
+# starting Quickshell (Quickshell.I3 cannot use the X-property fallback that
+# i3-msg uses after we unset a stale I3SOCK above).
+export QS_WIDGETS_ONLY=1
+# Let Qt (and Quickshell's QIcon::fromTheme, used by the launcher + tray) pick
+# up the session icon theme. libqgtk3 reads the running xsettings
+# (Net/IconThemeName = Papirus-Dark), so no gtk settings.ini entry is needed.
+export QT_QPA_PLATFORMTHEME=gtk3
+
+# Make sure the Flatpak app export dirs are on XDG_DATA_DIRS so Quickshell's
+# DesktopEntries scan (and thus the launcher) sees Flatpak apps, even if
+# omarchy-restart-shell ran from a context that didn't source
+# /etc/profile.d/flatpak.sh.
+for _fp in "$HOME/.local/share/flatpak/exports/share" /var/lib/flatpak/exports/share; do
+	case ":${XDG_DATA_DIRS:-}:" in
+		*":$_fp:"*) ;;
+		*) export XDG_DATA_DIRS="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}:$_fp" ;;
+	esac
+done
+unset _fp
+if command -v omarchy-launch-shell >/dev/null 2>&1; then
+	# Already up if supervisor or qs is live. Match the same pattern
+	# omarchy-restart-shell uses (no -x; Linux truncates comm to 15 chars).
+	if pgrep -f 'omarchy-launch-shell' >/dev/null \
+		|| pgrep -f "quickshell .*-p ${OMARCHY_PATH}/shell" >/dev/null; then
+		:
+	else
+		setsid nohup omarchy-launch-shell >>"${HOME}/.local/state/omarchy/shell.log" 2>&1 &
+	fi
+else
+	echo "i3_bar: omarchy-launch-shell not on PATH" >&2
+fi

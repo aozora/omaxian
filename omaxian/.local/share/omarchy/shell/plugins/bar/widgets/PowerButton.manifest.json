@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.powermenu",
+  "name": "Power menu",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Session power menu — lock/logout/suspend/reboot/shutdown (local)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "PowerButton.qml" },
+  "barWidget": { "displayName": "Power menu", "category": "Local", "allowMultiple": false }
+}

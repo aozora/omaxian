@@ -1,0 +1,7 @@
+[D-BUS Service]
+# User-dir override: make dunst the ONE activatable freedesktop notification
+# daemon. Without this, xfce4-notifyd (started on demand by xfce4-power-manager)
+# or lxqt-notificationd can win `org.freedesktop.Notifications` first, and then
+# `dunstctl` fails with "No such interface org.dunstproject.cmd0".
+Name=org.freedesktop.Notifications
+Exec=/usr/bin/dunst -config /home/marcello/.config/dunst/dunstrc

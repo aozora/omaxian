@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# omarchy:summary=Log out of the i3 session
+# omarchy:examples=omarchy system logout
+
+set -euo pipefail
+
+command -v omarchy-osd >/dev/null 2>&1 &&
+  omarchy-osd -i logout -m "Logging out" >/dev/null 2>&1 || true
+
+if command -v i3-msg >/dev/null 2>&1 && pgrep -x i3 >/dev/null 2>&1; then
+  unset I3SOCK
+  exec i3-msg exit
+fi
+
+if command -v loginctl >/dev/null 2>&1; then
+  exec loginctl terminate-session "${XDG_SESSION_ID:-}"
+fi
+
+echo "omarchy-system-logout: no session exit command" >&2
+exit 1

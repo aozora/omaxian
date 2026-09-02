@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# omarchy:summary=Toggle nightlight screen temperature (X11 / redshift)
+# omarchy:args=[--status]
+#
+# Devuan/X11 port: `hyprsunset`+`hyprctl` → `redshift` one-shot mode. redshift
+# is stateless, so the applied temperature is tracked in a state file that the
+# Quickshell nightlight service reads too.
+
+ON_TEMP=4000
+OFF_TEMP=6500
+IDENTITY_TEMP=6000
+STATE_FILE="$HOME/.local/state/omarchy/nightlight.temp"
+
+current_temp() {
+  cat "$STATE_FILE" 2>/dev/null | grep -oE '[0-9]+' | head -n1
+}
+
+status_json() {
+  local temp enabled
+  temp=$(current_temp)
+  if [[ -n $temp ]] && (( temp < IDENTITY_TEMP )); then enabled=true; else enabled=false; fi
+  jq -cn --argjson enabled "$enabled" --arg temp "$temp" \
+    '{enabled:$enabled, temperature:(($temp | tonumber?) // null)}'
+}
+
+if [[ ${1:-} == "--status" ]]; then
+  status_json
+  exit 0
+fi
+
+CURRENT_TEMP=$(current_temp)
+if [[ -z $CURRENT_TEMP || $CURRENT_TEMP -ge $IDENTITY_TEMP ]]; then
+  TARGET_TEMP=$ON_TEMP
+else
+  TARGET_TEMP=$OFF_TEMP
+fi
+
+mkdir -p "$(dirname "$STATE_FILE")"
+if (( TARGET_TEMP >= OFF_TEMP )); then
+  redshift -x >/dev/null 2>&1 || true
+else
+  redshift -P -O "$TARGET_TEMP" >/dev/null 2>&1 || true
+fi
+printf '%s' "$TARGET_TEMP" > "$STATE_FILE"
+
+omarchy-shell -q nightlight refresh 2>/dev/null || true

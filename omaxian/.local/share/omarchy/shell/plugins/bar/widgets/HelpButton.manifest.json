@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.help",
+  "name": "Help",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Keybindings cheatsheet (local)",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "HelpButton.qml" },
+  "barWidget": { "displayName": "Help", "category": "Local", "allowMultiple": false }
+}

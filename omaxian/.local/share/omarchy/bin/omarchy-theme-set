@@ -1,0 +1,197 @@
+#!/bin/bash
+
+# omarchy:summary=Apply an Omarchy theme (X11 / i3 / picom / dunst / GTK / Quickshell port)
+# omarchy:args=<theme-name>
+# omarchy:examples=omarchy-theme-list | omarchy-theme-set "Tokyo Night"
+#
+# Devuan/X11 port of upstream omarchy-quattro/bin/omarchy-theme-set. The
+# staging + atomic-swap + flock + background-link machinery is kept verbatim in
+# spirit; the Hyprland/systemd/PipeWire reload block is replaced with an
+# i3/picom/dunst/GTK/Quickshell one. See docs/omarchy-port/.
+
+set -euo pipefail
+
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
+
+if [[ -z ${1:-} ]]; then
+  echo "Usage: omarchy-theme-set <theme-name>" >&2
+  exit 1
+fi
+
+CURRENT_THEME_PATH="$HOME/.local/state/omarchy/current/theme"
+NEXT_THEME_PATH="$HOME/.local/state/omarchy/current/next-theme"
+CURRENT_BACKGROUND_LINK="$HOME/.local/state/omarchy/current/background"
+THEME_SET_LOCK="${XDG_RUNTIME_DIR:-/tmp}/omarchy-theme-set.lock"
+USER_THEMES_PATH="$HOME/.config/omarchy/themes"
+OMARCHY_THEMES_PATH="$OMARCHY_PATH/themes"
+
+THEME_NAME=$(echo "$1" | sed -E 's/<[^>]+>//g' | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+
+if [[ -z $THEME_NAME || $THEME_NAME == .* || $THEME_NAME == */* ]]; then
+  echo "Invalid theme name: $1" >&2
+  exit 1
+fi
+
+if [[ ! -d $OMARCHY_THEMES_PATH/$THEME_NAME && ! -d $USER_THEMES_PATH/$THEME_NAME ]]; then
+  echo "Theme '$THEME_NAME' does not exist" >&2
+  exit 1
+fi
+
+mkdir -p "$HOME/.local/state/omarchy/current"
+
+# Serialize theme changes (shared next-theme staging dir + current symlinks).
+exec 9>"$THEME_SET_LOCK"
+flock 9
+
+# ---- stage a clean next-theme dir (atomic swap target) --------------------
+rm -rf "$NEXT_THEME_PATH"
+mkdir -p "$NEXT_THEME_PATH"
+
+cp -r "$OMARCHY_THEMES_PATH/$THEME_NAME/"* "$NEXT_THEME_PATH/" 2>/dev/null || true
+if [[ -d $USER_THEMES_PATH/$THEME_NAME ]]; then
+  cp -r "$USER_THEMES_PATH/$THEME_NAME/"* "$NEXT_THEME_PATH/" 2>/dev/null || true
+fi
+
+# ---- render dynamic configs from colors.toml -----------------------------
+# omarchy-theme-set-templates reads $OMARCHY_PATH/default/themed/*.tpl and
+# ~/.config/omarchy/themed/*.tpl, resolving palette keys via omarchy-theme-color,
+# and writes each <name>.tpl -> $NEXT_THEME_PATH/<name>.
+omarchy-theme-set-templates
+
+# ---- atomic swap: next-theme -> current/theme ---------------------------
+rm -rf "$CURRENT_THEME_PATH"
+mv "$NEXT_THEME_PATH" "$CURRENT_THEME_PATH"
+echo "$THEME_NAME" >"$HOME/.local/state/omarchy/current/theme.name"
+
+flock -u 9
+
+COLORS_FILE="$CURRENT_THEME_PATH/colors.toml"
+theme_mode=$(omarchy-theme-color --file "$COLORS_FILE" mode 2>/dev/null || echo dark)
+
+qcolor() { omarchy-theme-color --file "$COLORS_FILE" "$@" 2>/dev/null; }
+
+# ---- Quickshell: hot-reload the palette (FileView also picks up the swap) --
+reload_quickshell() {
+  command -v omarchy-shell >/dev/null 2>&1 || return 0
+  local colors shell
+  colors=$([[ -f $CURRENT_THEME_PATH/colors.toml ]] && base64 -w0 "$CURRENT_THEME_PATH/colors.toml")
+  shell=$([[ -f $CURRENT_THEME_PATH/shell.toml ]] && base64 -w0 "$CURRENT_THEME_PATH/shell.toml")
+  timeout 2 omarchy-shell shell applyTheme "$colors" "$shell" >/dev/null 2>&1 || true
+}
+
+# ---- i3: reload so client.* colors from current/theme/i3.conf take effect --
+reload_i3() {
+  command -v i3-msg >/dev/null 2>&1 && i3-msg -q reload || true
+}
+
+# ---- dunst: patch colors in place (no include mechanism), then reload ----
+reload_dunst() {
+  # This machine's dunst runs with `-config ~/.config/i3/dunstrc` (scripts/i3_dunst);
+  # fall back to the XDG path for a stock setup.
+  local rc="$HOME/.config/i3/dunstrc"
+  [[ -f $rc ]] || rc="$HOME/.config/dunst/dunstrc"
+  [[ -f $rc ]] || return 0
+  local bg fg accent red
+  bg=$(qcolor dark_background) || bg=$(qcolor background)
+  fg=$(qcolor foreground)
+  accent=$(qcolor accent)
+  red=$(qcolor red)
+  [[ -n $bg && -n $fg && -n $accent && -n $red ]] || return 0
+  awk -v bg="$bg" -v fg="$fg" -v accent="$accent" -v red="$red" '
+    /^\[urgency_low\]/    { sec="low";    print; next }
+    /^\[urgency_normal\]/ { sec="normal"; print; next }
+    /^\[urgency_critical\]/ { sec="crit"; print; next }
+    /^\[/                 { sec="";       print; next }
+    sec!="" && /^[[:space:]]*background[[:space:]]*=/ { print "    background = \"" bg "\""; next }
+    sec=="crit" && /^[[:space:]]*foreground[[:space:]]*=/ { print "    foreground = \"" red "\""; next }
+    sec!="" && /^[[:space:]]*foreground[[:space:]]*=/ { print "    foreground = \"" fg "\""; next }
+    sec=="crit" && /^[[:space:]]*frame_color[[:space:]]*=/ { print "    frame_color = \"" red "\""; next }
+    sec!="" && /^[[:space:]]*frame_color[[:space:]]*=/ { print "    frame_color = \"" accent "\""; next }
+    { print }
+  ' "$rc" >"$rc.tmp" && mv "$rc.tmp" "$rc"
+  command -v dunstctl >/dev/null 2>&1 && dunstctl reload 2>/dev/null || { pkill -SIGHUP -x dunst 2>/dev/null || true; }
+}
+
+# ---- GTK (Option A): only the icon theme + light/dark variant ------------
+reload_gtk() {
+  # xsettingsd runs with `--config ~/.config/i3/xsettingsd` (scripts/i3_autostart);
+  # fall back to the XDG path for a stock setup.
+  local icon="" xs="$HOME/.config/i3/xsettingsd"
+  [[ -f $xs ]] || xs="$HOME/.config/xsettingsd/xsettingsd.conf"
+  [[ -f $CURRENT_THEME_PATH/icons.theme ]] && icon=$(tr -d '[:space:]' <"$CURRENT_THEME_PATH/icons.theme")
+  local prefer_dark=1
+  [[ $theme_mode == light ]] && prefer_dark=0
+
+  local g3="$HOME/.config/gtk-3.0/settings.ini" g4="$HOME/.config/gtk-4.0/settings.ini"
+  for gf in "$g3" "$g4"; do
+    [[ -f $gf ]] || continue
+    [[ -n $icon ]] && sed -i -E "s|^(gtk-icon-theme-name=).*|\1$icon|" "$gf"
+    sed -i -E "s|^(gtk-application-prefer-dark-theme=).*|\1$prefer_dark|" "$gf"
+  done
+  if [[ -f $HOME/.gtkrc-2.0 && -n $icon ]]; then
+    sed -i -E "s|^(gtk-icon-theme-name=).*|\1\"$icon\"|" "$HOME/.gtkrc-2.0"
+  fi
+  if [[ -f $xs && -n $icon ]] && pidof xsettingsd >/dev/null 2>&1; then
+    sed -i -E "s|^(Net/IconThemeName ).*|\1\"$icon\"|" "$xs"
+    pkill -SIGHUP -x xsettingsd 2>/dev/null || true
+  fi
+}
+
+# ---- terminals: SIGUSR1 live reload (they import current/theme/*) --------
+reload_terminals() {
+  command -v omarchy-restart-terminal >/dev/null 2>&1 && omarchy-restart-terminal || true
+}
+
+# ---- yazi: install generated palette as the "omarchy" flavor -------------
+# Yazi has no include — theme-set-templates writes current/theme/yazi.toml
+# from ~/.config/omarchy/themed/yazi.toml.tpl; we expose it as a flavor and
+# point ~/.config/yazi/theme.toml at it. Symlink (not copy) so the next
+# theme-set is picked up without rewriting the flavor dir.
+reload_yazi() {
+  local src="$CURRENT_THEME_PATH/yazi.toml"
+  local flavor_dir="$HOME/.config/yazi/flavors/omarchy.yazi"
+  local theme_toml="$HOME/.config/yazi/theme.toml"
+  [[ -f $src ]] || return 0
+  mkdir -p "$flavor_dir" "$HOME/.config/yazi"
+  ln -sfn "$src" "$flavor_dir/flavor.toml"
+  # Ensure the selector exists; don't clobber a user theme that already
+  # references omarchy (or leave other customizations alone if present).
+  if [[ ! -f $theme_toml ]] || ! grep -qE '^\s*dark\s*=\s*"omarchy"' "$theme_toml" 2>/dev/null; then
+    printf '%s\n' \
+      '# Managed by omarchy-theme-set — selects the generated omarchy flavor.' \
+      '[flavor]' \
+      'dark = "omarchy"' \
+      'light = "omarchy"' \
+      >"$theme_toml"
+  fi
+}
+
+# ---- background: pick from the theme, symlink, set with xwallpaper/feh ---
+set_background() {
+  local dir="$CURRENT_THEME_PATH/backgrounds" bg
+  [[ -d $dir ]] || return 0
+  bg=$(find -L "$dir" -maxdepth 1 -type f \
+        \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.bmp' \) \
+        | sort | head -n1)
+  [[ -n $bg ]] || return 0
+  ln -nsf "$bg" "$CURRENT_BACKGROUND_LINK"
+  if command -v xwallpaper >/dev/null 2>&1; then
+    xwallpaper --zoom "$bg" || true
+  elif command -v feh >/dev/null 2>&1; then
+    feh --no-fehbg --bg-fill "$bg" || true
+  fi
+}
+
+reload_quickshell
+reload_i3
+reload_dunst
+reload_gtk
+reload_terminals
+reload_yazi
+set_background
+
+command -v dunstify >/dev/null 2>&1 && \
+  dunstify -u low -h string:x-dunst-stack-tag:omarchy-theme \
+    "Theme: $(omarchy-theme-current 2>/dev/null || echo "$THEME_NAME")" 2>/dev/null || true
+
+exit 0

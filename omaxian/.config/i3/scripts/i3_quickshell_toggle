@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+## Toggle a Quickshell popup/panel by IPC target (launcher, runner, windows,
+## powermenu, help, calendar, weather, timer, wallpapers, theme, …). Used by
+## i3 keybindings. Thin wrapper over `omarchy-shell` (Phase 3 plugin host);
+## falls back to a direct `qs ipc` call.
+
+set -euo pipefail
+
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
+
+if [[ $# -lt 1 ]]; then
+	echo "usage: i3_quickshell_toggle <target> [method]" >&2
+	exit 1
+fi
+target="$1"
+method="${2:-toggle}"
+
+if command -v omarchy-shell >/dev/null 2>&1; then
+	exec omarchy-shell -q "$target" "$method"
+fi
+
+exec qs -p "$OMARCHY_PATH/shell" ipc call -- "$target" "$method"

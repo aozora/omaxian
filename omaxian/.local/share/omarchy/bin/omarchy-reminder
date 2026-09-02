@@ -1,0 +1,192 @@
+#!/bin/bash
+
+# omarchy:summary=Set and show lightweight desktop notification reminders
+# omarchy:args=[-i|--interactive] | <minutes> [message] | show [-j|--json] | clear
+# omarchy:examples=omarchy reminder -i | omarchy reminder 5 | omarchy reminder 30 "Check the oven" | omarchy reminder show | omarchy reminder show --json | omarchy reminder clear
+#
+# X11/Devuan port of omarchy-quattro/bin/omarchy-reminder. Upstream schedules
+# each reminder as a `systemd-run --user --on-active` transient timer and reads
+# state back from `systemctl --user list-timers`. This box has no systemd, so a
+# reminder is instead a detached `setsid` sleeper (argv0 `omarchy-reminder-sleeper`
+# so `clear` can find it) plus a state file under $XDG_RUNTIME_DIR whose name
+# encodes the fire time and duration and whose contents are the message. Like
+# the systemd version, nothing survives a reboot (the runtime dir is wiped).
+# The interactive flow (-i) summons the ported Quickshell `omarchy.reminders`
+# overlay (a Ui/CenteredModal two-step prompt) via `omarchy-shell shell summon`.
+
+set -euo pipefail
+
+REMDIR="${XDG_RUNTIME_DIR:-/tmp}/omarchy-reminders"
+GLYPH="󰢌"
+
+format_remaining() {
+  local seconds=$1
+  local minutes=$((seconds / 60))
+  local remainder=$((seconds % 60))
+
+  if ((minutes > 0 && remainder > 0)); then
+    echo "${minutes}m ${remainder}s"
+  elif ((minutes > 0)); then
+    echo "${minutes}m"
+  else
+    echo "${remainder}s"
+  fi
+}
+
+refresh_indicator() {
+  omarchy-shell -q omarchy.indicators refresh >/dev/null 2>&1 || true
+}
+
+# Emit "<fire_epoch>\t<minutes>\t<statefile>" for every still-pending reminder,
+# pruning files whose fire time has passed or whose name is malformed.
+active_reminders() {
+  local now=${1:-$(date +%s)} f base fire minutes
+  [[ -d $REMDIR ]] || return 0
+  shopt -s nullglob
+  for f in "$REMDIR"/r-*; do
+    base=${f##*/r-}
+    fire=${base%%-*}
+    minutes=${base#*-}
+    minutes=${minutes%%-*}
+    if [[ ! $fire =~ ^[0-9]+$ || ! $minutes =~ ^[0-9]+$ ]]; then
+      rm -f "$f"
+      continue
+    fi
+    if ((fire <= now)); then
+      rm -f "$f"
+      continue
+    fi
+    printf '%s\t%s\t%s\n' "$fire" "$minutes" "$f"
+  done
+  shopt -u nullglob
+}
+
+open_interactive() {
+  # The Quickshell `omarchy.reminders` overlay (a Ui/CenteredModal two-step
+  # prompt) — its `submit` calls back into this script with `<minutes> [msg]`.
+  omarchy-shell shell summon omarchy.reminders "{}"
+}
+
+show_reminders() {
+  local now fire minutes f msg body="" remaining
+  now=$(date +%s)
+  while IFS=$'\t' read -r fire minutes f; do
+    remaining=$((fire - now))
+    msg=$(cat "$f" 2>/dev/null || true)
+    if [[ -n $msg ]]; then
+      body+="$msg in $(format_remaining "$remaining") ($(date -d "@$fire" +%-H:%M))"$'\n'
+    else
+      body+="${minutes}-min reminder in $(format_remaining "$remaining") ($(date -d "@$fire" +%-H:%M))"$'\n'
+    fi
+  done < <(active_reminders "$now")
+
+  if [[ -z $body ]]; then
+    omarchy-notification-send -g "$GLYPH" "Upcoming reminders" "No outstanding reminders"
+  else
+    omarchy-notification-send -g "$GLYPH" "Upcoming reminders" "${body%$'\n'}"
+  fi
+}
+
+show_json() {
+  local now fire minutes f msg label remaining count=0 items="[]" item tooltip="Set Reminder"
+  now=$(date +%s)
+  while IFS=$'\t' read -r fire minutes f; do
+    count=$((count + 1))
+    msg=$(cat "$f" 2>/dev/null || true)
+    if [[ -n $msg ]]; then label=$msg; else label="${minutes}-min reminder"; fi
+    remaining=$((fire - now))
+    item=$(jq -cn \
+      --arg unit "$(basename "$f")" \
+      --arg timer "$(basename "$f")" \
+      --arg label "$label" \
+      --arg message "$msg" \
+      --arg remaining "$(format_remaining "$remaining")" \
+      --arg atTime "$(date -d "@$fire" +%-H:%M)" \
+      --argjson minutes "$minutes" \
+      --argjson at "$fire" \
+      --argjson remainingSeconds "$remaining" \
+      '{unit:$unit,timer:$timer,minutes:$minutes,message:$message,label:$label,remaining:$remaining,remainingSeconds:$remainingSeconds,at:$at,atTime:$atTime}')
+    items=$(jq -cn --argjson a "$items" --argjson i "$item" '$a + [$i]')
+  done < <(active_reminders "$now")
+
+  ((count == 1)) && tooltip="1 reminder"
+  ((count > 1)) && tooltip="$count reminders"
+
+  jq -cn --argjson count "$count" --arg tooltip "$tooltip" --argjson reminders "$items" \
+    '{count:$count, active:($count > 0), tooltip:$tooltip, reminders:$reminders}'
+}
+
+clear_reminders() {
+  pkill -f 'omarchy-reminder-sleeper' 2>/dev/null || true
+  rm -f "$REMDIR"/r-* 2>/dev/null || true
+  refresh_indicator
+  omarchy-notification-send -g "$GLYPH" "All reminders have been cleared"
+}
+
+usage() {
+  echo "Usage: omarchy-reminder [-i|--interactive]"
+  echo "       omarchy-reminder <minutes> [message]"
+  echo "       omarchy-reminder show [-j|--json]"
+  echo "       omarchy-reminder clear"
+}
+
+case ${1:-} in
+-i | --interactive)
+  open_interactive
+  exit 0
+  ;;
+show | list)
+  case ${2:-} in
+  -j | --json) show_json ;;
+  "") show_reminders ;;
+  *) usage; exit 1 ;;
+  esac
+  exit 0
+  ;;
+clear)
+  clear_reminders
+  exit 0
+  ;;
+esac
+
+minutes=${1:-}
+shift || true
+message="$*"
+custom_message="$message"
+
+if [[ -z $minutes || ! $minutes =~ ^[0-9]+$ ]] || ((minutes == 0)); then
+  usage
+  exit 1
+fi
+
+[[ -n $message ]] || message="Your ${minutes} minutes are up"
+
+now=$(date +%s)
+fire=$((now + minutes * 60))
+mkdir -p "$REMDIR"
+state="$REMDIR/r-${fire}-${minutes}-$$${RANDOM}"
+printf '%s' "$custom_message" >"$state"
+
+# When the time is up: a critical (non-expiring) desktop notification + the
+# freedesktop alarm sound. Detached sleeper; argv0 `omarchy-reminder-sleeper`
+# is what `clear` greps for; the `[ -e state ]` guard keeps a sleeper that
+# `clear` raced silent.
+ALARM_SOUND="/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
+setsid bash -c '
+  sleep "$1" || exit 0
+  [ -e "$4" ] || exit 0
+  omarchy-notification-send -u critical -g "$3" "Reminder" "$2"
+  [ -r "$5" ] && command -v paplay >/dev/null 2>&1 && paplay "$5" >/dev/null 2>&1 &
+  rm -f "$4"
+  omarchy-shell -q omarchy.indicators refresh >/dev/null 2>&1 || true
+' omarchy-reminder-sleeper "$((minutes * 60))" "$message" "$GLYPH" "$state" "$ALARM_SOUND" >/dev/null 2>&1 &
+disown
+
+refresh_indicator
+
+remind_at=$(date -d "@$fire" +%H:%M)
+if [[ -n $custom_message ]]; then
+  omarchy-notification-send -g "$GLYPH" "$custom_message in ${minutes} minutes" "You'll be reminded at $remind_at"
+else
+  omarchy-notification-send -g "$GLYPH" "Reminder set for ${minutes} minutes" "You'll be reminded at $remind_at"
+fi

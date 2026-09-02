@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian.sysstats",
+  "name": "SysStats",
+  "version": "1.0.0",
+  "author": "omaxian",
+  "description": "Local SysStats widget",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "SysStats.qml" },
+  "barWidget": { "displayName": "SysStats", "category": "Local", "allowMultiple": false }
+}

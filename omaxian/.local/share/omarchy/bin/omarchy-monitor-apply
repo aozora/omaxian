@@ -1,0 +1,260 @@
+#!/bin/bash
+
+# omarchy:summary=Apply the saved (or a sensible fallback) xrandr layout for the current outputs
+# omarchy:group=monitor
+# omarchy:args=[--snapshot]
+
+set -euo pipefail
+
+if ! omarchy-cmd-present xrandr jq; then
+  echo "xrandr and jq are required" >&2
+  exit 1
+fi
+
+usage() {
+  echo "Usage: omarchy-monitor-apply [--snapshot]" >&2
+  exit 1
+}
+
+snapshot_only=false
+case "${1:-}" in
+  "") ;;
+  --snapshot) snapshot_only=true ;;
+  *) usage ;;
+esac
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/monitor"
+STATE_FILE="$STATE_DIR/profiles.json"
+LOCK_FILE="$STATE_DIR/profiles.json.lock"
+
+# Parallel-array state for every currently connected output, in xrandr query order.
+names=()
+declare -A IS_LAPTOP=() PREFERRED=() CURRENT=() MODES=() ENABLED=() PRIMARY=() POSX=() POSY=()
+
+# (Re)populate the arrays above from a fresh `omarchy-monitor-list` read.
+# Called once up front, and again after apply_fallback() actually mutates the
+# display — a snapshot taken from the pre-mutation read would capture the old
+# layout, not the one just applied.
+load_live_state() {
+  local list_json
+  list_json=$(omarchy-monitor-list)
+  lid_closed=$(jq -r '.lidClosed' <<<"$list_json")
+
+  names=()
+  IS_LAPTOP=() PREFERRED=() CURRENT=() MODES=() ENABLED=() PRIMARY=() POSX=() POSY=()
+
+  while IFS=$'\t' read -r name is_laptop preferred current modes_csv enabled primary x y; do
+    [[ -z $name ]] && continue
+    names+=("$name")
+    IS_LAPTOP[$name]=$is_laptop
+    PREFERRED[$name]=$preferred
+    CURRENT[$name]=$current
+    MODES[$name]=$modes_csv
+    ENABLED[$name]=$enabled
+    PRIMARY[$name]=$primary
+    POSX[$name]=$x
+    POSY[$name]=$y
+  done < <(jq -r '.outputs[] | select(.connected) |
+    [.name, .isLaptopPanel, (.preferredMode // ""), (.currentMode // ""), (.modes | join(",")),
+     .enabled, .primary, (.position.x // "null"), (.position.y // "null")] | @tsv' <<<"$list_json")
+}
+
+load_live_state
+
+laptop_name=""
+for n in "${names[@]}"; do
+  if [[ "${IS_LAPTOP[$n]}" == "true" ]]; then
+    laptop_name="$n"
+    break
+  fi
+done
+
+drop_laptop=false
+if [[ $lid_closed == "true" && -n $laptop_name && ${#names[@]} -gt 1 ]]; then
+  drop_laptop=true
+fi
+
+# chain_names: the outputs that make up this topology's signature, laptop
+# first (when kept), then externals in xrandr query order.
+chain_names=()
+if [[ -n $laptop_name && $drop_laptop == false ]]; then
+  chain_names+=("$laptop_name")
+fi
+for n in "${names[@]}"; do
+  [[ "$n" == "$laptop_name" ]] && continue
+  chain_names+=("$n")
+done
+
+signature=""
+if [[ ${#chain_names[@]} -gt 0 ]]; then
+  signature=$(printf '%s\n' "${chain_names[@]}" | sort | paste -sd+ -)
+fi
+
+pick_mode() {
+  local name="$1"
+  if [[ -n ${PREFERRED[$name]:-} ]]; then
+    echo "${PREFERRED[$name]}"
+  elif [[ -n ${CURRENT[$name]:-} ]]; then
+    echo "${CURRENT[$name]}"
+  else
+    echo "${MODES[$name]:-}" | cut -d, -f1
+  fi
+}
+
+turn_off() {
+  local name="$1"
+  xrandr --output "$name" --off 2>/dev/null || true
+}
+
+write_profile() {
+  local sig="$1" outputs_json="$2"
+  [[ -z $sig ]] && return 0
+  mkdir -p "$STATE_DIR"
+  exec 9>"$LOCK_FILE"
+  flock 9
+  local current='{"version":1,"profiles":{}}'
+  [[ -s $STATE_FILE ]] && current=$(cat "$STATE_FILE")
+  local now
+  now=$(date -Iseconds)
+  local updated
+  updated=$(jq --arg sig "$sig" --argjson outputs "$outputs_json" --arg now "$now" \
+    '.version = 1 | .profiles[$sig] = {updatedAt: $now, outputs: $outputs}' <<<"$current")
+  printf '%s\n' "$updated" >"$STATE_FILE.tmp"
+  mv "$STATE_FILE.tmp" "$STATE_FILE"
+  flock -u 9
+  exec 9>&-
+}
+
+# Build the profile.outputs array from the CURRENT live xrandr state (called
+# after either a manual change or a freshly-applied fallback, so "live" is
+# authoritative either way). Anchor = smallest (x,y); every other enabled
+# member's relation is inferred against the previous member in (x,y) order.
+snapshot_outputs_json() {
+  local enabled_members=() other_json="[]" enabled_json="[]"
+
+  for n in "${chain_names[@]}"; do
+    if [[ "${ENABLED[$n]:-false}" != "true" ]]; then
+      other_json=$(jq --arg n "$n" '. + [{name:$n, enabled:false, mode:null, primary:false, relation:null}]' <<<"$other_json")
+    else
+      enabled_members+=("$n")
+    fi
+  done
+
+  if [[ ${#enabled_members[@]} -gt 0 ]]; then
+    IFS=$'\n' sorted=($(for n in "${enabled_members[@]}"; do printf '%s\t%s\t%s\n' "${POSX[$n]}" "${POSY[$n]}" "$n"; done | sort -n -k1,1 -k2,2))
+    unset IFS
+
+    local prev=""
+    for row in "${sorted[@]}"; do
+      local n
+      n=$(awk -F'\t' '{print $3}' <<<"$row")
+      local primary_bool="false"
+      [[ "${PRIMARY[$n]}" == "true" ]] && primary_bool="true"
+      if [[ -z $prev ]]; then
+        enabled_json=$(jq --arg n "$n" --arg mode "${CURRENT[$n]}" --argjson primary "$primary_bool" \
+          '. + [{name:$n, enabled:true, mode:$mode, primary:$primary, relation:null}]' <<<"$enabled_json")
+      else
+        local px py cx cy dx dy rel_type
+        px=${POSX[$prev]}; py=${POSY[$prev]}; cx=${POSX[$n]}; cy=${POSY[$n]}
+        dx=$((cx - px)); dy=$((cy - py))
+        if [[ ${dx#-} -ge ${dy#-} ]]; then
+          [[ $dx -ge 0 ]] && rel_type="right-of" || rel_type="left-of"
+        else
+          [[ $dy -ge 0 ]] && rel_type="below" || rel_type="above"
+        fi
+        enabled_json=$(jq --arg n "$n" --arg mode "${CURRENT[$n]}" --argjson primary "$primary_bool" \
+          --arg reltype "$rel_type" --arg relof "$prev" \
+          '. + [{name:$n, enabled:true, mode:$mode, primary:$primary, relation:{type:$reltype, of:$relof}}]' <<<"$enabled_json")
+      fi
+      prev="$n"
+    done
+  fi
+
+  jq -s 'add' <<<"$other_json"$'\n'"$enabled_json"
+}
+
+do_snapshot() {
+  [[ -z $signature ]] && return 0
+  write_profile "$signature" "$(snapshot_outputs_json)"
+}
+
+apply_fallback() {
+  # Anything connected but not part of this topology (i.e. the laptop panel
+  # when the lid is closed) gets turned off first.
+  for n in "${names[@]}"; do
+    if ! printf '%s\n' "${chain_names[@]}" | grep -qxF "$n"; then
+      turn_off "$n"
+    fi
+  done
+
+  local last_idx=$((${#chain_names[@]} - 1))
+  for i in "${!chain_names[@]}"; do
+    local n="${chain_names[$i]}" mode
+    mode=$(pick_mode "$n")
+    local cmd=(xrandr --output "$n" --mode "$mode")
+    [[ $i -gt 0 ]] && cmd+=(--right-of "${chain_names[$((i - 1))]}")
+    [[ $i -eq $last_idx ]] && cmd+=(--primary)
+    "${cmd[@]}"
+  done
+}
+
+replay_profile() {
+  local profile_json="$1"
+
+  # Defensive: anything connected right now that the stored profile has no
+  # opinion on (topology drift) gets turned off too.
+  local listed
+  listed=$(jq -r '.[].name' <<<"$profile_json")
+  for n in "${names[@]}"; do
+    if ! grep -qxF "$n" <<<"$listed"; then
+      turn_off "$n"
+    fi
+  done
+
+  # Pass 1: explicit offs, then anchors (relation:null, enabled:true).
+  while IFS=$'\t' read -r n en mode primary; do
+    [[ -z $n ]] && continue
+    if [[ $en == "false" ]]; then
+      turn_off "$n"
+    else
+      local cmd=(xrandr --output "$n" --mode "$mode")
+      [[ $primary == "true" ]] && cmd+=(--primary)
+      "${cmd[@]}"
+    fi
+  done < <(jq -r '.[] | select(.relation == null) | [.name, .enabled, (.mode // ""), .primary] | @tsv' <<<"$profile_json")
+
+  # Pass 2: relational entries, in stored (dependency-safe) order.
+  while IFS=$'\t' read -r n mode primary reltype relof; do
+    [[ -z $n ]] && continue
+    local cmd=(xrandr --output "$n" --mode "$mode" --"$reltype" "$relof")
+    [[ $primary == "true" ]] && cmd+=(--primary)
+    "${cmd[@]}"
+  done < <(jq -r '.[] | select(.relation != null) | [.name, .mode, .primary, .relation.type, .relation.of] | @tsv' <<<"$profile_json")
+}
+
+main() {
+  if [[ ${#chain_names[@]} -eq 0 ]]; then
+    xrandr --auto >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  if [[ $snapshot_only == "true" ]]; then
+    do_snapshot
+    return 0
+  fi
+
+  local stored=""
+  if [[ -s $STATE_FILE ]]; then
+    stored=$(jq -r --arg sig "$signature" '.profiles[$sig] // empty' "$STATE_FILE")
+  fi
+
+  if [[ -n $stored ]]; then
+    replay_profile "$(jq '.outputs' <<<"$stored")"
+  else
+    apply_fallback
+    load_live_state
+    do_snapshot
+  fi
+}
+
+main

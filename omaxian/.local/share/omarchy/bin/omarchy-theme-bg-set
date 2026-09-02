@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# omarchy:summary=Set the current background image (X11 port)
+# omarchy:args=<path-to-image>
+#
+# Devuan/X11: upstream hands off to the `background` Quickshell plugin
+# (`omarchy-shell -q background set`), which isn't ported — the wallpaper is
+# the X root pixmap. So: keep the `current/background` symlink (so
+# `omarchy-theme-bg-{current,next}` still work, and so i3 restores this pick
+# on its next startup via `wallpaper.sh`) and apply it now with
+# `hsetroot -cover`.
+
+set -euo pipefail
+
+if [[ -z ${1:-} ]]; then
+  echo "Usage: omarchy-theme-bg-set <path-to-image>" >&2
+  exit 1
+fi
+
+BACKGROUND="$(realpath "$1")"
+[[ -f $BACKGROUND ]] || { echo "File does not exist: $BACKGROUND" >&2; exit 1; }
+
+CURRENT_BACKGROUND_LINK="$HOME/.local/state/omarchy/current/background"
+
+mkdir -p "$(dirname "$CURRENT_BACKGROUND_LINK")"
+ln -nsf "$BACKGROUND" "$CURRENT_BACKGROUND_LINK"
+
+command -v hsetroot >/dev/null 2>&1 && hsetroot -cover "$BACKGROUND" || \
+  { command -v feh >/dev/null 2>&1 && feh --bg-fill "$BACKGROUND"; } || \
+  { command -v xwallpaper >/dev/null 2>&1 && xwallpaper --zoom "$BACKGROUND"; } || true

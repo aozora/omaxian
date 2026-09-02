@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# omarchy:summary=Lock the screen (i3 / i3lock)
+# omarchy:group=system
+# omarchy:name=lock
+
+set -euo pipefail
+
+lock="${HOME}/.config/i3/scripts/i3_lock"
+if [[ -x $lock ]]; then
+  exec "$lock"
+fi
+
+if command -v i3lock-fancy >/dev/null 2>&1; then
+  exec i3lock-fancy
+fi
+if command -v i3lock >/dev/null 2>&1; then
+  exec i3lock -e -f -c 1e1e2e
+fi
+
+echo "omarchy-system-lock: no locker found" >&2
+exit 1

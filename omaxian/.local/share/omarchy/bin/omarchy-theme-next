@@ -1,0 +1,12 @@
+#!/bin/bash
+# omarchy:summary=Switch to the next theme in the list
+# omarchy:examples=omarchy-theme-next
+set -euo pipefail
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
+mapfile -t themes < <(omarchy-theme-list)
+(( ${#themes[@]} > 0 )) || { echo "no themes found" >&2; exit 1; }
+current=$(omarchy-theme-current 2>/dev/null || echo "")
+idx=-1
+for i in "${!themes[@]}"; do [[ ${themes[$i]} == "$current" ]] && idx=$i && break; done
+next=${themes[$(( (idx + 1) % ${#themes[@]} ))]}
+exec omarchy-theme-set "$next"
