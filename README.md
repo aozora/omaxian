@@ -101,7 +101,7 @@ but does not delete files you (or an older deploy) left behind.
 | Key                         | Action                              |
 | --------------------------- | ----------------------------------- |
 | Super+Return                | terminal                            |
-| Super+L / Alt+F2            | Omarchy menu / run a command        |
+| Super+Space / Alt+F2        | Omarchy menu / run a command        |
 | Super+Esc                   | power menu                          |
 | Super+K                     | keybinding help                     |
 | Alt+Ctrl+T                  | theme picker                        |
@@ -160,7 +160,7 @@ work differently or are missing:
 - **Audio panel has no input VU meter**; per-app rows show the raw app name.
 - **No Omarchy clipboard, emoji picker, image carousel, agents, or built-in
   notification daemon.** Notifications stay on **dunst**. Theme picking is a
-  thumbnail grid, not the vips carousel. The Omarchy menu (`Super+L`) skips
+  thumbnail grid, not the vips carousel. The Omarchy menu (`Super+Space`) skips
   Arch Install/Remove trees and Hyprland-only actions.
 - **No screen recording or dictation** indicators.
 - **`i3 restart` is not a full reload.** Log out and back in after the first

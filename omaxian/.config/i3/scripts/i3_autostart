@@ -43,8 +43,8 @@ if command -v spice-vdagent >/dev/null 2>&1 && ! pgrep -x spice-vdagent >/dev/nu
 	spice-vdagent &
 fi
 
-# Keyboard layout
-setxkbmap -layout "it,ru" -variant ",phonetic" -option "grp:win_space_toggle" &
+# Keyboard layout — Alt+Shift toggles groups so Super+Space stays free for the menu
+setxkbmap -layout "it,ru" -variant ",phonetic" -option "" -option "grp:alt_shift_toggle" &
 
 # Notification daemon FIRST — so dunst owns org.freedesktop.Notifications
 # before xfce4-power-manager (below) can D-Bus-activate xfce4-notifyd into it.

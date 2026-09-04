@@ -7,7 +7,7 @@ import qs.Ui
 // X11 stand-in for upstream's Hyprland `activelayout` IPC +
 // `switchxkblayout current next`. No i3 event source, so the label is a 2s
 // poll of `scripts/keyboard.sh` (xprop + XkbGetState). Click cycles via
-// that script: xkb-switch, else ISO_Next_Group (grp:win_space_toggle),
+// that script: xkb-switch, else ISO_Next_Group (same keysym as grp:*_toggle),
 // else a setxkbmap layout-list rotate.
 BarWidget {
   id: root

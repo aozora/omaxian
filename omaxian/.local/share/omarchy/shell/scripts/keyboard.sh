@@ -2,7 +2,7 @@
 # Current XKB layout (+ Caps Lock hint). `next` cycles the group.
 #
 # Cycle order: xkb-switch -n, then ISO_Next_Group (the same keysym
-# grp:win_space_toggle already uses), then rotate the setxkbmap layout list.
+# grp:*_toggle options use), then rotate the setxkbmap layout list.
 set -euo pipefail
 
 xkb_group_index() {
@@ -77,7 +77,7 @@ cycle_next() {
 		return
 	fi
 
-	# Same action Super+Space performs when grp:win_space_toggle is set:
+	# Same action Alt+Shift performs when grp:alt_shift_toggle is set:
 	# layouts are already loaded as XKB groups; ISO_Next_Group advances.
 	if command -v xdotool >/dev/null 2>&1; then
 		xdotool key --clearmodifiers ISO_Next_Group
