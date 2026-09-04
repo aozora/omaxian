@@ -378,6 +378,16 @@ Item {
         }
       }
     }
+
+    PanelSeparator { foreground: root.bar.foreground }
+
+    Button {
+      text: "Volume control"
+      bordered: true
+      foreground: root.bar.foreground
+      fontFamily: root.bar.fontFamily
+      onClicked: Quickshell.execDetached(["pavucontrol"])
+    }
   }
 
   component SinkRow: CursorSurface {

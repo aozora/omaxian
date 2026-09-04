@@ -329,6 +329,16 @@ Item {
       wrapMode: Text.WordWrap
       width: parent.width
     }
+
+    PanelSeparator { foreground: root.bar.foreground }
+
+    Button {
+      text: "Bluetooth manager"
+      bordered: true
+      foreground: root.bar.foreground
+      fontFamily: root.bar.fontFamily
+      onClicked: Quickshell.execDetached(["blueman-manager"])
+    }
   }
 
   component DeviceRow: CursorSurface {
