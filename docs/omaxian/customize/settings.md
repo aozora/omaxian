@@ -32,7 +32,9 @@ Valid `tab` payload values: `bar`, `dock`, `appearance`, `widgets`, `plugins`,
 
 ### Bar
 
-Writes `~/.config/omarchy/shell.json` (live).
+Writes `~/.config/omarchy/shell.json` (live). That user file is seeded once
+by `deploy.sh` from `$OMARCHY_PATH/shell.json` and is **not** overwritten on
+redeploy, so layout edits survive.
 
 - Show / hide the bar (`omarchy-toggle-bar`, same as Menu → Toggle → Menu Bar)
 - Position: top / bottom / left / right
@@ -64,8 +66,8 @@ already file-watched):
 
 Schema-driven forms for bar widgets that declare `barWidget.schema` in their
 manifest (clock, weather, power, spacer, menu icon, indicators, …). Values
-land on the layout entry in `shell.json`. A widget must be on the bar for
-changes to persist.
+land on the layout entry in `~/.config/omarchy/shell.json`. A widget must be
+on the bar for changes to persist. Like Bar edits, these survive `./deploy.sh`.
 
 ### Plugins
 

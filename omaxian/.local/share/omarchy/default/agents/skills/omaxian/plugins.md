@@ -32,7 +32,8 @@ Edit `~/.config/omarchy/shell.json` or use Settings → Bar. There is no
 change `bar.position` (`top` / `bottom` / `left` / `right`).
 
 A valid `shell.json` (must contain `"version": 1`) **entirely replaces** the
-bundled default — there is no deep merge.
+bundled default at `$OMARCHY_PATH/shell.json` — there is no deep merge.
+`./deploy.sh` seeds `~/.config/omarchy/shell.json` only when missing.
 
 ## Customizing built-in plugins and widgets
 

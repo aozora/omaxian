@@ -103,7 +103,9 @@ Commands that `setup.sh` installs as required are runtime invariants on a deploy
 | `omaxian/.config/` | Default user configs deployed to `~/.config/` (i3, omarchy, picom, dunst, …) |
 | `omaxian/.local/share/omarchy/bin/` | Ported `omarchy-*` commands |
 | `omaxian/.local/share/omarchy/shell/` | Quickshell desktop |
+| `omaxian/.local/share/omarchy/shell.json` | Stock bar/plugins defaults (`$OMARCHY_PATH/shell.json`) |
 | `omaxian/.local/share/omarchy/default/` | Port overlays (menu JSONC, agent skills) on top of upstream `default/` |
+| `~/.config/omarchy/shell.json` | User shell layout (Settings); seeded once by `deploy.sh` |
 | `~/.local/share/omarchy/themes/` | Stock themes, seeded from upstream by `install.sh` |
 | `~/.config/omarchy/themes/` | User theme overlays only |
 | `~/.config/omarchy/themed/*.tpl` | User template overrides (`{{ variable }}` placeholders) |
@@ -128,6 +130,6 @@ Edit files under `omaxian/`, then:
 omarchy-restart-shell   # after QML, shell.json that failed to hot-reload, or theme templates
 ```
 
-`deploy.sh` overwrites configs from this repo but does not delete files an older deploy left behind. `install.sh` refreshes themes, upstream `default/`, and `bin/` into `~/.local/share/omarchy/`.
+`deploy.sh` overwrites configs from this repo but does not delete files an older deploy left behind. Exception: `~/.config/omarchy/shell.json` is seeded from `$OMARCHY_PATH/shell.json` only when missing, so Settings / bar layout survive redeploy. `install.sh` refreshes themes, upstream `default/`, and `bin/` into `~/.local/share/omarchy/`.
 
 i3 config lives in `omaxian/.config/i3/` (`config` plus `config.d/*.conf`). After deploying i3 files, `i3-msg reload` is enough for binds and rules; a full logout is required when `PATH` / `OMARCHY_PATH` changed.

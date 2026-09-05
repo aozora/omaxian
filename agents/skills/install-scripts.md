@@ -12,7 +12,9 @@ Omaxian has no ISO and no `install/` leaf tree. Three root scripts own setup:
   and `~/.config/omarchy/{themes,themed}`. Themes and `default/` come from
   `omarchy-quattro/`; `bin/` and the menu/agents overlays come from `omaxian/`.
 - `deploy.sh` (login user) — copy `omaxian/.config/*`, `omaxian/.local/share/*`,
-  `omaxian/.xsessionrc`, and `omaxian/.icons` into `$HOME`.
+  `omaxian/.xsessionrc`, and `omaxian/.icons` into `$HOME`. Seeds
+  `~/.config/omarchy/shell.json` from `$OMARCHY_PATH/shell.json` only when
+  the user file is missing (Settings / bar layout survive redeploy).
 
 Keep these rules:
 
@@ -35,4 +37,4 @@ Keep these rules:
 
 Idempotence: `setup.sh` and `deploy.sh` are safe to re-run. `install.sh`
 replaces `themes/`, `default/`, and `bin/` under the share dir on every run;
-dock settings are written only when missing.
+dock settings and `~/.config/omarchy/shell.json` are written only when missing.

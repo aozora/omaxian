@@ -16,12 +16,18 @@ BarWidget {
 
   property date displayDate: clock.date
 
-  readonly property string configuredFormat: vertical
-    ? setting("verticalFormat", "HH\n—\nmm")
-    : setting("format", "dddd HH:mm")
-  readonly property string configuredAltFormat: vertical
-    ? setting("verticalFormatAlt", "dd\nMMM\n'W'ww\n''yy")
-    : setting("formatAlt", "d MMMM 'W'ww yyyy")
+  readonly property string configuredFormat: {
+    var _ = settings
+    return vertical
+      ? setting("verticalFormat", "HH\n—\nmm")
+      : setting("format", "dddd HH:mm")
+  }
+  readonly property string configuredAltFormat: {
+    var _ = settings
+    return vertical
+      ? setting("verticalFormatAlt", "dd\nMMM\n'W'ww\n''yy")
+      : setting("formatAlt", "d MMMM 'W'ww yyyy")
+  }
 
   readonly property var formatRing: Model.clockFormatRing(configuredFormat, configuredAltFormat, Model.clockFormats(vertical))
 
@@ -112,6 +118,14 @@ BarWidget {
 
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
+
+  Binding {
+    target: panelLoader.item
+    property: "settings"
+    value: root.settings
+    restoreMode: Binding.RestoreNone
+    when: panelLoader.item !== null
+  }
 
   SystemClock {
     id: clock

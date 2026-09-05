@@ -9,21 +9,23 @@ the QML itself:
 
 | Layer | File (repo path → deployed path) | Controls | Reload |
 |---|---|---|---|
-| Layout | `omaxian/.config/omarchy/shell.json` → `~/.config/omarchy/shell.json` | enable, position, transparency, which widgets, order, center anchor, per-widget settings | **live** (watched) |
+| Stock defaults | `omaxian/.local/share/omarchy/shell.json` → `$OMARCHY_PATH/shell.json` | stock bar layout / idle / plugins; used when no user file exists | restart shell (or seed user file) |
+| User layout | `~/.config/omarchy/shell.json` (seeded once by `deploy.sh`) | enable, position, transparency, which widgets, order, center anchor, per-widget settings | **live** (watched) |
 | Theme tokens | `~/.local/state/omarchy/current/theme/{colors.toml,shell.toml}` | palette, bar thickness, bar background, control chrome | restart shell (read once at startup) |
 | User override | `~/.config/omarchy/shell.toml` (create it) | same keys as theme `shell.toml`; wins over the theme and **survives theme switches** | **live** (watched) |
 | Structure | `omaxian/.local/share/omarchy/shell/Commons/Style.qml` | corner radius, internal slot sizes | restart shell |
 
 Restart the shell with `omarchy-restart-shell` after editing anything in the
-theme's `colors.toml` / `shell.toml` or in the QML. `shell.json` and
+theme's `colors.toml` / `shell.toml` or in the QML. The user `shell.json` and
 `~/.config/omarchy/shell.toml` are file-watched and apply live.
 
 > **No deep merge for `shell.json`.** A valid `~/.config/omarchy/shell.json`
 > (must contain `"version": 1`) *entirely replaces* the bundled default at
-> `$OMARCHY_PATH/config/omarchy/shell.json`. The checked-in
-> `omaxian/.config/omarchy/shell.json` *is* that user file — edit it in place.
-> The Settings panel (Super+Ctrl+S, or Menu → Setup → Settings) also edits
-> layout, position, and widget options; see [settings.md](settings.md).
+> `$OMARCHY_PATH/shell.json`. Settings (Super+Ctrl+S) and hand edits write
+> the user file; `./deploy.sh` seeds it only when missing, so redeploy does
+> not wipe layout or Widgets options. To reset to stock: delete
+> `~/.config/omarchy/shell.json` and re-run `./deploy.sh` (or restart the
+> shell to fall back to defaults). See [settings.md](settings.md).
 
 ---
 

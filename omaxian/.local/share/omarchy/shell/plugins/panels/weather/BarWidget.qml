@@ -53,6 +53,14 @@ BarWidget {
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
 
+  Binding {
+    target: panelLoader.item
+    property: "settings"
+    value: root.settings
+    restoreMode: Binding.RestoreNone
+    when: panelLoader.item !== null
+  }
+
   Loader {
     id: panelLoader
     active: true

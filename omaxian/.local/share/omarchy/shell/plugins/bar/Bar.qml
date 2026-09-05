@@ -153,7 +153,8 @@ Item {
         visible: slot.visible === true && slot.width > 0 && slot.height > 0,
         itemVisible: slot.activeItem.visible === true,
         itemWidth: Math.round(slot.activeItem.implicitWidth || 0),
-        itemHeight: Math.round(slot.activeItem.implicitHeight || 0)
+        itemHeight: Math.round(slot.activeItem.implicitHeight || 0),
+        settings: slot.activeItem.settings !== undefined ? slot.activeItem.settings : slot.moduleSettings
       })
     }
     return out
@@ -389,6 +390,10 @@ Item {
       for (var s = 0; s < moduleSlots.length; s++) {
         var slot = moduleSlots[s]
         if (!slot || slot.region !== change.region || slot.moduleName !== entryId(change.entry)) continue
+        // Keep the slot's entry in step with the layout write so the
+        // settings Binding (and moduleSettings) see the new keys after a
+        // Settings → Widgets edit, not only after a full bar rebuild.
+        slot.entry = change.entry
         var item = slot.activeItem
         if (item && "settings" in item) item.settings = settings
       }

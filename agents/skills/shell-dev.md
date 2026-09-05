@@ -15,11 +15,14 @@ and `~/.config/omarchy/shell.toml` are file-watched and usually apply live.
 
 | Repo | Deployed |
 |------|----------|
-| `omaxian/.local/share/omarchy/shell/` | `~/.local/share/omarchy/shell/` |
-| `omaxian/.config/omarchy/shell.json` | `~/.config/omarchy/shell.json` |
+| `omaxian/.local/share/omarchy/shell/` | `$OMARCHY_PATH/shell/` (`~/.local/share/omarchy/shell/`) |
+| `omaxian/.local/share/omarchy/shell.json` | `$OMARCHY_PATH/shell.json` (stock defaults) |
+| — | `~/.config/omarchy/shell.json` (user; seeded once by `deploy.sh`) |
 
-Edit the repo copy, then `./deploy.sh`. Do not treat `omarchy-quattro/shell/`
-as the working tree.
+Edit QML under the repo `shell/` tree, then `./deploy.sh`. Do not treat
+`omarchy-quattro/shell/` as the working tree. Change stock bar defaults in
+`omaxian/.local/share/omarchy/shell.json`; live Settings / layout edits go
+only to `~/.config/omarchy/shell.json` and are not overwritten by redeploy.
 
 ## Plugin contract
 

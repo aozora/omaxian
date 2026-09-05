@@ -40,7 +40,7 @@ ShellRoot {
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   readonly property string shellPath: omarchyPath + "/shell"
   readonly property string firstPartyPluginsDir: shellPath + "/plugins"
-  readonly property string defaultsPath: omarchyPath + "/config/omarchy/shell.json"
+  readonly property string defaultsPath: omarchyPath + "/shell.json"
   readonly property string userConfigPath: home + "/.config/omarchy/shell.json"
 
   // Bundled fallback so the shell can start even when the default shell.json is
@@ -82,7 +82,7 @@ ShellRoot {
     pluginRegistry.pluginsChanged()
   }
 
-  function applyShellConfig() {
+  function applyShellConfig(forceDefaults) {
     // Decide which source is canonical: a valid user shell.json overrides
     // defaults entirely; otherwise fall back to defaults. We do not deep-merge.
     var defaults = Util.isPlainObject(defaultsConfig) ? defaultsConfig : builtinShellConfig
@@ -97,7 +97,21 @@ ShellRoot {
         console.warn("shell.json parse failed, using defaults:", e)
       }
     }
-    shellConfig = user || defaults
+    if (user) {
+      shellConfig = user
+      return
+    }
+    // FileView's first read (and atomicWrites during persist) can briefly
+    // look empty. Do not throw away a user config we already applied — that
+    // is what drops Settings → Widgets values across restart / reboot.
+    if (!forceDefaults && shellHasUserConfig(shellConfig)) return
+    shellConfig = defaults
+  }
+
+  function shellHasUserConfig(config) {
+    if (!Util.isPlainObject(config) || config.version !== 1) return false
+    if (config === builtinShellConfig || config === defaultsConfig) return false
+    return Util.isPlainObject(config.bar)
   }
 
   function loadDefaults(raw) {
@@ -131,6 +145,7 @@ ShellRoot {
     id: defaultsFile
     path: shell.defaultsPath
     watchChanges: true
+    blockLoading: true
     printErrors: false
     onLoaded: shell.loadDefaults(text())
     onLoadFailed: function(error) {
@@ -145,9 +160,10 @@ ShellRoot {
     path: shell.userConfigPath
     watchChanges: true
     atomicWrites: true
+    blockLoading: true
     printErrors: false
     onLoaded: shell.applyShellConfig()
-    onLoadFailed: function(error) { shell.applyShellConfig() }
+    onLoadFailed: function(error) { shell.applyShellConfig(true) }
     onFileChanged: reload()
   }
 
@@ -158,6 +174,10 @@ ShellRoot {
       "firstPartyPluginsDir=" + shell.firstPartyPluginsDir,
       "defaultsPath=" + shell.defaultsPath,
       "userConfigPath=" + shell.userConfigPath)
+    // Blocking read so ~/.config/omarchy/shell.json (including per-widget
+    // layout settings) is applied before the bar windows come up. FileView
+    // otherwise loads asynchronously and widgets start on builtin defaults.
+    shell.loadDefaults(defaultsFile.text())
     pluginRegistry.firstPartyDir = shell.firstPartyPluginsDir
     pluginRegistry.shellConfigProvider = function() { return shell.shellConfig }
     pluginRegistry.shellConfigMutator = function(mutate) { shell.mutateShellConfig(mutate) }

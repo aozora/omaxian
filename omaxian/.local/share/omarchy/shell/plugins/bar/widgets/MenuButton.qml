@@ -18,10 +18,14 @@ BarWidget {
   implicitHeight: button.implicitHeight
 
   readonly property string iconGlyph: {
+    var _ = settings
     var v = String(setting("icon", "\u{f011b}"))
     return v.length > 0 ? v : "\u{f011b}"
   }
-  readonly property string iconFontFamily: String(setting("iconFont", ""))
+  readonly property string iconFontFamily: {
+    var _ = settings
+    return String(setting("iconFont", ""))
+  }
 
   property bool runnerOpen: false
 

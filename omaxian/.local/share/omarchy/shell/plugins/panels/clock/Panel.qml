@@ -52,9 +52,15 @@ Panel {
   // asks for a birth year and a life expectancy, and a second bar tracks one
   // against the other. A birth year rather than an age, so it keeps counting
   // on its own. Without one the bar stays hidden.
-  readonly property int birthYear: Model.parseBirthYear(setting("birthYear", 0), today.getFullYear())
+  readonly property int birthYear: {
+    var _ = settings
+    return Model.parseBirthYear(setting("birthYear", 0), today.getFullYear())
+  }
   readonly property int age: Model.ageFromBirthYear(birthYear, today.getFullYear())
-  readonly property int lifeExpectancy: Model.parseLifeExpectancy(setting("lifeExpectancy", 0))
+  readonly property int lifeExpectancy: {
+    var _ = settings
+    return Model.parseLifeExpectancy(setting("lifeExpectancy", 0))
+  }
   readonly property real lifeDone: Model.lifeProgress(age, lifeExpectancy)
   readonly property int lifeDonePercent: Model.lifeProgressPercent(age, lifeExpectancy)
   property bool editingLife: false
@@ -63,7 +69,10 @@ Panel {
   // starts out matching the rest of the desktop rather than a hardcoded
   // convention. Clicking the grid's "W" heading writes the choice back to
   // shell.json.
-  readonly property int weekStart: Model.normalizedWeekStart(setting("weekStartDay", null), Qt.locale().firstDayOfWeek)
+  readonly property int weekStart: {
+    var _ = settings
+    return Model.normalizedWeekStart(setting("weekStartDay", null), Qt.locale().firstDayOfWeek)
+  }
   // The interface is English throughout, so day names are not taken from the
   // system locale. Where the week starts still is: that is a regional
   // convention rather than a translation, and it stays overridable above.

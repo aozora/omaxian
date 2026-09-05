@@ -60,6 +60,23 @@ if [ -d "$HOME/.local/share/omarchy/default/agents/skills/omaxian" ]; then
 	echo ":: dropped upstream default/agents/skills/omarchy"
 fi
 
+# Stock shell.json lives under share ($OMARCHY_PATH/shell.json). The live
+# user file is ~/.config/omarchy/shell.json (Settings / bar layout). Seed
+# once when missing so redeploy never wipes widget options or layout edits.
+USER_SHELL_JSON="$HOME/.config/omarchy/shell.json"
+DEFAULT_SHELL_JSON="$HOME/.local/share/omarchy/shell.json"
+mkdir -p "$HOME/.config/omarchy"
+if [[ ! -f $USER_SHELL_JSON ]]; then
+	if [[ ! -f $DEFAULT_SHELL_JSON ]]; then
+		echo "!! missing stock defaults: $DEFAULT_SHELL_JSON" >&2
+		exit 1
+	fi
+	cp -a "$DEFAULT_SHELL_JSON" "$USER_SHELL_JSON"
+	echo ":: seeded $USER_SHELL_JSON from defaults"
+else
+	echo ":: kept existing $USER_SHELL_JSON (Settings / user layout)"
+fi
+
 echo
 echo "-- 3/4  ~/.xsessionrc (OMARCHY_PATH + PATH) -----------------------------"
 # Sourced by /etc/X11/Xsession before i3 starts — without it i3 (and every

@@ -258,6 +258,6 @@ Do not use this skill for:
 - "Set a reminder to pickup jack in 15 minutes" → `omarchy-reminder 15 "Pickup Jack"`
 - "Customize a theme's colors" → overlay in `~/.config/omarchy/themes/<slug>/` (see `theming.md`)
 - "Change how workspace labels are rendered" → `omarchy-plugin-clone omarchy.workspaces`, then edit the clone
-- "Reset the bar" → Settings (Super+Ctrl+S) or restore `~/.config/omarchy/shell.json` from the checkout
+- "Reset the bar" → Settings (Super+Ctrl+S), or `rm ~/.config/omarchy/shell.json` and re-run `./deploy.sh` (re-seeds from `$OMARCHY_PATH/shell.json`)
 - "Take a screenshot" → Super+Ctrl+C or `i3_screenshot --now` (see `capture.md`)
 - "Report this bug" → see `contributing.md`
