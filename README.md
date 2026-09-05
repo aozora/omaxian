@@ -19,12 +19,15 @@ Porting notes and file-by-file diffs live in [`docs/omarchy-port/`](docs/omarchy
 <table>
   <tr>
     <td align="center" width="33%"><img src="gallery/menu.png" alt="Menu" width="100%"/><br/><sub>Menu</sub></td>
-    <td align="center" width="33%"><img src="gallery/control-panel.png" alt="Control Panel" width="100%"/><br/><sub>Control Panel</sub></td>
+    <td align="center" width="33%"><img src="gallery/media.png" alt="Media" width="100%"/><br/><sub>Media</sub></td>
     <td align="center" width="33%"><img src="gallery/weather.png" alt="Weather" width="100%"/><br/><sub>Weather</sub></td>
   </tr>
   <tr>
     <td align="center" width="33%"><img src="gallery/settings.png" alt="Settings" width="100%"/><br/><sub>Settings</sub></td>
     <td align="center" width="33%"><img src="gallery/key-bindings.png" alt="Key bindings" width="100%"/><br/><sub>Key bindings</sub></td>
+    <td align="center" width="33%"><img src="gallery/control-panel.png" alt="Control Panel" width="100%"/><br/><sub>Control Panel</sub></td>
+  </tr>
+  <tr>
     <td align="center" width="33%"><img src="gallery/power-menu.png" alt="Power menu" width="100%"/><br/><sub>Power menu</sub></td>
   </tr>
 </table>
