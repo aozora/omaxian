@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
@@ -8,9 +9,11 @@ import qs.Services
 import qs.Ui
 import "Model.js" as Model
 
-// Control Panel tab: wallpaper picker. Image list via bash Process (ThemeTab
-// pattern). FolderPicker stays inline — a nested URL Loader for the picker
-// overlay failed to activate on click (resolvedUrl / async active race).
+// Control Panel tab: wallpaper picker. Same FolderListModel grid as
+// WallpaperButton — find|sort was picking up macOS AppleDouble `._*.jpg`
+// sidecars (locale sort pairs them with the real file → empty odd columns).
+// FolderListModel with showHidden: false skips those; FolderPicker stays
+// inline (nested URL Loader failed to activate on click).
 Item {
   id: root
 
@@ -18,7 +21,6 @@ Item {
 
   property string subTab: "theme"
   property string localFolder: ""
-  property var images: []
   readonly property bool folderPickerOpen: picker.visible
 
   readonly property string themeDir:
@@ -39,46 +41,27 @@ Item {
     onLoadFailed: root.localFolder = ""
   }
 
+  FolderListModel {
+    id: bgModel
+    showDirs: false
+    showHidden: false
+    showOnlyReadable: true
+    sortField: FolderListModel.Name
+    nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp"]
+  }
+
+  // Imperative folder set: `current/theme` is a symlink that can keep the
+  // same URL string while resolving elsewhere — clear first to force rescan.
   function refresh() {
-    if (!root.activeDir.length) {
-      root.images = []
-      return
-    }
-    listProc.command = ["bash", "-c",
-      "dir=" + JSON.stringify(root.activeDir) + "; " +
-      "[ -d \"$dir\" ] || exit 0; " +
-      "find -L \"$dir\" -maxdepth 1 -type f \\( " +
-      "-iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o " +
-      "-iname '*.webp' -o -iname '*.bmp' \\) -print | sort"]
-    listProc.running = false
-    listProc.running = true
+    var target = root.activeDir.length ? "file://" + root.activeDir : ""
+    bgModel.folder = ""
+    if (target.length) bgModel.folder = target
   }
 
   onActiveDirChanged: if (active) root.refresh()
   onActiveChanged: {
     if (active) root.refresh()
     else picker.visible = false
-  }
-
-  Process {
-    id: listProc
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var out = []
-        var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) {
-          var p = lines[i].replace(/\r$/, "")
-          if (!p.length) continue
-          var slash = p.lastIndexOf("/")
-          out.push({
-            path: p,
-            name: slash >= 0 ? p.slice(slash + 1) : p,
-            url: "file://" + p
-          })
-        }
-        root.images = out
-      }
-    }
   }
 
   ColumnLayout {
@@ -96,7 +79,7 @@ Item {
         font.bold: true
       }
       Text {
-        text: root.images.length + (root.images.length === 1 ? " image" : " images")
+        text: bgModel.count + (bgModel.count === 1 ? " image" : " images")
         color: BarPalette.popupSubtext
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
@@ -138,7 +121,7 @@ Item {
     }
 
     Text {
-      visible: root.images.length === 0
+      visible: bgModel.status === FolderListModel.Ready && bgModel.count === 0
       Layout.fillWidth: true
       text: root.subTab === "folder"
             ? (root.localFolder.length ? "No images in " + root.localFolder
@@ -156,12 +139,14 @@ Item {
       clip: true
       cellWidth: Style.space(240)
       cellHeight: Style.space(150)
-      model: root.images
+      model: bgModel
 
       delegate: Item {
         id: cell
         required property int index
-        required property var modelData
+        required property string fileName
+        required property string filePath
+        required property url fileUrl
         width: grid.cellWidth
         height: grid.cellHeight
 
@@ -181,14 +166,14 @@ Item {
             fillMode: Image.PreserveAspectCrop
             sourceSize.width: thumb.width
             sourceSize.height: thumb.height
-            source: cell.modelData.url
+            source: cell.fileUrl
           }
         }
 
         HoverHandler { id: hoverHandler }
         TapHandler {
           onTapped: {
-            Quickshell.execDetached(["omarchy-theme-bg-set", cell.modelData.path])
+            Quickshell.execDetached(["omarchy-theme-bg-set", cell.filePath])
             // Keep Control Panel open so the user can try several wallpapers.
           }
         }

@@ -33,10 +33,6 @@ Item {
 
   property string currentPath: ""
 
-  onVisibleChanged: {
-    if (visible) Qt.callLater(function() { if (root.visible) keyCatcher.forceActiveFocus() })
-  }
-
   function _norm(p) {
     var s = String(p || "").trim()
     while (s.length > 1 && s.charAt(s.length - 1) === "/") s = s.slice(0, -1)
@@ -57,7 +53,8 @@ Item {
     root.currentPath = _norm(root.startPath && root.startPath.length
                              ? root.startPath : Quickshell.env("HOME"))
     _rescan()
-    keyCatcher.forceActiveFocus()
+    // Deferred: KeyboardPanel's open focus nudge can race this overlay.
+    Qt.callLater(function() { if (root.visible) keyCatcher.forceActiveFocus() })
   }
   onCurrentPathChanged: _rescan()
 
