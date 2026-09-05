@@ -16,7 +16,7 @@ Item {
   id: root
 
   property bool opened: false
-  property string icon: ""
+  property string icon: "󰕾"
   property string message: ""
   property string iconKey: ""
   property int value: 0
@@ -25,6 +25,12 @@ Item {
   property int duration: 1200
 
   readonly property bool mediaOsd: iconKey.indexOf("media") === 0 || iconKey.indexOf("player") === 0
+
+  // Volume/brightness glyphs are Nerd Font / MDI codepoints. Style.font.family
+  // stays "monospace" on this port (no fc-match resolver), which resolves to
+  // DejaVu — Font Awesome BMP speakers (U+F026–F028) then fall back to Arial
+  // PUA junk. Pin a Nerd Font face that actually has the Material volume set.
+  readonly property string iconFontFamily: "JetBrainsMono Nerd Font"
 
   readonly property int pad: Style.space(16)
   readonly property int gap: Style.space(16)
@@ -104,7 +110,7 @@ Item {
 
   TextMetrics {
     id: iconMetrics
-    font.family: Style.font.family
+    font.family: root.iconFontFamily
     font.pixelSize: Style.font.displayLarge
     text: root.icon
   }
@@ -180,11 +186,15 @@ Item {
           height: parent.height
           Text {
             textFormat: Text.PlainText
-            x: Math.round((root.iconWidth - root.iconInkWidth) / 2 - iconMetrics.tightBoundingRect.x)
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.centerIn: parent
+            // Optical center: Nerd Font icons often have a non-zero ink origin.
+            anchors.horizontalCenterOffset: Math.round(
+              (implicitWidth / 2) - (iconMetrics.tightBoundingRect.x + root.iconInkWidth / 2))
             text: root.icon
-            font: iconMetrics.font
             color: Color.popups.text
+            font.family: root.iconFontFamily
+            font.pixelSize: Style.font.displayLarge
+            renderType: Text.NativeRendering
           }
         }
 
