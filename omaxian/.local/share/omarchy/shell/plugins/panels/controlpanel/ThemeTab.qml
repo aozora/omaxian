@@ -15,12 +15,20 @@ Item {
 
   property bool active: false
   property var themes: []
-  signal picked()
 
   implicitWidth: Style.space(1000)
   implicitHeight: Style.space(680)
 
   function refresh() { proc.running = true }
+
+  // theme-set updates the current symlink asynchronously; delay so the
+  // "current" border lands on the theme the user just picked.
+  Timer {
+    id: refreshAfterPick
+    interval: 400
+    repeat: false
+    onTriggered: root.refresh()
+  }
 
   onActiveChanged: if (active) root.refresh()
 
@@ -138,7 +146,8 @@ Item {
         TapHandler {
           onTapped: {
             Quickshell.execDetached(["omarchy-theme-set", cell.modelData.slug])
-            root.picked()
+            // Stay open so the user can compare themes; refresh marks the new current.
+            refreshAfterPick.restart()
           }
         }
       }

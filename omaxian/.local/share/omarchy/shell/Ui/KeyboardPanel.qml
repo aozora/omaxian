@@ -55,6 +55,13 @@ PopupWindow {
   // surface is mapped and children have laid out.
   property Item focusTarget: null
 
+  // Escape closes the panel even when a child (Button, GridView, …) stole
+  // activeFocus after a click — Keys handlers on the catcher alone are not
+  // enough under X11 PopupWindow. Editors that need Escape for themselves
+  // set `blocked` on the focusTarget (PanelKeyCatcher) or bind escapeBlocked.
+  property bool escapeCloses: true
+  property bool escapeBlocked: false
+
   default property alias contentItem: contentHolder.children
 
   readonly property var coordinatorKey: owner || root
@@ -116,6 +123,34 @@ PopupWindow {
   // keyboard focus for the PanelKeyCatcher / text fields inside.
   grabFocus: true
 
+  // Under i3, Qt::Popup / override-redirect windows do not get X11 keyboard
+  // focus on map — forceActiveFocus only picks the item. Menu/CenteredModal
+  // and PopupCard already nudge with focus-window.py; without that Escape
+  // lands on whatever i3 still considers focused (a browser, terminal, …).
+  Timer {
+    id: focusNudge
+    interval: 60
+    onTriggered: {
+      if (!root.open) return
+      Quickshell.execDetached(["python3", Quickshell.shellDir + "/scripts/focus-window.py"])
+      if (root.focusTarget) root.focusTarget.forceActiveFocus()
+      else contentHolder.forceActiveFocus()
+    }
+  }
+
+  function handleEscape() {
+    if (!root.open || !root.escapeCloses || root.escapeBlocked) return
+    if (root.focusTarget && root.focusTarget.blocked === true) return
+    root.close()
+  }
+
+  Shortcut {
+    sequence: "Escape"
+    enabled: root.open && root.escapeCloses && !root.escapeBlocked
+             && !(root.focusTarget && root.focusTarget.blocked === true)
+    onActivated: root.handleEscape()
+  }
+
   onVisibleChanged: {
     // grabFocus dismissal writes `visible = false` directly; propagate that
     // to the logical close so the owner's state follows.
@@ -131,11 +166,7 @@ PopupWindow {
       // grabFocus dismissal breaks the declarative `visible` binding by
       // assigning it directly; re-arm on every open.
       visible = Qt.binding(function() { return root.open || card.opacity > 0 || root.popoutSwitching })
-      Qt.callLater(function() {
-        if (!root.open) return
-        if (root.focusTarget) root.focusTarget.forceActiveFocus()
-        else contentHolder.forceActiveFocus()
-      })
+      focusNudge.restart()
     }
     if (!bar) return
     if (open) {
@@ -257,7 +288,7 @@ PopupWindow {
       focus: true
       Keys.priority: Keys.AfterItem
       Keys.onEscapePressed: function(event) {
-        root.close()
+        root.handleEscape()
         event.accepted = true
       }
 

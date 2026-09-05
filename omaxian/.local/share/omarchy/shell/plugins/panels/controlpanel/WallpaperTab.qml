@@ -15,11 +15,11 @@ Item {
   id: root
 
   property bool active: false
-  signal picked()
 
   property string subTab: "theme"
   property string localFolder: ""
   property var images: []
+  readonly property bool folderPickerOpen: picker.visible
 
   readonly property string themeDir:
     Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/backgrounds"
@@ -189,7 +189,7 @@ Item {
         TapHandler {
           onTapped: {
             Quickshell.execDetached(["omarchy-theme-bg-set", cell.modelData.path])
-            root.picked()
+            // Keep Control Panel open so the user can try several wallpapers.
           }
         }
       }

@@ -33,6 +33,10 @@ Item {
 
   property string currentPath: ""
 
+  onVisibleChanged: {
+    if (visible) Qt.callLater(function() { if (root.visible) keyCatcher.forceActiveFocus() })
+  }
+
   function _norm(p) {
     var s = String(p || "").trim()
     while (s.length > 1 && s.charAt(s.length - 1) === "/") s = s.slice(0, -1)

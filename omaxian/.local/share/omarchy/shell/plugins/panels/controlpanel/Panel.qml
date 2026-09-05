@@ -112,14 +112,19 @@ Panel {
     contentHeight: panel.fittedContentHeight(layoutRow.implicitHeight)
 
     focusTarget: keyCatcher
+    // Wallpaper folder picker owns Escape while open; otherwise ESC dismisses.
+    escapeBlocked: !!(wallpaperLoader.item && wallpaperLoader.item.folderPickerOpen)
 
     Item {
       id: keyCatcher
       anchors.fill: parent
       focus: true
+      // Lets KeyboardPanel's Escape Shortcut treat an open folder picker as blocked.
+      property bool blocked: panel.escapeBlocked
       Keys.priority: Keys.BeforeItem
       Keys.onPressed: function(event) {
         if (event.key === Qt.Key_Escape) {
+          if (blocked) return
           root.close(); event.accepted = true; return
         }
         if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
@@ -222,8 +227,6 @@ Panel {
             property string tabId: ""
             property string tabUrl: ""
             property bool needsBar: true
-            property bool emitsPicked: false
-            property bool _pickedHooked: false
 
             anchors.fill: parent
             visible: root.activeTab === tabId
@@ -240,7 +243,6 @@ Panel {
                 setSource(Qt.resolvedUrl(tabUrl), props)
               } else if (!root.opened) {
                 source = ""
-                _pickedHooked = false
               }
             }
 
@@ -253,10 +255,6 @@ Panel {
               if (!item) return
               if (needsBar) item.bar = root.bar
               item.active = root.opened && visible
-              if (emitsPicked && item.picked && !_pickedHooked) {
-                item.picked.connect(function() { root.close() })
-                _pickedHooked = true
-              }
             }
 
             Binding {
@@ -288,14 +286,12 @@ Panel {
             tabId: "wallpaper"
             tabUrl: "WallpaperTab.qml"
             needsBar: false
-            emitsPicked: true
           }
           TabLoader {
             id: themeLoader
             tabId: "theme"
             tabUrl: "ThemeTab.qml"
             needsBar: false
-            emitsPicked: true
           }
           TabLoader {
             id: monitorLoader

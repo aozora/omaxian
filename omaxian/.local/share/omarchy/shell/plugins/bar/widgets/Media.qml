@@ -313,6 +313,8 @@ BarWidget {
             onCloseRequested: root.close()
 
             Keys.onEscapePressed: function (event) {
+                // KeyboardPanel's Escape Shortcut also closes; keep this as a
+                // belt-and-braces path when the catcher still has focus.
                 root.close();
                 event.accepted = true;
             }
