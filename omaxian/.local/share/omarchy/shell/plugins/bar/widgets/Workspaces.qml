@@ -43,13 +43,17 @@ BarWidget {
   }
 
   function focusWorkspace(n) {
-    if (!root.bar) return
-    // `unset I3SOCK`: i3's own `/proc/environ` keeps the socket path from
-    // before an i3 restart (e.g. `ipc-socket.2164` while the live one is
-    // `ipc-socket.12603`), and the whole shell process tree inherits that
-    // stale value — `i3-msg` then can't connect. With it unset, `i3-msg`
-    // falls back to the live `I3_SOCKET_PATH` X root-window property.
-    root.bar.run("unset I3SOCK; exec i3-msg -q workspace number " + n)
+    // In-process i3 IPC — do not go through `bar.run` / `bash -lc`.
+    // Login shells source ~/.profile → ~/.bashrc (nvm, etc.), which can stall
+    // the click→switch path for seconds. `I3.dispatch` uses Quickshell's
+    // already-open socket, so it also sidesteps the stale-$I3SOCK trap that
+    // forced the old `unset I3SOCK; i3-msg` dance.
+    var ws = root.workspaceByNumber(n)
+    if (ws) {
+      ws.activate()
+      return
+    }
+    I3.dispatch("workspace number " + n)
   }
 
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)

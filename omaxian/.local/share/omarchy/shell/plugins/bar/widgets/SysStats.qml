@@ -37,9 +37,11 @@ BarWidget {
     repeat: true
     triggeredOnStart: true
     onTriggered: {
-      cpuProc.running = true
-      ramProc.running = true
-      gpuProc.running = true
+      if (!cpuProc.running) cpuProc.running = true
+      if (!ramProc.running) ramProc.running = true
+      // gpu.sh can take >1s (radeontop -l 1). Never restart mid-sample —
+      // overlapping polls were keeping a bash child hot every tick.
+      if (!gpuProc.running) gpuProc.running = true
     }
   }
 

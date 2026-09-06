@@ -25,7 +25,6 @@ Item {
   // icon name -> file on disk, for icons Qt's themed lookup misses (installed
   // after this process started). Refreshed when the app list changes.
   property var iconIndex: ({})
-  property var pendingIconIndex: ({})
 
   // Loose AppImages (no .desktop) found under the usual drop dirs, as
   // {name, path}. Flatpak + AppImageLauncher-integrated AppImages already
@@ -219,34 +218,9 @@ Item {
     root.appsChanged()
   }
 
-  function iconIndexScanCommand() {
-    return [
-      'dirs="$HOME/.icons $HOME/.local/share/icons";',
-      'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do dirs="$dirs $d/icons"; done; unset IFS;',
-      'for ext in svg png; do',
-      '  for base in $dirs; do',
-      '    [[ -d $base ]] && find "$base" \\( -path "*/apps/*" -o -path "*/devices/*" \\) -name "*.$ext" 2>/dev/null;',
-      '  done;',
-      '  find /usr/share/pixmaps -maxdepth 1 -name "*.$ext" 2>/dev/null;',
-      'done'
-    ].join(' ')
-  }
-
-  function indexIconLine(path) {
-    var value = String(path || "").trim()
-    if (value.length === 0) return
-    var slash = value.lastIndexOf("/")
-    var file = slash >= 0 ? value.slice(slash + 1) : value
-    var dot = file.lastIndexOf(".")
-    var name = dot > 0 ? file.slice(0, dot) : file
-    if (name.length === 0) return
-    var existing = root.pendingIconIndex[name]
-    if (existing === undefined || root.iconPathScore(value) > root.iconPathScore(existing))
-      root.pendingIconIndex[name] = value
-  }
-
   // Higher is better: SVG / scalable beat sized PNGs; among PNGs prefer the
-  // largest theme size directory (256x256 > 48x48 > 16x16).
+  // largest theme size directory (256x256 > 48x48 > 16x16). Kept for
+  // services/icon-index.py score parity / any caller that still scores paths.
   function iconPathScore(path) {
     var p = String(path || "")
     var lower = p.toLowerCase()
@@ -263,6 +237,17 @@ Item {
     return Util.shellQuote(script) + " " + Util.shellQuote(desktop)
   }
 
+  function applyIconIndexJson(rawText) {
+    var parsed = null
+    try {
+      parsed = JSON.parse(String(rawText || "").trim() || "{}")
+    } catch (e) {
+      return
+    }
+    if (!parsed || typeof parsed !== "object") return
+    root.iconIndex = parsed
+  }
+
   QtObject {
     id: hiddenEntryOutput
     property string text: ""
@@ -276,12 +261,15 @@ Item {
     onExited: root.loadDesktopHiddenEntries(hiddenEntryOutput.text)
   }
 
+  // Merge happens in services/icon-index.py — one JSON blob — so the UI
+  // thread never walks ~10^5 find paths line-by-line (that was pegging the
+  // main thread and delaying bar clicks like workspace switches for seconds).
   Process {
     id: iconIndexScan
-    command: ["bash", "-c", root.iconIndexScanCommand()]
-    stdout: SplitParser { onRead: function(line) { root.indexIconLine(line) } }
-    onStarted: root.pendingIconIndex = ({})
-    onExited: root.iconIndex = root.pendingIconIndex
+    command: ["python3", root.omarchyPath + "/shell/services/icon-index.py"]
+    stdout: StdioCollector {
+      onStreamFinished: root.applyIconIndexJson(text)
+    }
   }
 
   Process {
@@ -303,6 +291,12 @@ Item {
     onTriggered: if (!iconIndexScan.running) iconIndexScan.running = true
   }
 
+  Timer {
+    id: hiddenEntryDebounce
+    interval: 750
+    onTriggered: if (!hiddenEntryScan.running) hiddenEntryScan.running = true
+  }
+
   FileView {
     path: root.omarchyPath + "/default/omarchy/launcher.hides"
     watchChanges: true
@@ -315,7 +309,10 @@ Item {
   Connections {
     target: DesktopEntries.applications
     function onValuesChanged() {
-      hiddenEntryScan.running = true
+      // Debounce: DesktopEntries can emit bursts; restarting scans on every
+      // tick left hidden-entries.sh / icon-index overlapping and starved the
+      // UI thread.
+      hiddenEntryDebounce.restart()
       iconIndexDebounce.restart()
       root.appsChanged()
     }
