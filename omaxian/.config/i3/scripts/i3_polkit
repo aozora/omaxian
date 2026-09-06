@@ -30,6 +30,8 @@ fi
 
 agents=(
 	/usr/libexec/polkit-mate-authentication-agent-1
+	# Ubuntu/Xubuntu xfce-polkit ships as a single binary here (not a subdirectory).
+	/usr/libexec/xfce-polkit
 	/usr/lib/xfce-polkit/xfce-polkit
 	/usr/libexec/xfce-polkit/xfce-polkit
 	/usr/lib/policykit-1-gnome/polkit-gnome-authentication-agent-1

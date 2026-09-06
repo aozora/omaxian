@@ -15,8 +15,8 @@
 
   // System
   "system.lock": {"icon": "󰌾", "label": "Lock", "action": "omarchy-system-lock"},
-  "system.suspend": {"icon": "󰒲", "label": "Suspend", "when": "! omarchy-toggle-enabled suspend-off", "action": "loginctl suspend"},
-  "system.hibernate": {"icon": "󰤁", "label": "Hibernate", "when": "grep -q disk /sys/power/state 2>/dev/null", "action": "loginctl hibernate"},
+  "system.suspend": {"icon": "󰒲", "label": "Suspend", "when": "! omarchy-toggle-enabled suspend-off", "action": "omarchy-host suspend"},
+  "system.hibernate": {"icon": "󰤁", "label": "Hibernate", "when": "grep -q disk /sys/power/state 2>/dev/null", "action": "omarchy-host hibernate"},
   "system.logout": {"icon": "󰍃", "label": "Logout", "action": "omarchy-system-logout"},
   "system.reboot": {"icon": "󰜉", "label": "Reboot", "action": "omarchy-system-reboot"},
   "system.shutdown": {"icon": "󰐥", "label": "Shutdown", "action": "omarchy-system-shutdown"},

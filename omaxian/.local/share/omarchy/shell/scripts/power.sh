@@ -21,26 +21,19 @@ case "$action" in
 		fi
 		;;
 	logout)
-		if command -v i3-msg >/dev/null 2>&1 && pgrep -x i3 >/dev/null 2>&1; then
-			# unset I3SOCK — the shell tree may carry a stale path (see
-			# plugins/bar/widgets/Workspaces.qml); fall back to the X property.
-			unset I3SOCK
-			i3-msg exit
-		elif command -v loginctl >/dev/null 2>&1; then
-			loginctl terminate-session "${XDG_SESSION_ID:-}"
-		fi
+		omarchy-host logout
 		;;
 	suspend)
-		command -v loginctl >/dev/null 2>&1 && loginctl suspend
+		omarchy-host suspend
 		;;
 	hibernate)
-		command -v loginctl >/dev/null 2>&1 && loginctl hibernate
+		omarchy-host hibernate
 		;;
 	reboot)
-		command -v loginctl >/dev/null 2>&1 && loginctl reboot
+		omarchy-host reboot
 		;;
 	shutdown|poweroff)
-		command -v loginctl >/dev/null 2>&1 && loginctl poweroff
+		omarchy-host poweroff
 		;;
 	*)
 		echo "usage: power.sh lock|logout|suspend|hibernate|reboot|shutdown" >&2

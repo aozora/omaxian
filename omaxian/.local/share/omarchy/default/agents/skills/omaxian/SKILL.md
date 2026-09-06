@@ -199,7 +199,7 @@ first. For a single file, copy just that file from the checkout.
 
 ```bash
 omarchy-system-lock       # i3lock / i3lock-fancy
-omarchy-system-logout     # loginctl / i3-msg exit
+omarchy-system-logout     # omarchy-host logout (i3-msg / loginctl)
 omarchy-system-shutdown
 omarchy-system-reboot
 ```

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# omarchy:summary=Compat alias for omarchy-host (prefer omarchy-host)
+# omarchy:hidden=true
+# omarchy:args=poweroff|reboot|suspend|hibernate|hybrid-sleep
+
+exec omarchy-host "$@"

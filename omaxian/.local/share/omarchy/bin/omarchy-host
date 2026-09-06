@@ -1,0 +1,257 @@
+#!/bin/bash
+
+# omarchy:summary=Distro-agnostic host power/session actions
+# omarchy:hidden=true
+# omarchy:args=poweroff|reboot|suspend|hibernate|hybrid-sleep|logout
+#
+# Callers (Menu, bar power.sh, omarchy-system-*) should invoke this instead of
+# hard-coding systemctl/loginctl. Backends are probed by capability:
+#   1. systemctl  — systemd hosts (Ubuntu, …); /run/systemd/system present
+#   2. loginctl   — elogind (Devuan) or systemd logind when the verb exists
+#   3. shutdown   — poweroff/reboot last resort (shutdown(8) / poweroff / reboot)
+#
+# Quickshell is setsid'd (i3_bar). Power verbs that need polkit "active seat"
+# are re-entered via `i3-msg exec` so the subject is the graphical session.
+
+set -euo pipefail
+
+CACHE_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy"
+
+usage() {
+  echo "usage: omarchy-host poweroff|reboot|suspend|hibernate|hybrid-sleep|logout" >&2
+}
+
+notify_fail() {
+  local err=$1
+  if command -v omarchy-notification-send >/dev/null 2>&1; then
+    omarchy-notification-send -u critical "Power action failed" "$err" >/dev/null 2>&1 || true
+  fi
+}
+
+# True when this loginctl build advertises the verb (elogind always does for
+# poweroff; some systemd builds expose session cmds only).
+loginctl_has_verb() {
+  local verb=$1
+  command -v loginctl >/dev/null 2>&1 || return 1
+  loginctl --help 2>&1 | grep -qE "^[[:space:]]+${verb}\b"
+}
+
+backend_can() {
+  local backend=$1 action=$2
+  case "$backend" in
+    systemctl)
+      command -v systemctl >/dev/null 2>&1 || return 1
+      # Real systemd (not a random systemctl stub on a non-systemd box).
+      [[ -d /run/systemd/system ]] || return 1
+      case "$action" in
+        poweroff | reboot | suspend | hibernate | hybrid-sleep) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+    loginctl)
+      case "$action" in
+        poweroff | reboot | suspend | hibernate | hybrid-sleep)
+          loginctl_has_verb "$action"
+          ;;
+        logout)
+          command -v loginctl >/dev/null 2>&1
+          ;;
+        *) return 1 ;;
+      esac
+      ;;
+    shutdown)
+      case "$action" in
+        poweroff)
+          command -v shutdown >/dev/null 2>&1 || command -v poweroff >/dev/null 2>&1
+          ;;
+        reboot)
+          command -v shutdown >/dev/null 2>&1 || command -v reboot >/dev/null 2>&1
+          ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+cache_path() {
+  printf '%s/host-backend-%s' "$CACHE_DIR" "$1"
+}
+
+resolve_backend() {
+  local action=$1
+  local cache path backend
+
+  path=$(cache_path "$action")
+  if [[ -r $path ]]; then
+    backend=$(<"$path")
+    if backend_can "$backend" "$action"; then
+      printf '%s\n' "$backend"
+      return 0
+    fi
+    rm -f "$path"
+  fi
+
+  for backend in systemctl loginctl shutdown; do
+    if backend_can "$backend" "$action"; then
+      mkdir -p "$CACHE_DIR"
+      printf '%s\n' "$backend" >"$path"
+      printf '%s\n' "$backend"
+      return 0
+    fi
+  done
+  return 1
+}
+
+invalidate_backend() {
+  rm -f "$(cache_path "$1")"
+}
+
+run_backend() {
+  local backend=$1 action=$2
+  case "$backend" in
+    systemctl)
+      systemctl "$action"
+      ;;
+    loginctl)
+      if [[ $action == logout ]]; then
+        loginctl terminate-session "${XDG_SESSION_ID:-}"
+      else
+        loginctl "$action"
+      fi
+      ;;
+    shutdown)
+      case "$action" in
+        poweroff)
+          if command -v shutdown >/dev/null 2>&1; then
+            shutdown -h now
+          else
+            poweroff
+          fi
+          ;;
+        reboot)
+          if command -v shutdown >/dev/null 2>&1; then
+            shutdown -r now
+          else
+            reboot
+          fi
+          ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+run_logout() {
+  # Prefer ending the WM; that returns to the greeter without needing polkit.
+  if command -v i3-msg >/dev/null 2>&1 && pgrep -x i3 >/dev/null 2>&1; then
+    unset I3SOCK
+    i3-msg exit
+    return 0
+  fi
+
+  local backend
+  if backend=$(resolve_backend logout); then
+    run_backend "$backend" logout
+    return
+  fi
+
+  echo "omarchy-host: no logout backend" >&2
+  return 1
+}
+
+run_power() {
+  local action=$1
+  local backend err=0 out="" cached="" order=()
+
+  # Prefer a previously working backend, then walk the full preference list
+  # so a failed systemctl attempt still falls through to loginctl/shutdown.
+  if cached=$(resolve_backend "$action" 2>/dev/null); then
+    order+=("$cached")
+  fi
+  for backend in systemctl loginctl shutdown; do
+    [[ $backend == "${cached:-}" ]] && continue
+    order+=("$backend")
+  done
+
+  for backend in "${order[@]}"; do
+    backend_can "$backend" "$action" || continue
+    if out=$(run_backend "$backend" "$action" 2>&1); then
+      mkdir -p "$CACHE_DIR"
+      printf '%s\n' "$backend" >"$(cache_path "$action")"
+      return 0
+    fi
+    err=$?
+    invalidate_backend "$action"
+  done
+
+  if (( err == 0 )); then
+    notify_fail "no backend for $action (need systemctl, loginctl, or shutdown)"
+    echo "omarchy-host: no backend for $action" >&2
+    return 1
+  fi
+
+  notify_fail "${out:-$action failed ($err)}"
+  [[ -n $out ]] && echo "$out" >&2
+  return "$err"
+}
+
+run_direct() {
+  local action=$1
+  case "$action" in
+    logout)
+      run_logout
+      ;;
+    poweroff | reboot | suspend | hibernate | hybrid-sleep)
+      run_power "$action"
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+}
+
+# --- main -------------------------------------------------------------------
+
+if [[ ${1:-} == --direct ]]; then
+  shift
+  if (( $# != 1 )); then
+    usage
+    exit 2
+  fi
+  run_direct "$1"
+  exit
+fi
+
+if (( $# != 1 )); then
+  usage
+  exit 2
+fi
+
+action=$1
+case "$action" in
+  logout)
+    # i3-msg exit needs no polkit seat dance.
+    run_direct logout
+    exit
+    ;;
+  poweroff | reboot | suspend | hibernate | hybrid-sleep)
+    ;;
+  shutdown)
+    action=poweroff
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+
+# Re-enter under i3 so polkit sees an active graphical session.
+if command -v i3-msg >/dev/null 2>&1 && pgrep -x i3 >/dev/null 2>&1; then
+  unset I3SOCK
+  exec i3-msg -q "exec --no-startup-id -- omarchy-host --direct $(printf '%q' "$action")"
+fi
+
+run_direct "$action"
