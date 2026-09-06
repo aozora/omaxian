@@ -39,6 +39,8 @@ redeploy, so layout edits survive.
 - Show / hide the bar (`omarchy-toggle-bar`, same as Menu → Toggle → Menu Bar)
 - Position: top / bottom / left / right
 - Transparent bar
+- Floating island (`island`, `islandMargin`, `islandRadius`) — inset rounded
+  chrome; see [bar.md](bar.md)
 - Center widget
 - Per-section widget list with up / down / remove
 - Available widgets that are not on the bar yet, with Add

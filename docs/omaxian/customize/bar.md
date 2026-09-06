@@ -38,6 +38,9 @@ theme's `colors.toml` / `shell.toml` or in the QML. The user `shell.json` and
   "enabled": true,
   "position": "top",
   "transparent": false,
+  "island": false,
+  "islandMargin": 8,
+  "islandRadius": 12,
   "centerAnchor": "omarchy.clock",
   "layout": { "...": "..." }
 }
@@ -50,11 +53,34 @@ theme's `colors.toml` / `shell.toml` or in the QML. The user `shell.json` and
 - `position` also drives the strut reservation (windows tile around the bar) and
   the direction the bar slides when auto-hidden.
 
-There is **no floating / detached / margin mode** — the bar is always a
-full-width (or full-height) edge dock. Upstream's drag-to-move and floating
-"ghost" bar were removed in this X11 port (see
-`docs/omarchy-port/deltas.md`). "Shape" is therefore limited to *thickness* and
-*internal corner rounding* (below).
+The bar remains an edge-docked strip (i3 reserves strut for its height/width).
+Upstream's drag-to-move and floating "ghost" bar overlays were removed in this
+X11 port (see `docs/omarchy-port/deltas.md`). Omaxian adds an optional
+**island** inset (below) — same idea as the dock's non-fullWidth pill.
+
+## Floating island
+
+Omaxian-only keys on the `bar` block (ignored by upstream Omarchy; default off
+so stock configs stay edge-flush). Editable under Settings → Bar.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `island` | `false` | When `true`, inset the bar chrome from the screen edges with rounded corners |
+| `islandMargin` | `8` | Outer padding (px) on all sides of the chrome; wallpaper shows through; click-through via a mask |
+| `islandRadius` | `12` (`Style.radiusPopup`) | Corner radius of the island chrome |
+
+The `PanelWindow` still spans the full edge and reserves
+`barSize + 2×islandMargin` as strut (windows tile past the whole strip,
+including the padding band). Only the inset pill paints and accepts input —
+same pattern as `omaxian.dock` with `fullWidth: false`.
+
+Combine with `"transparent": true` for a clear island (wallpaper through the
+pill too). Shape / thickness tokens (`size-horizontal`, `Style.cornerRadius`
+for widgets) are unchanged.
+
+Toggling `island` (or changing margin enough to resize the strut) may need
+`omarchy-restart-shell` — same caveat as the dock's `fullWidth` flag. Margin
+and radius tweaks while island is already on usually apply live.
 
 ## Transparency
 
@@ -105,12 +131,15 @@ from `hyprctl`; there is no compositor sync on i3/X11):
 
 ```qml
 property int cornerRadius: 8    // bar chips, workspace pills, generic Ui/ controls
-property int radiusPopup: 12    // popup cards opened from the bar
+property int radiusPopup: 12    // popup cards opened from the bar; default islandRadius
 property int gapsOut: 8         // gap between a popup and the bar edge
 ```
 
 Workspace pills, the panel-open indicator marks, hover fills, etc. all derive
 their radius from `Style.cornerRadius`. Edit here and restart the shell.
+
+The island chrome radius is separate: `bar.islandRadius` in `shell.json`
+(Settings → Bar), defaulting to `Style.radiusPopup` when unset.
 
 ## Colors
 

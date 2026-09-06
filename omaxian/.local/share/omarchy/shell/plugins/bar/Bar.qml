@@ -44,6 +44,9 @@ Item {
   property var fallbackBarConfig: ({
     position: "top",
     transparent: false,
+    island: false,
+    islandMargin: 8,
+    islandRadius: 12,
     centerAnchor: "omarchy.clock",
     layout: { left: [], center: [], right: [] }
   })
@@ -52,6 +55,11 @@ Item {
   property bool requestedTransparent: false
   property bool useTransparentForeground: false
   property bool transparent: false
+  // Omaxian-only: inset rounded "floating island" chrome (dock-style). Off by
+  // default so stock / upstream shell.json stays edge-flush.
+  property bool island: false
+  property int islandMargin: 8
+  property int islandRadius: 12
   property bool centerSectionHovered: false
   // One bar surface exists per monitor and each reports into this count, so a
   // pointer crossing from one monitor's bar to another's stays counted however
@@ -337,6 +345,9 @@ Item {
 
   readonly property bool vertical: position === "left" || position === "right"
   readonly property int barSize: vertical ? Style.bar.sizeVertical : Style.bar.sizeHorizontal
+  // Strut / panel size including outer island padding (wallpaper shows in the
+  // margin band; i3 still tiles past the full reserved strip).
+  readonly property int reservedBarSize: island ? (barSize + islandMargin * 2) : barSize
 
   function normalizePosition(value) {
     return BarModel.normalizePosition(value)
@@ -367,6 +378,12 @@ Item {
     position = normalizePosition(config.position)
     setRequestedTransparency(config.transparent === true)
     centerAnchor = Util.canonicalWidgetId(config.centerAnchor || "")
+
+    island = config.island === true
+    var margin = Number(config.islandMargin)
+    islandMargin = (isFinite(margin) && margin >= 0) ? Math.min(48, Math.round(margin)) : 8
+    var radius = Number(config.islandRadius)
+    islandRadius = (isFinite(radius) && radius >= 0) ? Math.min(48, Math.round(radius)) : Style.radiusPopup
 
     // layoutEntries feeds plain JS arrays to the module Repeaters, and QML
     // cannot diff those: reassigning layoutConfig rebuilds every widget on
@@ -1008,10 +1025,10 @@ Item {
     }
 
     margins {
-      top: root.barHidden && root.position === "top" ? -root.barSize : 0
-      bottom: root.barHidden && root.position === "bottom" ? -root.barSize : 0
-      left: root.barHidden && root.position === "left" ? -root.barSize : 0
-      right: root.barHidden && root.position === "right" ? -root.barSize : 0
+      top: root.barHidden && root.position === "top" ? -root.reservedBarSize : 0
+      bottom: root.barHidden && root.position === "bottom" ? -root.reservedBarSize : 0
+      left: root.barHidden && root.position === "left" ? -root.reservedBarSize : 0
+      right: root.barHidden && root.position === "right" ? -root.reservedBarSize : 0
     }
 
     anchors {
@@ -1021,27 +1038,50 @@ Item {
       right: root.position === "right" || !root.vertical
     }
 
-    implicitWidth: root.vertical ? root.barSize : 0
-    implicitHeight: root.vertical ? 0 : root.barSize
-    color: root.transparent ? "transparent" : root.background
+    implicitWidth: root.vertical ? root.reservedBarSize : 0
+    implicitHeight: root.vertical ? 0 : root.reservedBarSize
+    // Island paints chrome on islandPill; the panel itself stays clear so the
+    // outer margin band shows the wallpaper (and is click-through via mask).
+    color: root.island || root.transparent ? "transparent" : root.background
     surfaceFormat.opaque: false
     // X11: a Quickshell.I3 PanelWindow already maps as _NET_WM_WINDOW_TYPE_DOCK,
     // which i3 stacks above normal windows. `aboveWindows: true` additionally
     // forced it over *everything* incl. Qt::Popup grabs, which broke
     // click-outside dismissal of widget popups (PopupCard.grabFocus). Dropped.
+    mask: root.island ? islandMask : null
 
-    Loader {
+    Region {
+      id: islandMask
+      item: islandPill
+    }
+
+    Item {
+      id: barContent
       anchors.fill: parent
-      sourceComponent: root.vertical ? verticalBar : horizontalBar
+      anchors.margins: root.island ? root.islandMargin : 0
+      clip: root.island
 
-      // A child of the loader, not a sibling of the sections: an ancestor stays
-      // hovered while the pointer is over a widget, where a sibling would lose
-      // hover to the section the pointer entered.
-      HoverHandler {
-        onHoveredChanged: root.setBarHovered(hovered)
-        // Unplugging a monitor destroys its bar without a leave event, which
-        // would strand this surface's tally and hold the peek open for good.
-        Component.onDestruction: if (hovered) root.setBarHovered(false)
+      Rectangle {
+        id: islandPill
+        anchors.fill: parent
+        visible: root.island
+        color: root.transparent ? "transparent" : root.background
+        radius: root.islandRadius
+      }
+
+      Loader {
+        anchors.fill: parent
+        sourceComponent: root.vertical ? verticalBar : horizontalBar
+
+        // A child of the loader, not a sibling of the sections: an ancestor stays
+        // hovered while the pointer is over a widget, where a sibling would lose
+        // hover to the section the pointer entered.
+        HoverHandler {
+          onHoveredChanged: root.setBarHovered(hovered)
+          // Unplugging a monitor destroys its bar without a leave event, which
+          // would strand this surface's tally and hold the peek open for good.
+          Component.onDestruction: if (hovered) root.setBarHovered(false)
+        }
       }
     }
 

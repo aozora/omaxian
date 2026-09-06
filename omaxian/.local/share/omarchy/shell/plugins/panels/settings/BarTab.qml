@@ -33,6 +33,15 @@ Item {
     return /^(top|bottom|left|right)$/.test(p) ? p : "top"
   }
   readonly property bool transparent: bar.transparent === true
+  readonly property bool island: bar.island === true
+  readonly property int islandMargin: {
+    var n = Number(bar.islandMargin)
+    return (isFinite(n) && n >= 0) ? Math.min(48, Math.round(n)) : 8
+  }
+  readonly property int islandRadius: {
+    var n = Number(bar.islandRadius)
+    return (isFinite(n) && n >= 0) ? Math.min(48, Math.round(n)) : Style.radiusPopup
+  }
   ListModel { id: leftModel }
   ListModel { id: centerModel }
   ListModel { id: rightModel }
@@ -161,6 +170,20 @@ Item {
 
   function setTransparent(next) {
     mutateBar(function(cfg) { cfg.bar.transparent = next === true })
+  }
+
+  function setIsland(next) {
+    mutateBar(function(cfg) { cfg.bar.island = next === true })
+  }
+
+  function setIslandMargin(value) {
+    var n = Math.min(48, Math.max(0, Math.round(Number(value) || 0)))
+    mutateBar(function(cfg) { cfg.bar.islandMargin = n })
+  }
+
+  function setIslandRadius(value) {
+    var n = Math.min(48, Math.max(0, Math.round(Number(value) || 0)))
+    mutateBar(function(cfg) { cfg.bar.islandRadius = n })
   }
 
   function toggleBarVisible() {
@@ -469,6 +492,42 @@ Item {
         foreground: root.foreground
         fontFamily: root.fontFamily
         onClicked: root.setTransparent(!root.transparent)
+      }
+
+      Toggle {
+        width: parent.width
+        label: "Floating island"
+        description: "Inset the bar from the screen edges with rounded corners. Outer padding shows the wallpaper and is click-through. Toggling this may need a shell restart."
+        checked: root.island
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.setIsland(!root.island)
+      }
+
+      NumberField {
+        width: parent.width
+        enabled: root.island
+        opacity: root.island ? 1 : 0.45
+        label: "Island margin"
+        value: root.islandMargin
+        from: 0
+        to: 48
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onModified: function(v) { root.setIslandMargin(v) }
+      }
+
+      NumberField {
+        width: parent.width
+        enabled: root.island
+        opacity: root.island ? 1 : 0.45
+        label: "Island corner radius"
+        value: root.islandRadius
+        from: 0
+        to: 48
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onModified: function(v) { root.setIslandRadius(v) }
       }
 
       SectionBlock { title: "Left"; sectionModel: leftModel }
