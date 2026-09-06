@@ -272,3 +272,11 @@ function serializeWallpaperSettings(settings) {
     localFolder: (typeof s.localFolder === "string") ? s.localFolder.trim() : ""
   }, null, 2)
 }
+
+// Pull WxH from names like wallpaper-v1-nebula-ridge-2560x1440.png.
+function wallpaperSizeLabel(fileName) {
+  var name = String(fileName || "")
+  var m = name.match(/(\d{3,5})x(\d{3,5})/i)
+  if (!m) return ""
+  return m[1] + "x" + m[2]
+}

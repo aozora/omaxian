@@ -168,6 +168,29 @@ Item {
             sourceSize.height: thumb.height
             source: cell.fileUrl
           }
+
+          // Resolution from the filename (e.g. …-2560x1440.png) — helps tell
+          // apart the same art shipped at 16:9 / ultrawide / 4K sizes.
+          Rectangle {
+            id: sizeBadge
+            visible: sizeLabel.text.length > 0
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.margins: Style.space(4)
+            radius: Style.cornerRadius
+            color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 0.78)
+            width: sizeLabel.implicitWidth + Style.space(8)
+            height: sizeLabel.implicitHeight + Style.space(4)
+
+            Text {
+              id: sizeLabel
+              anchors.centerIn: parent
+              text: Model.wallpaperSizeLabel(cell.fileName)
+              color: Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+          }
         }
 
         HoverHandler { id: hoverHandler }
