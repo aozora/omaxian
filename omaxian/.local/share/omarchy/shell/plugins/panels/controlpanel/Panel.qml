@@ -39,6 +39,13 @@ Panel {
 
   property string activeTab: "audio"
 
+  // Grow-only pane size while the popup is open. Wallpaper/Theme are ~1000px
+  // wide; Monitor/Bluetooth are ~380. Shrinking + recentering mid-click puts
+  // the pointer outside the Qt::Popup grab (KeyboardPanel grabFocus), which
+  // dismisses the panel as if the user clicked outside.
+  property int stickyPaneWidth: 0
+  property int stickyPaneHeight: 0
+
   readonly property var tabs: [
     { value: "audio", label: "Audio", icon: "󰕾" },
     { value: "bluetooth", label: "Bluetooth", icon: "󰂯" },
@@ -46,6 +53,25 @@ Panel {
     { value: "theme", label: "Theme", icon: "󰸌" },
     { value: "monitor", label: "Monitor", icon: "󰍹" }
   ]
+
+  function bumpStickyPane() {
+    if (!root.opened) return
+    var item = contentArea.activeItem
+    if (!item) return
+    var w = Math.ceil(item.implicitWidth || 0)
+    var h = Math.ceil(item.implicitHeight || 0)
+    if (w > root.stickyPaneWidth) root.stickyPaneWidth = w
+    if (h > root.stickyPaneHeight) root.stickyPaneHeight = h
+  }
+
+  onOpenedChanged: {
+    if (!opened) {
+      stickyPaneWidth = 0
+      stickyPaneHeight = 0
+    } else {
+      Qt.callLater(bumpStickyPane)
+    }
+  }
 
   function showTab(name) {
     var tab = String(name || "")
@@ -205,17 +231,26 @@ Panel {
             return loader && loader.status === Loader.Ready ? loader.item : null
           }
           implicitWidth: {
-            if (activeItem) return activeItem.implicitWidth
-            // Keep a usable pane size while loading / on error so the popup
-            // doesn't collapse to the sidebar alone.
-            return Style.space(380)
+            var current = activeItem ? activeItem.implicitWidth : 0
+            // Prefer sticky over the narrow fallback while a wide tab has
+            // already been shown this open — avoids mid-click shrink-dismiss.
+            return Math.max(Style.space(380), root.stickyPaneWidth, current)
           }
           implicitHeight: {
-            if (activeItem) return activeItem.implicitHeight
-            return Style.space(200)
+            var current = activeItem ? activeItem.implicitHeight : 0
+            return Math.max(Style.space(200), root.stickyPaneHeight, current)
           }
           width: implicitWidth
           height: implicitHeight
+
+          onActiveItemChanged: root.bumpStickyPane()
+
+          Connections {
+            target: contentArea.activeItem
+            ignoreUnknownSignals: true
+            function onImplicitWidthChanged() { root.bumpStickyPane() }
+            function onImplicitHeightChanged() { root.bumpStickyPane() }
+          }
 
           // Shared wiring for every tab Loader: defer compilation until the
           // tab is selected, inject bar/active via setSource (so first-frame
@@ -310,7 +345,7 @@ Panel {
             horizontalAlignment: Text.AlignHCenter
             color: Color.urgent
             font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.size
+            font.pixelSize: Style.font.body
             text: {
               var loader = contentArea.activeLoader
               // Qt 6 Loader exposes errorString as a string property, not a method.

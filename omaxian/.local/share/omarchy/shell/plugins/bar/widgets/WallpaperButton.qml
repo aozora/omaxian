@@ -27,10 +27,15 @@ BarWidget {
 
   property string subTab: "theme"
   property string localFolder: ""
+  property string themeName: ""
+  property int themeDirAttempt: 0
+  property var themeDirCandidates: []
 
-  readonly property string themeDir:
-    Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/backgrounds"
-  readonly property string activeDir: subTab === "folder" ? localFolder : themeDir
+  readonly property string home: Quickshell.env("HOME")
+  readonly property string omarchyPath: Quickshell.env("OMARCHY_PATH") || (home + "/.local/share/omarchy")
+  readonly property string activeDir: subTab === "folder" ? localFolder : (
+    themeDirCandidates.length > themeDirAttempt ? themeDirCandidates[themeDirAttempt] : ""
+  )
 
   IpcHandler {
     target: "wallpapers"
@@ -41,13 +46,31 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  FileView {
+    id: themeNameFile
+    path: root.home + "/.local/state/omarchy/current/theme.name"
+    watchChanges: true
+    printErrors: false
+    onLoaded: {
+      root.themeName = String(text()).trim()
+      root.themeDirCandidates = WModel.themeBackgroundCandidates(root.home, root.omarchyPath, root.themeName)
+      root.rescan()
+    }
+    onFileChanged: reload()
+    onLoadFailed: {
+      root.themeName = ""
+      root.themeDirCandidates = WModel.themeBackgroundCandidates(root.home, root.omarchyPath, "")
+      root.rescan()
+    }
+  }
+
   // watchChanges so a pick made in the Control Panel's Wallpaper tab (which
   // writes the same file) shows up here without a shell restart. Writes are
   // rare and idempotent, so the self-write/watch race dock-pinned.json
   // guards against doesn't matter here.
   FileView {
     id: settingsFile
-    path: Quickshell.env("HOME") + "/.config/omarchy/wallpaper-settings.json"
+    path: root.home + "/.config/omarchy/wallpaper-settings.json"
     watchChanges: true
     atomicWrites: true
     printErrors: false
@@ -75,20 +98,39 @@ BarWidget {
     showOnlyReadable: true
     sortField: FolderListModel.Name
     nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp"]
+    onStatusChanged: {
+      if (root.subTab !== "theme") return
+      if (status !== FolderListModel.Ready) return
+      if (count > 0) return
+      if (root.themeDirAttempt + 1 >= root.themeDirCandidates.length) return
+      root.themeDirAttempt++
+      root.applyThemeFolder()
+    }
   }
 
-  // Set imperatively rather than bound: `current/theme` is a symlink that
-  // follows theme switches, so the folder URL string can stay identical
-  // while resolving elsewhere — a plain binding wouldn't re-scan. Clearing
-  // to "" first forces the model to drop its cache.
-  function rescan() {
-    var target = root.activeDir.length ? "file://" + root.activeDir : ""
+  function applyThemeFolder() {
+    var dir = root.themeDirCandidates.length > root.themeDirAttempt
+      ? root.themeDirCandidates[root.themeDirAttempt] : ""
+    var target = dir.length ? "file://" + dir : ""
     bgModel.folder = ""
     if (target.length) bgModel.folder = target
   }
 
-  onActiveDirChanged: rescan()
+  function rescan() {
+    if (root.subTab === "folder") {
+      var target = root.localFolder.length ? "file://" + root.localFolder : ""
+      bgModel.folder = ""
+      if (target.length) bgModel.folder = target
+      return
+    }
+    root.themeDirCandidates = WModel.themeBackgroundCandidates(root.home, root.omarchyPath, root.themeName)
+    root.themeDirAttempt = 0
+    root.applyThemeFolder()
+  }
+
+  onActiveDirChanged: if (root.subTab === "folder") rescan()
   Component.onCompleted: rescan()
+  onMenuOpenChanged: if (menuOpen) rescan()
 
   PopupCard {
     id: popup
@@ -135,7 +177,10 @@ BarWidget {
           { value: "folder", label: "From local folder" }
         ]
         value: root.subTab
-        onChanged: function(value) { root.subTab = value }
+        onChanged: function(value) {
+          root.subTab = value
+          root.rescan()
+        }
       }
 
       RowLayout {

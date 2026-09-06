@@ -273,6 +273,22 @@ function serializeWallpaperSettings(settings) {
   }, null, 2)
 }
 
+// Prefer the live theme package / user overlay so edits under
+// ~/.local/share/omarchy/themes/<name>/backgrounds show without re-running
+// omarchy-theme-set. Fall back to the applied current/theme copy.
+function themeBackgroundCandidates(home, omarchyPath, themeName) {
+  var h = String(home || "")
+  var name = String(themeName || "").trim()
+  var omarchy = String(omarchyPath || (h + "/.local/share/omarchy"))
+  var applied = h + "/.local/state/omarchy/current/theme/backgrounds"
+  if (!name) return [applied]
+  return [
+    omarchy + "/themes/" + name + "/backgrounds",
+    h + "/.config/omarchy/themes/" + name + "/backgrounds",
+    applied
+  ]
+}
+
 // Pull WxH from names like wallpaper-v1-nebula-ridge-2560x1440.png.
 function wallpaperSizeLabel(fileName) {
   var name = String(fileName || "")

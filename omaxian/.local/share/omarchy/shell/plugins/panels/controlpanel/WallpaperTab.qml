@@ -21,18 +21,41 @@ Item {
 
   property string subTab: "theme"
   property string localFolder: ""
+  property string themeName: ""
+  property int themeDirAttempt: 0
+  property var themeDirCandidates: []
   readonly property bool folderPickerOpen: picker.visible
 
-  readonly property string themeDir:
-    Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/backgrounds"
-  readonly property string activeDir: subTab === "folder" ? localFolder : themeDir
+  readonly property string home: Quickshell.env("HOME")
+  readonly property string omarchyPath: Quickshell.env("OMARCHY_PATH") || (home + "/.local/share/omarchy")
+  readonly property string activeDir: subTab === "folder" ? localFolder : (
+    themeDirCandidates.length > themeDirAttempt ? themeDirCandidates[themeDirAttempt] : ""
+  )
 
   implicitWidth: Style.space(1000)
   implicitHeight: Style.space(720)
 
   FileView {
+    id: themeNameFile
+    path: root.home + "/.local/state/omarchy/current/theme.name"
+    watchChanges: true
+    printErrors: false
+    onLoaded: {
+      root.themeName = String(text()).trim()
+      root.themeDirCandidates = Model.themeBackgroundCandidates(root.home, root.omarchyPath, root.themeName)
+      if (root.active) root.refresh()
+    }
+    onFileChanged: reload()
+    onLoadFailed: {
+      root.themeName = ""
+      root.themeDirCandidates = Model.themeBackgroundCandidates(root.home, root.omarchyPath, "")
+      if (root.active) root.refresh()
+    }
+  }
+
+  FileView {
     id: settingsFile
-    path: Quickshell.env("HOME") + "/.config/omarchy/wallpaper-settings.json"
+    path: root.home + "/.config/omarchy/wallpaper-settings.json"
     watchChanges: true
     atomicWrites: true
     printErrors: false
@@ -48,17 +71,39 @@ Item {
     showOnlyReadable: true
     sortField: FolderListModel.Name
     nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp"]
+    onStatusChanged: {
+      if (root.subTab !== "theme") return
+      if (status !== FolderListModel.Ready) return
+      if (count > 0) return
+      if (root.themeDirAttempt + 1 >= root.themeDirCandidates.length) return
+      root.themeDirAttempt++
+      root.applyThemeFolder()
+    }
   }
 
-  // Imperative folder set: `current/theme` is a symlink that can keep the
-  // same URL string while resolving elsewhere — clear first to force rescan.
-  function refresh() {
-    var target = root.activeDir.length ? "file://" + root.activeDir : ""
+  // Prefer live theme package paths; fall through candidates if a dir is
+  // missing/empty. Clearing folder first forces FolderListModel to rescan.
+  function applyThemeFolder() {
+    var dir = root.themeDirCandidates.length > root.themeDirAttempt
+      ? root.themeDirCandidates[root.themeDirAttempt] : ""
+    var target = dir.length ? "file://" + dir : ""
     bgModel.folder = ""
     if (target.length) bgModel.folder = target
   }
 
-  onActiveDirChanged: if (active) root.refresh()
+  function refresh() {
+    if (root.subTab === "folder") {
+      var target = root.localFolder.length ? "file://" + root.localFolder : ""
+      bgModel.folder = ""
+      if (target.length) bgModel.folder = target
+      return
+    }
+    root.themeDirCandidates = Model.themeBackgroundCandidates(root.home, root.omarchyPath, root.themeName)
+    root.themeDirAttempt = 0
+    root.applyThemeFolder()
+  }
+
+  onActiveDirChanged: if (active && subTab === "folder") root.refresh()
   onActiveChanged: {
     if (active) root.refresh()
     else picker.visible = false
@@ -94,7 +139,10 @@ Item {
         { value: "folder", label: "From local folder" }
       ]
       value: root.subTab
-      onChanged: function(value) { root.subTab = value }
+      onChanged: function(value) {
+        root.subTab = value
+        if (root.active) root.refresh()
+      }
     }
 
     RowLayout {
