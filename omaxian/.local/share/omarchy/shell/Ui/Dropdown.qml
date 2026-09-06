@@ -3,9 +3,10 @@ import QtQuick.Controls
 import qs.Commons
 
 // Themed single-select dropdown. Trigger row paints with the kit's focus
-// chrome; the popup anchors below and uses Color.popups.background +
-// Color.popups.border so it reads as a panel surface rather than the
-// platform-native ComboBox look.
+// chrome; the popup opens on Overlay.overlay (so Flickable clip does not
+// crop it), anchors below the trigger, and flips above when there is not
+// enough room. Uses Color.popups.background + Color.popups.border so it
+// reads as a panel surface rather than the platform-native ComboBox look.
 //
 // `options` accepts either a plain string[] or an array of
 // { value, label } objects (label is what we render; value is what we
@@ -146,8 +147,9 @@ Item {
 
       Popup {
         id: popup
-        x: 0
-        y: trigger.height + Style.spacing.xxs
+        // Open on the window overlay so Flickable `clip: true` (Settings tabs)
+        // does not crop the list. x/y are overlay coords, recomputed on open.
+        parent: Overlay.overlay
         width: trigger.width
         implicitHeight: Math.min(root.options.length * root.popupRowHeight + Math.max(0, root.options.length - 1) * Style.spacing.labelGap + Style.spacing.xxs,
                                  root.popupRowHeight * 8 + 7 * Style.spacing.labelGap + Style.spacing.xxs)
@@ -158,13 +160,35 @@ Item {
         bottomPadding: Border.bottom(root.popupBorderSpec) + Style.spacing.hairline
         focus: true
 
+        function reposition() {
+          var gap = Style.spacing.xxs
+          var overlay = Overlay.overlay
+          if (!overlay) {
+            x = 0
+            y = trigger.height + gap
+            return
+          }
+          var origin = trigger.mapToItem(overlay, 0, 0)
+          x = origin.x
+          var below = origin.y + trigger.height + gap
+          var popupH = Math.max(height, implicitHeight)
+          var spaceBelow = overlay.height - below
+          var spaceAbove = origin.y - gap
+          if (popupH <= spaceBelow || spaceBelow >= spaceAbove)
+            y = below
+          else
+            y = Math.max(0, origin.y - popupH - gap)
+        }
+
         background: BorderSurface {
           color: root.background
           borderSpec: root.popupBorderSpec
           radius: Style.cornerRadius
         }
 
+        onAboutToShow: reposition()
         onOpened: {
+          Qt.callLater(reposition)
           optionList.currentIndex = Math.max(0, optionList.indexOfValue(root.value))
           optionList.forceActiveFocus()
         }

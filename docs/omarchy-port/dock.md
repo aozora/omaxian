@@ -51,30 +51,32 @@ Plugin id `omaxian.dock`, files under
 - **Hover** an icon (outside edit mode) → scales up 1.3x from the bottom
   edge, if `hoverAnimation` is on.
 
-## Settings — `~/.config/omarchy/dock-settings.json`
+## Settings — theme `dock.toml` + user overlay
 
-Hand-edited JSON, defaults shown:
+Themes may ship `dock.toml`. Active copy:
+`~/.local/state/omarchy/current/theme/dock.toml`.
 
-```json
-{
-  "fullWidth": true,
-  "roundedCorners": false,
-  "hoverAnimation": true
-}
+User overrides (Settings → Dock): `~/.config/omarchy/dock.toml` (sparse;
+survives theme switches). Legacy `dock-settings.json` applies only when no
+user `dock.toml` exists.
+
+```toml
+[dock]
+full-width = true
+hover-animation = true
+background = ""              # empty = match bar background
+opacity = 1.0
+icon-size = 36
+hover-scale = 1.3
+corner-radius = 0
+island-gap = 0
+running-indicator = "dot"    # dot | bar | none
+auto-hide = false
 ```
 
-| Field | Default | Effect |
-|---|---|---|
-| `fullWidth` | `true` | `true`: dock spans the whole screen edge (original MVP look). `false`: shrinks to a centered pill sized to its icons; the rest of the reserved strut width is fully click-through (desktop shows through, nothing intercepts clicks/hover there). |
-| `roundedCorners` | `false` | Only visible when `fullWidth` is `false`. Rounds the pill's corners (`Style.radiusPopup`, matching this shell's other floating surfaces) instead of square corners. |
-| `hoverAnimation` | `true` | macOS-style scale-up-on-hover (see above). |
-
-**Reload behavior differs by field**: `roundedCorners` and `hoverAnimation`
-apply live — the settings file is watched (`watchChanges: true`) and there's
-no in-app writer racing it, unlike the pinned-list file (see below). Changing
-`fullWidth` was only verified after a full restart during development, so run
-`omarchy-restart-shell` after changing it rather than relying on the live
-watch.
+See `docs/omaxian/customize/dock.md` for the full key table. Empty
+`background` uses `Color.bar.background`. `full-width` changes may need
+`omarchy-restart-shell`.
 
 Malformed or missing fields fall back to their defaults individually (a
 partial JSON object is fine); a missing or unparsable file falls back to all

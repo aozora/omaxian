@@ -130,7 +130,65 @@ function schemaFieldValue(schemaItem, values, defaults) {
 
 // ---- dock-settings.json
 
-var DEFAULT_DOCK = { fullWidth: true, roundedCorners: false, hoverAnimation: true }
+var DEFAULT_DOCK = {
+  fullWidth: true,
+  roundedCorners: false,
+  hoverAnimation: true,
+  background: "",
+  opacity: 1,
+  iconSize: 36,
+  hoverScale: 1.3,
+  cornerRadius: 0,
+  islandGap: 0,
+  runningIndicator: "dot",
+  autoHide: false
+}
+
+function normalizeDockHex(value) {
+  var s = String(value === undefined || value === null ? "" : value).trim()
+  if (!s) return ""
+  if (s.charAt(0) !== "#") s = "#" + s
+  if (/^#[0-9A-Fa-f]{3}$/.test(s) || /^#[0-9A-Fa-f]{6}$/.test(s))
+    return s.toLowerCase()
+  return ""
+}
+
+function parseDockOpacity(value) {
+  var n = Number(value)
+  if (!isFinite(n)) return DEFAULT_DOCK.opacity
+  if (n < 0) return 0
+  if (n > 1) return 1
+  return Math.round(n * 100) / 100
+}
+
+function parseDockInt(value, fallback, min, max) {
+  var n = Math.round(Number(value))
+  if (!isFinite(n)) return fallback
+  if (n < min) return min
+  if (n > max) return max
+  return n
+}
+
+function parseDockHoverScale(value) {
+  var n = Number(value)
+  if (!isFinite(n)) return DEFAULT_DOCK.hoverScale
+  if (n < 1) return 1
+  if (n > 2) return 2
+  return Math.round(n * 100) / 100
+}
+
+function parseDockRunningIndicator(value) {
+  var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
+  if (s === "dot" || s === "bar" || s === "none") return s
+  return DEFAULT_DOCK.runningIndicator
+}
+
+function parseDockCornerRadius(source) {
+  if (source.cornerRadius !== undefined && source.cornerRadius !== null && source.cornerRadius !== "")
+    return parseDockInt(source.cornerRadius, DEFAULT_DOCK.cornerRadius, 0, 48)
+  if (source.roundedCorners === true) return 12
+  return DEFAULT_DOCK.cornerRadius
+}
 
 function parseDockSettings(raw) {
   var text = String(raw === undefined || raw === null ? "" : raw).trim()
@@ -139,19 +197,37 @@ function parseDockSettings(raw) {
     try { parsed = JSON.parse(text) } catch (e) { parsed = null }
   }
   var source = isPlainObject(parsed) ? parsed : {}
+  var cornerRadius = parseDockCornerRadius(source)
   return {
     fullWidth: source.fullWidth === undefined ? DEFAULT_DOCK.fullWidth : !!source.fullWidth,
-    roundedCorners: source.roundedCorners === undefined ? DEFAULT_DOCK.roundedCorners : !!source.roundedCorners,
-    hoverAnimation: source.hoverAnimation === undefined ? DEFAULT_DOCK.hoverAnimation : !!source.hoverAnimation
+    roundedCorners: cornerRadius > 0,
+    hoverAnimation: source.hoverAnimation === undefined ? DEFAULT_DOCK.hoverAnimation : !!source.hoverAnimation,
+    background: normalizeDockHex(source.background),
+    opacity: parseDockOpacity(source.opacity),
+    iconSize: parseDockInt(source.iconSize, DEFAULT_DOCK.iconSize, 16, 96),
+    hoverScale: parseDockHoverScale(source.hoverScale),
+    cornerRadius: cornerRadius,
+    islandGap: parseDockInt(source.islandGap, DEFAULT_DOCK.islandGap, 0, 48),
+    runningIndicator: parseDockRunningIndicator(source.runningIndicator),
+    autoHide: source.autoHide === true
   }
 }
 
 function serializeDockSettings(settings) {
   var s = isPlainObject(settings) ? settings : {}
+  var cornerRadius = parseDockCornerRadius(s)
   return JSON.stringify({
     fullWidth: s.fullWidth !== false,
-    roundedCorners: !!s.roundedCorners,
-    hoverAnimation: s.hoverAnimation !== false
+    roundedCorners: cornerRadius > 0,
+    hoverAnimation: s.hoverAnimation !== false,
+    background: normalizeDockHex(s.background),
+    opacity: parseDockOpacity(s.opacity),
+    iconSize: parseDockInt(s.iconSize, DEFAULT_DOCK.iconSize, 16, 96),
+    hoverScale: parseDockHoverScale(s.hoverScale),
+    cornerRadius: cornerRadius,
+    islandGap: parseDockInt(s.islandGap, DEFAULT_DOCK.islandGap, 0, 48),
+    runningIndicator: parseDockRunningIndicator(s.runningIndicator),
+    autoHide: s.autoHide === true
   }, null, 2) + "\n"
 }
 

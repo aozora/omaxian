@@ -47,11 +47,17 @@ redeploy, so layout edits survive.
 
 ### Dock
 
-Writes `~/.config/omarchy/dock-settings.json` and toggles `omaxian.dock` via
-`disabledPlugins`. Pinned apps stay on the dock (right-click / drag).
+Writes sparse overrides to `~/.config/omarchy/dock.toml` (survives theme
+switches) and toggles `omaxian.dock` via `disabledPlugins`. Theme defaults come
+from `dock.toml` in the active theme. Pinned apps stay on the dock
+(right-click / drag).
 
-`fullWidth` may need `omarchy-restart-shell`; the other appearance flags apply
-live.
+- Show dock / full width / hover magnification / autohide
+- Background color (empty = match bar; Pick via `gpick`) and opacity
+- Icon size, hover scale, corner radius, island gap
+- Running indicator: dot / bar / none
+
+`full-width` may need `omarchy-restart-shell`; most other keys apply live.
 
 ### Appearance
 
@@ -108,6 +114,6 @@ keyboard layout is `setxkbmap` in `i3_autostart` and that `idle.*` times in
 |---|---|
 | `shell.json` (bar / widgets / plugins) | live (file-watched) |
 | `shell.toml` | live (file-watched) |
-| `dock-settings.json` roundedCorners / hoverAnimation | live |
-| `dock-settings.json` fullWidth | `omarchy-restart-shell` |
+| Theme / user `dock.toml` | live |
+| `dock.toml` `full-width` | `omarchy-restart-shell` recommended |
 | `startup.json` | next login, or Launch now |

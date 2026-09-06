@@ -1,0 +1,15 @@
+# Omaxian dock appearance for this theme.
+# User overrides live in ~/.config/omarchy/dock.toml (Settings → Dock)
+# and survive theme switches. Empty background matches the bar fill.
+
+[dock]
+full-width = true
+hover-animation = true
+background = ""
+opacity = 1.0
+icon-size = 36
+hover-scale = 1.3
+corner-radius = 0
+island-gap = 0
+running-indicator = "dot"   # dot | bar | none
+auto-hide = false
