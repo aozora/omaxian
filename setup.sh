@@ -103,7 +103,10 @@ REQUIRED=(
 	mate-polkit
 	# process/query tools the scripts shell out to
 	psmisc procps xdg-user-dirs
-	# QML modules Quickshell plugins import (tray/media/wallpapers/FolderPicker)
+	# QML modules Quickshell plugins import (bar/layouts, controls, tray/effects, shapes, FolderPicker)
+	qml6-module-qtquick-layouts
+	qml6-module-qtquick-controls
+	qml6-module-qtquick-shapes
 	qml6-module-qt-labs-folderlistmodel
 	qml6-module-qtquick-effects
 	# fonts + icons

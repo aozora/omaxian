@@ -232,7 +232,7 @@ Pin-Priority: 100
 
 ```
 sudo apt update
-sudo apt install -t forky quickshell qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
+sudo apt install -t forky quickshell qml6-module-qtquick-layouts qml6-module-qtquick-controls qml6-module-qtquick-shapes qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
 ```
 
 Or per-package: `apt install <package>/forky`
@@ -281,7 +281,7 @@ Priority 100 means Freia packages are never chosen automatically (stable at 900 
 
 ```
 sudo apt update
-sudo apt install -t freia quickshell qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
+sudo apt install -t freia quickshell qml6-module-qtquick-layouts qml6-module-qtquick-controls qml6-module-qtquick-shapes qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
 ```
 
 Or for a one-off: `apt install <package>/freia`.
@@ -297,6 +297,7 @@ Two caveats: `-t freia` will also pull Freia versions of a package's dependencie
 | Problem                                                   | Fix                                                                                                                                                                                                                                                                                                                                                                                     |
 | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bar is empty (no widgets)                                 | Quickshell started without `OMARCHY_PATH`. Log out/in, or run `omarchy-restart-shell` from a terminal that has the omarchy commands.                                                                                                                                                                                                                                                    |
+| Shell log: `module "QtQuick.Layouts" is not installed`    | `sudo apt install qml6-module-qtquick-layouts qml6-module-qtquick-controls qml6-module-qtquick-shapes` then `omarchy-restart-shell`. Same packages are in `setup.sh` REQUIRED.                                                                                                                                                                                                          |
 | Apps listed in the menu don't start                       | Restart the shell (`omarchy-restart-shell`). Check `~/.local/state/omarchy/shell.log`.                                                                                                                                                                                                                                                                                                  |
 | Can't type in the menu / runner                           | `sudo apt install python3-xlib`                                                                                                                                                                                                                                                                                                                                                         |
 | Empty bar after `i3 restart`                              | Log out/in, or `omarchy-restart-shell`                                                                                                                                                                                                                                                                                                                                                  |
