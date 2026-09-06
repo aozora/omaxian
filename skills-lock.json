@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "omarchy-plugin-security": {
+      "source": "wbso-ai/omarchy-plugin-security-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "80d2610d1b60b4d3f5dfd684da8eb102fbaa729e9ca1481a83bfd2570785c440"
+    }
+  }
+}
