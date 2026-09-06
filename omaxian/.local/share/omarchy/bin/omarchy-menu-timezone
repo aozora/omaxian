@@ -24,8 +24,20 @@ list_timezones() {
 timezone=$(list_timezones | omarchy-menu-select "Set timezone" -- --width 520 --maxheight 520) || exit 1
 [[ -n $timezone ]] || exit 1
 
+# Zoneinfo paths only — reject absolute paths and .. before elevating ln -sf.
+[[ $timezone != /* && $timezone != *".."* ]] || {
+  echo "omarchy-menu-timezone: invalid timezone $timezone" >&2
+  exit 1
+}
+
 zone="/usr/share/zoneinfo/$timezone"
 [[ -f $zone ]] || { echo "omarchy-menu-timezone: unknown timezone $timezone" >&2; exit 1; }
+zone_real=$(readlink -f "$zone")
+[[ $zone_real == /usr/share/zoneinfo/* ]] || {
+  echo "omarchy-menu-timezone: timezone resolves outside zoneinfo: $timezone" >&2
+  exit 1
+}
+zone=$zone_real
 
 as_root() {
   if (( EUID == 0 )); then

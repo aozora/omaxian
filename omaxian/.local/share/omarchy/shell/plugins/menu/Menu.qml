@@ -130,12 +130,47 @@ Item {
     root.selectionFile = ""
     root.doneFile = ""
 
+    // Handshake paths come from local IPC; only allow mktemp-style locations so
+    // a summon payload cannot overwrite ~/.bashrc / SSH keys / etc.
+    if (!root.isSafeHandshakePath(activeDoneFile) ||
+        (selection !== null && selection !== undefined && !root.isSafeHandshakePath(activeSelectionFile))) {
+      root.opened = false
+      return
+    }
+
     if (selection === null || selection === undefined) {
       resultProc.command = ["bash", "-c", ": > " + Util.shellQuote(activeDoneFile)]
     } else {
       resultProc.command = ["bash", "-c", "printf '%s\\n' " + Util.shellQuote(selection) + " > " + Util.shellQuote(activeSelectionFile) + "; : > " + Util.shellQuote(activeDoneFile)]
     }
     resultProc.running = true
+  }
+
+  // Absolute paths under TMPDIR, /tmp, /var/tmp, or XDG_RUNTIME_DIR only.
+  function isSafeHandshakePath(path) {
+    var p = String(path || "")
+    if (!p || p.charAt(0) !== "/") return false
+    if (p.indexOf("\0") >= 0 || p.indexOf("\n") >= 0 || p.indexOf("\r") >= 0) return false
+    if (p === "/tmp" || p === "/var/tmp") return false
+    if (p.indexOf("/../") >= 0 || p.endsWith("/..") || p.indexOf("/..") === 0) return false
+
+    function withSlash(dir) {
+      var d = String(dir || "")
+      if (!d || d.charAt(0) !== "/") return ""
+      while (d.length > 1 && d.charAt(d.length - 1) === "/") d = d.slice(0, -1)
+      return d + "/"
+    }
+
+    var prefixes = ["/tmp/", "/var/tmp/"]
+    var runtime = withSlash(Quickshell.env("XDG_RUNTIME_DIR"))
+    var tmpdir = withSlash(Quickshell.env("TMPDIR"))
+    if (runtime) prefixes.push(runtime)
+    if (tmpdir && tmpdir !== "/tmp/" && tmpdir !== "/var/tmp/") prefixes.push(tmpdir)
+
+    for (var i = 0; i < prefixes.length; i++) {
+      if (p.indexOf(prefixes[i]) === 0 && p.length > prefixes[i].length) return true
+    }
+    return false
   }
 
   function runAction(action) {
@@ -836,6 +871,16 @@ Item {
     dmenuOptions = Array.isArray(payload.options) ? payload.options : []
     selectionFile = String(payload.selectionFile || "")
     doneFile = String(payload.doneFile || "")
+    // Reject non-temp handshake paths up front so the UI never looks interactive
+    // while silently refusing to write (or writing somewhere unsafe).
+    if (doneFile && !root.isSafeHandshakePath(doneFile)) {
+      selectionFile = ""
+      doneFile = ""
+    }
+    if (selectionFile && !root.isSafeHandshakePath(selectionFile)) {
+      selectionFile = ""
+      doneFile = ""
+    }
     requestActive = !!doneFile
     dmenuWidth = Math.max(1, Number(payload.width || 300))
     dmenuMaxHeight = Math.max(0, Number(payload.maxHeight || 0))

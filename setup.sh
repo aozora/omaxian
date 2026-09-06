@@ -212,6 +212,17 @@ else
 	echo ":: created $OPTS with use-session-dbus"
 fi
 
+# --- privileged helpers (root-owned; never elevate user-writable bin/) ---------
+# omarchy-dns must re-exec a root-owned path under sudo/pkexec. Elevating the
+# copy in ~/.local/share/omarchy/bin would be LPE on this port (no /usr/bin
+# package). Keep this in sync when the script changes: re-run setup.sh.
+DNS_SRC="$REPO_DIR/omaxian/.local/share/omarchy/bin/omarchy-dns"
+DNS_DST=/usr/local/libexec/omaxian/omarchy-dns
+if [ -f "$DNS_SRC" ]; then
+	install -D -o root -g root -m 0755 "$DNS_SRC" "$DNS_DST"
+	echo ":: installed root-owned $DNS_DST"
+fi
+
 # --- bundled fonts (JetBrainsMono/Iosevka Nerd, Weather Icons, Feather) --------
 FONT_SRC="$REPO_DIR/omaxian/.local/share/fonts"
 if [ -d "$FONT_SRC" ] && [ "$TARGET_USER" != root ]; then

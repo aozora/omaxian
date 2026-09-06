@@ -3,22 +3,24 @@
 # omarchy:summary=Show or configure the system DNS provider
 # omarchy:args=[Cloudflare|Google|DHCP|Custom]
 # omarchy:examples=omarchy dns | omarchy dns Cloudflare | omarchy dns Custom
+# omarchy:requires-sudo=true
 
 set -euo pipefail
 
-# Whenever this runs as root — invoked directly through the passwordless
-# sudoers rule, or re-execed by require_root below — sudo's secure_path decides
-# where a bare helper resolves, and a dev link (etc/sudoers.d/omarchy-dev-path)
-# prepends a user-writable checkout bin/ to it. Every helper this script calls
-# by bare name (dirname, install, tee, rm, nmcli, systemctl, awk) is a system
-# tool, never an omarchy-* command, so pin PATH to trusted system directories
-# and keep root from resolving one out of that checkout. The unprivileged
-# wrapper phase keeps the caller's PATH so it can still find sudo/pkexec.
+# Whenever this runs as root — invoked through sudo/pkexec of the packaged
+# helper below — pin PATH to trusted system directories so bare tool names never
+# resolve out of a user-writable checkout.
 if (( EUID == 0 )); then
   export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
 fi
 
 NM_DNS_CONF=/etc/NetworkManager/conf.d/20-omarchy-dns.conf
+
+# Root-owned copy installed by setup.sh (and refreshed on first elevate if
+# missing). Never sudo/pkexec the user-writable ~/.local/share copy — that was
+# an LPE relative to upstream's fixed /usr/bin/omarchy-dns.
+PACKAGED_PATH=/usr/local/libexec/omaxian/omarchy-dns
+[[ -x /usr/bin/omarchy-dns ]] && PACKAGED_PATH=/usr/bin/omarchy-dns
 
 provider_from_arg() {
   case "${1:-}" in
@@ -40,25 +42,31 @@ provider_from_arg() {
   esac
 }
 
-# The path etc/sudoers.d/omarchy-dns names. The privileged half always runs from
-# there rather than from whichever copy was invoked, so the rule matches even
-# where $OMARCHY_PATH points at a checkout.
-#
-# Devuan/checkout port: this profile installs omarchy under ~/.local/share and
-# ships no /usr/bin/omarchy-dns and no sudoers.d rule, so fall back to this
-# script's own resolved path — sudo/pkexec then re-exec the copy that exists
-# (it re-pins PATH to system dirs once EUID==0, so running it from a
-# user-writable checkout is still safe).
-PACKAGED_PATH=/usr/bin/omarchy-dns
-[[ -x $PACKAGED_PATH ]] || PACKAGED_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+packaged_helper_ok() {
+  local owner mode
+  [[ -x $PACKAGED_PATH ]] || return 1
+  # Refuse to elevate anything the invoking user owns or can write.
+  [[ -O $PACKAGED_PATH || -w $PACKAGED_PATH ]] && return 1
+  owner=$(stat -c '%u' "$PACKAGED_PATH" 2>/dev/null || echo 1)
+  mode=$(stat -c '%a' "$PACKAGED_PATH" 2>/dev/null || echo 777)
+  (( owner == 0 )) || return 1
+  # Owner-writable is fine (root); group/other must not be writable.
+  [[ $mode =~ ^[0-7][0-5][0-5]$ ]] || return 1
+  return 0
+}
+
+install_packaged_helper() {
+  local src
+  src=$(readlink -f "${BASH_SOURCE[0]}")
+  echo "omarchy-dns: installing root-owned helper at $PACKAGED_PATH" >&2
+  if [[ -t 0 ]]; then
+    sudo install -D -o root -g root -m 0755 "$src" "$PACKAGED_PATH"
+  else
+    pkexec install -D -o root -g root -m 0755 "$src" "$PACKAGED_PATH"
+  fi
+}
 
 # True when sudo would run this exact command without stopping for a password.
-# `sudo -l` on its own reports whether a command is permitted, which the blanket
-# %wheel rule answers yes to for everything; the long listing prints the matched
-# entry's tags, so !authenticate is the grant in etc/sudoers.d/omarchy-dns and
-# nothing else. Listing runs nothing and, under -n, prompts for nothing, so a
-# machine whose omarchy-settings predates that file falls through to polkit
-# instead of dying on a password prompt it has no terminal to show.
 sudo_grants_passwordless() {
   sudo -n -l -l "$PACKAGED_PATH" "$@" 2>/dev/null | grep -q '!authenticate'
 }
@@ -66,7 +74,18 @@ sudo_grants_passwordless() {
 require_root() {
   if (( EUID == 0 )); then
     return
-  elif [[ -t 0 ]] || sudo_grants_passwordless "$@"; then
+  fi
+
+  if ! packaged_helper_ok; then
+    install_packaged_helper
+    packaged_helper_ok || {
+      echo "omarchy-dns: refusing to elevate; helper missing or not root-owned at $PACKAGED_PATH" >&2
+      echo "omarchy-dns: re-run: sudo ./setup.sh   (or: sudo install -D -o root -g root -m 755 \"\$(command -v omarchy-dns)\" $PACKAGED_PATH)" >&2
+      exit 1
+    }
+  fi
+
+  if [[ -t 0 ]] || sudo_grants_passwordless "$@"; then
     # A terminal can carry sudo's own password prompt. Without one, sudo is
     # right only where the grant reaches; polkit can at least put a prompt on
     # screen, and offer to authenticate as someone else.

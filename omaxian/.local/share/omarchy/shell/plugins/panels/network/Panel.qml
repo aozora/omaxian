@@ -773,7 +773,9 @@ Panel {
 
   function connectEnterprise(ssid, identity, passphrase) {
     runNetworkAction("connect", networkForSsid(ssid), function(network) {
-      enterpriseConnect.secret = passphrase
+      // Strip CR/LF so a pasted multi-line secret cannot leave residual stdin
+      // for the enterprise connect script after `read -r`.
+      enterpriseConnect.secret = String(passphrase || "").replace(/[\r\n]/g, "")
       enterpriseConnect.command = ["bash", "-c", Model.enterpriseConnectScript, "nmcli-eap", ssid, identity]
       enterpriseConnect.running = true
     })

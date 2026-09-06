@@ -88,6 +88,13 @@ if [[ -d $TARGET && ! $TARGET =~ ^https?:// ]]; then
   PLUGIN_DIR="${TARGET%/}"
 else
   URL="$TARGET"
+  # Gate helper URLs before owner/repo rewriting so `ext::…` fails clearly.
+  if [[ $URL == *::* || $URL == -* ]]; then
+    _url_check=$(command -v omarchy-git-url-check 2>/dev/null || true)
+    [[ -n $_url_check ]] || _url_check="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/omarchy-git-url-check"
+    [[ -x $_url_check ]] || die "omarchy-git-url-check missing (re-run ./install.sh)"
+    "$_url_check" "$URL" || exit 2
+  fi
   if ! is_url "$URL"; then
     if [[ $URL =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
       URL="https://github.com/$URL"
@@ -97,6 +104,13 @@ else
       die "not a directory and not a recognizable git URL: $TARGET"
     fi
   fi
+  # Refuse transport helpers (ext::, etc.) before git clone — same gate as
+  # omarchy-plugin-add. Resolve the checker next to this script when PATH is
+  # incomplete; a missing checker fails closed rather than cloning.
+  _url_check=$(command -v omarchy-git-url-check 2>/dev/null || true)
+  [[ -n $_url_check ]] || _url_check="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/omarchy-git-url-check"
+  [[ -x $_url_check ]] || die "omarchy-git-url-check missing (re-run ./install.sh)"
+  "$_url_check" "$URL" || exit 2
   WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/omarchy-plugin-check.XXXXXX")"
   PLUGIN_DIR="$WORKDIR/plugin"
   SOURCE_DESC="$URL${REF:+ @ $REF}"

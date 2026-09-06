@@ -103,9 +103,11 @@ Item {
   }
 
   function appImageScanCommand() {
+    // Deliberately omit Downloads/Desktop: a dropped malicious AppImage there
+    // would otherwise appear one launcher click from exec after chmod +x.
     return [
       'for d in "$HOME/Applications" "$HOME/AppImages" "$HOME/.local/bin"',
-      '        "$HOME/bin" "$HOME/Downloads" "$HOME/Desktop" /opt; do',
+      '        "$HOME/bin" /opt; do',
       '  [ -d "$d" ] && find "$d" -maxdepth 2 -type f \\( -iname "*.AppImage" \\) 2>/dev/null;',
       'done'
     ].join(' ')
@@ -130,7 +132,7 @@ Item {
     if (!iconIndexScan.running) iconIndexScan.running = true
   }
 
-  // Launch via `setsid -f gtk-launch <filename>`.
+  // Launch via `setsid -f gtk-launch <filename>`, with Exec argv fallback.
   //  - `gtk-launch` (not `entry.execute()`): QS 0.3.0's Debian build compiles
   //    in the systemd launch path, and Devuan has no `systemd --user`, so
   //    `execute()` no-ops. `gtk-launch` parses Exec=/field-codes/Terminal=
@@ -157,29 +159,47 @@ Item {
       ? entryOrId
       : DesktopEntries.byId(String(entryOrId || ""))
 
+    // Prefer the .desktop Exec argv when we already have it — avoids
+    // gtk-launch id/extension footguns (vidbee.desktop vs
+    // org.telegram.desktop.desktop) and keeps AppImage/Electron launches
+    // on the same setsid path that works for loose AppImages.
+    if (entry && entry.command && entry.command.length > 0) {
+      var argv = []
+      for (var i = 0; i < entry.command.length; i++) {
+        var part = String(entry.command[i] || "")
+        // Drop unexpanded desktop field codes (%U %f …) — gtk-launch would
+        // strip them; passing the literal "%U" makes some Electron apps exit.
+        if (part.length > 0 && part.charAt(0) === "%" && part.length <= 2)
+          continue
+        argv.push(part)
+      }
+      if (argv.length > 0) {
+        Quickshell.execDetached(["setsid", "-f"].concat(argv))
+        return
+      }
+    }
+
     var id = String((entry && entry.id) || entryOrId || "")
     var desktopFile = root.gtkLaunchDesktopFile(id)
-    if (desktopFile) {
+    if (desktopFile)
       Quickshell.execDetached(["setsid", "-f", "gtk-launch", desktopFile])
-      return
-    }
-    if (entry && entry.command && entry.command.length > 0)
-      Quickshell.execDetached(["setsid", "-f"].concat(entry.command.map(String)))
   }
 
-  // gtk-launch (GTK 3.24+) treats an argument that already ends with
-  // ".desktop" as a complete filename and will not append the extension.
-  // Quickshell's DesktopEntry.id is the basename minus one ".desktop", so
-  // org.telegram.desktop must be passed as org.telegram.desktop.desktop —
-  // otherwise gtk-launch looks up a missing org.telegram.desktop file and
-  // the menu entry no-ops.
+  // Map a DesktopEntry.id to the filename gtk-launch expects.
+  // QS ids are usually the desktop basename without one ".desktop"
+  // (vidbee → vidbee.desktop). Some ids already end in ".desktop" as part
+  // of the app id (org.telegram.desktop → org.telegram.desktop.desktop).
+  // Gio-style ids are the full filename (vidbee.desktop) — doubling those
+  // makes gtk-launch print "no such application" and the menu looks dead.
   function gtkLaunchDesktopFile(id) {
     var value = String(id || "").trim()
     if (!value) return ""
     var lower = value.toLowerCase()
     if (lower.slice(-16) === ".desktop.desktop") return value
     if (lower.slice(-8) === ".desktop") {
-      if (DesktopEntries.byId(value)) return value + ".desktop"
+      // Only append another ".desktop" when that longer id resolves
+      // (Telegram-style). Otherwise the id already is the filename.
+      if (DesktopEntries.byId(value + ".desktop")) return value + ".desktop"
       return value
     }
     return value + ".desktop"
