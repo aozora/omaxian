@@ -5,7 +5,7 @@
 # is deploy.sh.
 #
 # Layout (do not confuse these):
-#   ~/.local/share/omarchy/themes/   ← upstream themes (~120 MB) land HERE
+#   ~/.local/share/omarchy/themes/   ← upstream themes + Omaxian overlays (nebula-ridge, …)
 #   ~/.local/share/omarchy/default/  ← upstream themed/*.tpl templates
 #   ~/.local/share/omarchy/bin/      ← omaxian-ported omarchy-* commands
 #   ~/.config/omarchy/themes/        ← user overrides only (empty by design)
@@ -106,6 +106,25 @@ rm -rf "$OMARCHY_SHARE"/{themes,default,bin}
 cp -r "$UPSTREAM_DIR/themes"  "$OMARCHY_SHARE/themes"    # ~120 MB
 INSTALLED=$(find "$OMARCHY_SHARE/themes" -mindepth 1 -maxdepth 1 -type d | wc -l)
 echo ":: copied $INSTALLED themes -> $OMARCHY_SHARE/themes"
+
+# Omaxian-only themes (e.g. nebula-ridge, the default) live under the port tree
+# and are not in upstream. Overlay them so install alone (before deploy) still
+# has the first-run theme.
+PORT_THEMES="$REPO_DIR/omaxian/.local/share/omarchy/themes"
+if [ -d "$PORT_THEMES" ]; then
+	PORT_THEME_COUNT=0
+	for theme_dir in "$PORT_THEMES"/*/; do
+		[ -d "$theme_dir" ] || continue
+		name=$(basename "$theme_dir")
+		rm -rf "$OMARCHY_SHARE/themes/$name"
+		cp -r "$theme_dir" "$OMARCHY_SHARE/themes/$name"
+		PORT_THEME_COUNT=$((PORT_THEME_COUNT + 1))
+	done
+	if [ "$PORT_THEME_COUNT" -gt 0 ]; then
+		echo ":: overlaid $PORT_THEME_COUNT port theme(s) -> $OMARCHY_SHARE/themes"
+		INSTALLED=$(find "$OMARCHY_SHARE/themes" -mindepth 1 -maxdepth 1 -type d | wc -l)
+	fi
+fi
 
 	cp -r "$UPSTREAM_DIR/default" "$OMARCHY_SHARE/default"
 	echo ":: copied default/ -> $OMARCHY_SHARE/default"

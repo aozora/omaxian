@@ -76,7 +76,7 @@ fi
 # before the bar starts (i3's include of current/theme/i3.conf is non-fatal,
 # but the QS bar palette and omarchy-theme-current depend on it).
 if [ ! -f "$HOME/.local/state/omarchy/current/theme.name" ]; then
-	omarchy-theme-set "Tokyo Night" || true
+	omarchy-theme-set "nebula-ridge" || true
 fi
 
 # Launch the Quickshell bar

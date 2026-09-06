@@ -32,7 +32,7 @@ Example:
 ```bash
 # omarchy:summary=Apply an Omarchy theme (X11 / i3 / picom / dunst / GTK / Quickshell port)
 # omarchy:args=<theme-name>
-# omarchy:examples=omarchy-theme-list | omarchy-theme-set "Tokyo Night"
+# omarchy:examples=omarchy-theme-list | omarchy-theme-set nebula-ridge
 ```
 
 New commands belong in `omaxian/.local/share/omarchy/bin/` so `install.sh` and

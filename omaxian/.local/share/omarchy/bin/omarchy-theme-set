@@ -2,7 +2,7 @@
 
 # omarchy:summary=Apply an Omarchy theme (X11 / i3 / picom / dunst / GTK / Quickshell port)
 # omarchy:args=<theme-name>
-# omarchy:examples=omarchy-theme-list | omarchy-theme-set "Tokyo Night"
+# omarchy:examples=omarchy-theme-list | omarchy-theme-set nebula-ridge
 #
 # Devuan/X11 port of upstream omarchy-quattro/bin/omarchy-theme-set. The
 # staging + atomic-swap + flock + background-link machinery is kept verbatim in

@@ -250,7 +250,7 @@ Do not use this skill for:
 
 ## Example Requests
 
-- "Change my theme to Tokyo Night" → `omarchy-theme-set "Tokyo Night"`
+- "Change my theme to Nebula Ridge" → `omarchy-theme-set nebula-ridge`
 - "Add a keybinding for Super+E to open the file manager" → edit `~/.config/i3/config.d/02_keybindings.conf`, then `i3-msg reload`
 - "Configure my external monitor" → Super+Ctrl+D / `omarchy-shell shell toggle omaxian.monitor`, or `omarchy-monitor-set`
 - "Make the window gaps smaller" → edit `~/.config/i3/config.d/01_theme.conf` (`$i3_gaps_inner`)

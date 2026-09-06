@@ -111,14 +111,14 @@ but does not delete files you (or an older deploy) left behind.
 | Super+Ctrl+A / B / W / P    | audio / bluetooth / network / power |
 | Super+Ctrl+O / Super+Ctrl+S | Control Panel / Settings            |
 | Super+Ctrl+D                | display settings                    |
-| Super+Ctrl+C / Super+Ctrl+L | screenshot / lock                   |
+| Super+Ctrl+C / Super+Ctrl+L | screenshot (region) / lock          |
 | Super+1…0                   | workspaces                          |
 
-Themes:
+Themes (default on first login: **nebula-ridge**):
 
 ```sh
 omarchy-theme-list
-omarchy-theme-set "Tokyo Night"
+omarchy-theme-set nebula-ridge
 omarchy-theme-next
 ```
 

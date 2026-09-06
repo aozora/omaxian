@@ -7,12 +7,12 @@ Omaxian does not ship `omarchy screenshot`, `omarchy capture`, or
 
 ## Screenshots
 
-Keybind: **Super+Ctrl+C** (runs `~/.config/i3/scripts/i3_screenshot` with no
-mode — that prints usage). For an actual capture, pass a flag or bind one:
+Keybind: **Super+Ctrl+C** (region select via `i3_screenshot --area`). Do not
+confuse with **Super+Shift+C**, which reloads the i3 config.
 
 ```bash
 ~/.config/i3/scripts/i3_screenshot --now     # full screen, clipboard + Pictures/Screenshots
-~/.config/i3/scripts/i3_screenshot --area    # drag a region
+~/.config/i3/scripts/i3_screenshot --area    # drag a region (keybind default)
 ~/.config/i3/scripts/i3_screenshot --win     # focused window
 ~/.config/i3/scripts/i3_screenshot --in5     # delay 5s
 ~/.config/i3/scripts/i3_screenshot --in10    # delay 10s

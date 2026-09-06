@@ -26,8 +26,7 @@ Region and window:
 ```
 
 `maim` writes PNG to the Pictures `Screenshots` directory and copies to the
-clipboard via `xclip`. Super+Ctrl+C is the keybind (the script with no args
-only prints usage — pass `--now` / `--area` / `--win`).
+clipboard via `xclip`. Super+Ctrl+C runs `--area` (region select).
 
 Screen recording is **not ported**. Do not call `omarchy screenrecord`,
 `wf-recorder`, or `wl-screenrec`. If a change is about timing or animation,
