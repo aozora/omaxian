@@ -120,8 +120,8 @@ RECOMMENDED=(
 	playerctl
 	# screenshots + viewer + `convert` for the colour-picker swatch
 	maim flameshot viewnior imagemagick
-	# managers opened by widgets
-	thunar blueman network-manager-gnome nm-connection-editor
+	# managers opened by widgets (FM is not pinned — Super+Shift+F uses omarchy-launch-files / XDG)
+	blueman network-manager-gnome nm-connection-editor
 	# battery %, Wi-Fi QR, colour picker, night light
 	acpi qrencode gpick redshift
 	# power manager started by i3_autostart
@@ -135,6 +135,7 @@ RECOMMENDED=(
 # Optional: hardware- or host-specific; nothing breaks without them.
 OPTIONAL=(
 	spice-vdagent          # VM clipboard sharing + display auto-resize
+	thunar                 # XFCE file manager; Ubuntu/GNOME already ships Nautilus
 	radeontop              # AMD GPU load in omaxian.sysstats (scripts/gpu.sh)
 	intel-gpu-tools        # Intel GPU load via intel_gpu_top (same script)
 	# NVIDIA: nvidia-smi comes with the proprietary driver package, not listed here

@@ -207,7 +207,7 @@ def describe(cmd: str) -> str:
 		(re.compile(r"^\$terminal -e tmux$"), "Open terminal (tmux)"),
 		(re.compile(r"^\$terminal -e btop$"), "Open btop"),
 		(re.compile(r"^\$web_browser$|^brave$"), "Open web browser"),
-		(re.compile(r"^\$file_manager$|^thunar$"), "Open file manager"),
+		(re.compile(r"^\$file_manager$|^omarchy-launch-files\b|^thunar$|^nautilus$"), "Open file manager"),
 		(re.compile(r"^\$text_editor$|sublime_text"), "Open text editor"),
 		(re.compile(r"^\$music_player$"), "Open music player"),
 		(re.compile(r"(?:\$qs|omarchy-shell -q)\s+launcher\b"), "Omarchy menu"),

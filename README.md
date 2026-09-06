@@ -186,6 +186,15 @@ The full skip list is in [`docs/omarchy-port/deltas.md`](docs/omarchy-port/delta
 
 ---
 
+## Ubuntu 26
+
+Since in Ubuntu 26.04 shipped with X11 completely removed, you cannot install Omaxian normally.
+The best workaround is to use Xubuntu, or install it on a Ubuntu system using `sudo apt install xubuntu-desktop`.
+
+To install Quichshell follow the instructions on the [docs](https://quickshell.org/docs/v0.3.0/guide/install-setup/#ubuntu).
+
+
+
 ## Debian 13 and Devuan Excalibur
 
 In Debian 13 and Devuan Excalibur quickshell is available only in the testing repository.
@@ -298,7 +307,7 @@ Two caveats: `-t freia` will also pull Freia versions of a package's dependencie
 | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bar is empty (no widgets)                                 | Quickshell started without `OMARCHY_PATH`. Log out/in, or run `omarchy-restart-shell` from a terminal that has the omarchy commands.                                                                                                                                                                                                                                                    |
 | Shell log: `module "QtQuick.Layouts" is not installed`    | `sudo apt install qml6-module-qtquick-layouts qml6-module-qtquick-controls qml6-module-qtquick-shapes` then `omarchy-restart-shell`. Same packages are in `setup.sh` REQUIRED.                                                                                                                                                                                                          |
-| Shutdown / reboot from Menu or bar does nothing           | Deploy `omarchy-host` (probes `systemctl` → `loginctl` → `shutdown`; re-enters via `i3-msg exec` for polkit). Ensure a polkit agent (`mate-polkit` / `xfce-polkit`). Terminal: `systemctl poweroff` (systemd) or `loginctl poweroff` (elogind).                                                                                                                                        |
+| Shutdown / reboot from Menu or bar does nothing           | Deploy `omarchy-host` (probes `systemctl` → `loginctl` → `shutdown`; re-enters via `i3-msg exec` for polkit). Ensure a polkit agent (`mate-polkit` / `xfce-polkit`). Terminal: `systemctl poweroff` (systemd) or `loginctl poweroff` (elogind).                                                                                                                                         |
 | Apps listed in the menu don't start                       | Restart the shell (`omarchy-restart-shell`). Check `~/.local/state/omarchy/shell.log`.                                                                                                                                                                                                                                                                                                  |
 | Can't type in the menu / runner                           | `sudo apt install python3-xlib`                                                                                                                                                                                                                                                                                                                                                         |
 | Empty bar after `i3 restart`                              | Log out/in, or `omarchy-restart-shell`                                                                                                                                                                                                                                                                                                                                                  |
