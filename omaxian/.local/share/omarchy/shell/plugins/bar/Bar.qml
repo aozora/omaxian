@@ -644,6 +644,11 @@ Item {
     Util.execDetached(command)
   }
 
+  // Argv form — prefer over run() when args must not be shell-interpreted.
+  function runArgv(argv) {
+    Util.execArgv(argv)
+  }
+
   function toggleTransparency() {
     var nextTransparent = !(root.requestedTransparent === true)
     if (root.shell && typeof root.shell.mutateShellConfig === "function") {
@@ -902,6 +907,8 @@ Item {
 
   FileView {
     path: root.stateHome + "/omarchy/current"
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
     onFileChanged: root.scheduleTransparentForegroundRefresh()
@@ -973,6 +980,8 @@ Item {
   }
   FileView {
     path: root.home + "/.local/state/omarchy/toggles"
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
     onFileChanged: barHiddenProbe.running = true
@@ -1728,8 +1737,8 @@ Item {
     }
 
     bar: root
-    text: outputText || String(setting("text", ""))
-    tooltipText: outputTooltip || String(setting("tooltip", ""))
+    text: Util.plain(outputText || String(setting("text", "")))
+    tooltipText: Util.plain(outputTooltip || String(setting("tooltip", "")))
     active: outputActive
     keepSpace: setting("keepSpace", false) === true
     horizontalMargin: Number(setting("horizontalMargin", 7.5))
@@ -1750,11 +1759,41 @@ Item {
 
     Process {
       id: customProc
+      property string stdoutBuf: ""
+      property int maxStdout: 65536
+      property bool overflowed: false
       command: ["bash", "-lc", String(customRoot.setting("exec", ""))]
-      stdout: StdioCollector {
-        waitForEnd: true
-        onStreamFinished: customRoot.update(text)
+      stdout: SplitParser {
+        splitMarker: ""
+        onRead: function(chunk) {
+          if (customProc.overflowed) return
+          customProc.stdoutBuf += chunk
+          if (customProc.stdoutBuf.length > customProc.maxStdout) {
+            customProc.overflowed = true
+            customProc.stdoutBuf = ""
+            customProc.signal(15)
+            customKillTimer.start()
+          }
+        }
       }
+      onStarted: {
+        customKillTimer.stop()
+        stdoutBuf = ""
+        overflowed = false
+      }
+      onExited: function() {
+        customKillTimer.stop()
+        var raw = overflowed ? "" : String(stdoutBuf || "")
+        stdoutBuf = ""
+        overflowed = false
+        customRoot.update(raw)
+      }
+    }
+
+    Timer {
+      id: customKillTimer
+      interval: 2000
+      onTriggered: customProc.signal(9)
     }
 
     Timer {

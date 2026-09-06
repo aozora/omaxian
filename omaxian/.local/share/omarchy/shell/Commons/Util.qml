@@ -75,13 +75,32 @@ QtObject {
     Quickshell.execDetached(["bash", "-lc", loginShellCommand(command)])
   }
 
+  // Sanitize for host-owned AutoText sinks (tooltipText, WidgetButton.text,
+  // notifications). Strips markup-sensitive chars and all C0/DEL/C1 controls,
+  // collapses whitespace, then caps length (default 200).
+  function plain(value, maxLen) {
+    if (maxLen === undefined || maxLen === null) maxLen = 200
+    var s = String(value || "")
+      .replace(/[<>&\u0000-\u001F\u007F-\u009F]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+    if (s.length > maxLen) s = s.slice(0, maxLen)
+    return s
+  }
+
   // Run an argv vector without a shell interpreting it: the constant `exec "$@"`
   // means the args only ever land in positional parameters, which bash expands
   // without re-tokenizing — so untrusted data ($(id), a filename) stays literal.
   // The login shell (-l) keeps the PATH/session env GUI targets (tensaku, mpv,
   // xdg-open) need. Prefer this over execDetached for anything built from input.
+  // Callers that previously wanted a runArgv helper should use execArgv directly.
   function execArgv(argv) {
     Quickshell.execDetached(["bash", "-lc", loginShellCommand('exec "$@"'), "bash"].concat(argv))
+  }
+
+  // Desktop notification via omarchy-notification-send with plain()-sanitized args.
+  function notify(headline, description) {
+    execArgv(["omarchy-notification-send", plain(headline, 120), plain(description || "", 240)])
   }
 
   function isPlainObject(value) {

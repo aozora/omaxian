@@ -26,16 +26,45 @@ BarWidget {
 
   Process {
     id: proc
+    property string stdoutBuf: ""
+    property int maxStdout: 262144
+    property bool overflowed: false
     command: ["python3", Quickshell.shellDir + "/scripts/help-bindings.py"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        try {
-          root.rows = JSON.parse(text)
-        } catch (e) {
-          root.rows = []
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (proc.overflowed) return
+        proc.stdoutBuf += chunk
+        if (proc.stdoutBuf.length > proc.maxStdout) {
+          proc.overflowed = true
+          proc.stdoutBuf = ""
+          proc.signal(15)
+          helpKillTimer.start()
         }
       }
     }
+    onStarted: {
+      helpKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      helpKillTimer.stop()
+      var text = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      try {
+        root.rows = JSON.parse(text)
+      } catch (e) {
+        root.rows = []
+      }
+    }
+  }
+
+  Timer {
+    id: helpKillTimer
+    interval: 2000
+    onTriggered: proc.signal(9)
   }
 
   implicitWidth: button.implicitWidth
@@ -69,6 +98,7 @@ BarWidget {
       spacing: Style.spacing.sm
 
       Text {
+        textFormat: Text.PlainText
         text: "Keybindings"
         color: BarPalette.popupHeaderAccent
         font.family: Style.font.family
@@ -87,6 +117,7 @@ BarWidget {
           height: modelData.type === "header" ? Style.space(26) : Style.space(24)
 
           Text {
+            textFormat: Text.PlainText
             visible: parent.modelData.type === "header"
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -103,6 +134,7 @@ BarWidget {
             anchors.leftMargin: Style.spacing.sm
 
             Text {
+              textFormat: Text.PlainText
               Layout.preferredWidth: Style.space(220)
               text: parent.parent.modelData.keys
               color: BarPalette.popupHelpKeys
@@ -110,6 +142,7 @@ BarWidget {
               font.pixelSize: Style.font.caption
             }
             Text {
+              textFormat: Text.PlainText
               Layout.fillWidth: true
               text: parent.parent.modelData.action
               color: BarPalette.popupSubtext

@@ -47,47 +47,135 @@ BarWidget {
 
   Process {
     id: cpuProc
+    property string stdoutBuf: ""
+    property int maxStdout: 65536
+    property bool overflowed: false
     command: ["cat", "/proc/stat"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var cur = root._parseCpuLine(text)
-        if (root._prevCpu) {
-          var idleDelta = cur.idle - root._prevCpu.idle
-          var totalDelta = cur.total - root._prevCpu.total
-          if (totalDelta > 0) root.cpuPercent = Math.max(0, Math.min(100, 100 * (1 - idleDelta / totalDelta)))
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (cpuProc.overflowed) return
+        cpuProc.stdoutBuf += chunk
+        if (cpuProc.stdoutBuf.length > cpuProc.maxStdout) {
+          cpuProc.overflowed = true
+          cpuProc.stdoutBuf = ""
+          cpuProc.signal(15)
+          cpuKillTimer.start()
         }
-        root._prevCpu = cur
       }
     }
+    onStarted: {
+      cpuKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      cpuKillTimer.stop()
+      var text = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (!text) return
+      var cur = root._parseCpuLine(text)
+      if (root._prevCpu) {
+        var idleDelta = cur.idle - root._prevCpu.idle
+        var totalDelta = cur.total - root._prevCpu.total
+        if (totalDelta > 0) root.cpuPercent = Math.max(0, Math.min(100, 100 * (1 - idleDelta / totalDelta)))
+      }
+      root._prevCpu = cur
+    }
+  }
+
+  Timer {
+    id: cpuKillTimer
+    interval: 2000
+    onTriggered: cpuProc.signal(9)
   }
 
   Process {
     id: ramProc
+    property string stdoutBuf: ""
+    property int maxStdout: 65536
+    property bool overflowed: false
     command: ["cat", "/proc/meminfo"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var total = 0, avail = 0
-        var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) {
-          var m = lines[i].match(/^MemTotal:\s+(\d+)/)
-          if (m) total = Number(m[1])
-          m = lines[i].match(/^MemAvailable:\s+(\d+)/)
-          if (m) avail = Number(m[1])
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (ramProc.overflowed) return
+        ramProc.stdoutBuf += chunk
+        if (ramProc.stdoutBuf.length > ramProc.maxStdout) {
+          ramProc.overflowed = true
+          ramProc.stdoutBuf = ""
+          ramProc.signal(15)
+          ramKillTimer.start()
         }
-        if (total > 0) root.ramPercent = Math.max(0, Math.min(100, 100 * (1 - avail / total)))
       }
     }
+    onStarted: {
+      ramKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      ramKillTimer.stop()
+      var text = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (!text) return
+      var total = 0, avail = 0
+      var lines = text.split("\n")
+      for (var i = 0; i < lines.length; i++) {
+        var m = lines[i].match(/^MemTotal:\s+(\d+)/)
+        if (m) total = Number(m[1])
+        m = lines[i].match(/^MemAvailable:\s+(\d+)/)
+        if (m) avail = Number(m[1])
+      }
+      if (total > 0) root.ramPercent = Math.max(0, Math.min(100, 100 * (1 - avail / total)))
+    }
+  }
+
+  Timer {
+    id: ramKillTimer
+    interval: 2000
+    onTriggered: ramProc.signal(9)
   }
 
   Process {
     id: gpuProc
+    property string stdoutBuf: ""
+    property int maxStdout: 4096
+    property bool overflowed: false
     command: ["bash", Quickshell.shellDir + "/scripts/gpu.sh"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var t = text.trim()
-        if (t.length > 0) root.gpuText = t
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (gpuProc.overflowed) return
+        gpuProc.stdoutBuf += chunk
+        if (gpuProc.stdoutBuf.length > gpuProc.maxStdout) {
+          gpuProc.overflowed = true
+          gpuProc.stdoutBuf = ""
+          gpuProc.signal(15)
+          gpuKillTimer.start()
+        }
       }
     }
+    onStarted: {
+      gpuKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      gpuKillTimer.stop()
+      var t = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
+      if (t.length > 0) root.gpuText = t
+    }
+  }
+
+  Timer {
+    id: gpuKillTimer
+    interval: 2000
+    onTriggered: gpuProc.signal(9)
   }
 
   implicitWidth: statRow.implicitWidth
@@ -106,17 +194,17 @@ BarWidget {
       foreground: Color.bar.text
       horizontalMargin: 6
       verticalPadding: 4
-      onPressed: root.bar.run(Quickshell.shellDir + "/scripts/sysmon.sh")
+      onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/sysmon.sh"])
     }
     WidgetButton {
       bar: root.bar
       anchors.verticalCenter: parent.verticalCenter
       fontSize: Style.font.body
-      text: root.gpuText
+      text: Util.plain(root.gpuText)
       foreground: Color.bar.text
       horizontalMargin: 6
       verticalPadding: 4
-      onPressed: root.bar.run(Quickshell.shellDir + "/scripts/sysmon.sh")
+      onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/sysmon.sh"])
     }
     WidgetButton {
       bar: root.bar
@@ -126,7 +214,7 @@ BarWidget {
       foreground: Color.bar.text
       horizontalMargin: 6
       verticalPadding: 4
-      onPressed: root.bar.run(Quickshell.shellDir + "/scripts/sysmon.sh")
+      onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/sysmon.sh"])
     }
   }
 }

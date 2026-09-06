@@ -18,6 +18,12 @@ Item {
   property var toml: ({})
   property string localFolder: ""
   property bool pickingFolder: false
+  property string tomlRaw: ""
+  property string tomlReadBuf: ""
+  property string wallpaperReadBuf: ""
+
+  readonly property string tomlPath: Quickshell.env("HOME") + "/.config/omarchy/shell.toml"
+  readonly property string wallpaperPath: Quickshell.env("HOME") + "/.config/omarchy/wallpaper-settings.json"
 
   readonly property int fontSize: {
     var n = Model.tomlNumber(toml, "font.base-size", Style.font.baseSize)
@@ -37,31 +43,125 @@ Item {
     return isFinite(n) ? Math.round(n) : Style.bar.sizeVertical
   }
 
+  function reloadTomlFile() {
+    if (tomlReadProc.running) {
+      tomlReadProc.signal(15)
+      tomlReadKill.start()
+    }
+    root.tomlReadBuf = ""
+    tomlReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.tomlPath
+    ]
+    tomlReadProc.running = true
+  }
+
+  function reloadWallpaperFile() {
+    if (wallpaperReadProc.running) {
+      wallpaperReadProc.signal(15)
+      wallpaperReadKill.start()
+    }
+    root.wallpaperReadBuf = ""
+    wallpaperReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.wallpaperPath
+    ]
+    wallpaperReadProc.running = true
+  }
+
+  // Write path still uses FileView.setText; read hardening is via safe-read.
   FileView {
     id: tomlFile
-    path: Quickshell.env("HOME") + "/.config/omarchy/shell.toml"
+    path: root.tomlPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     atomicWrites: true
     printErrors: false
-    onLoaded: root.toml = Model.parseShell(text())
-    onFileChanged: reload()
-    onLoadFailed: root.toml = ({})
+    onFileChanged: root.reloadTomlFile()
   }
 
   FileView {
     id: wallpaperFile
-    path: Quickshell.env("HOME") + "/.config/omarchy/wallpaper-settings.json"
+    path: root.wallpaperPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     atomicWrites: true
     printErrors: false
-    onLoaded: root.localFolder = Model.parseWallpaperSettings(text()).localFolder
-    onFileChanged: reload()
-    onLoadFailed: root.localFolder = ""
+    onFileChanged: root.reloadWallpaperFile()
+  }
+
+  Process {
+    id: tomlReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.tomlReadBuf += String(chunk || "")
+        if (root.tomlReadBuf.length > 65536) {
+          tomlReadProc.signal(15)
+          tomlReadKill.start()
+          root.tomlReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.tomlReadBuf
+      root.tomlReadBuf = ""
+      if (exitCode === 0) {
+        root.tomlRaw = raw
+        root.toml = Model.parseShell(raw)
+      }
+    }
+  }
+
+  Timer {
+    id: tomlReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: tomlReadProc.signal(9)
+  }
+
+  Process {
+    id: wallpaperReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.wallpaperReadBuf += String(chunk || "")
+        if (root.wallpaperReadBuf.length > 65536) {
+          wallpaperReadProc.signal(15)
+          wallpaperReadKill.start()
+          root.wallpaperReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.wallpaperReadBuf
+      root.wallpaperReadBuf = ""
+      if (exitCode === 0)
+        root.localFolder = Model.parseWallpaperSettings(raw).localFolder
+    }
+  }
+
+  Timer {
+    id: wallpaperReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: wallpaperReadProc.signal(9)
+  }
+
+  Component.onCompleted: {
+    root.reloadTomlFile()
+    root.reloadWallpaperFile()
   }
 
   function persistToml(updates) {
-    var next = Model.upsertToml(tomlFile.text() || "", updates)
+    var next = Model.upsertToml(root.tomlRaw || "", updates)
+    // Write hardening is separate — keep FileView.setText for saves.
     tomlFile.setText(next)
+    root.tomlRaw = next
     root.toml = Model.parseShell(next)
   }
 
@@ -105,6 +205,7 @@ Item {
       spacing: Style.space(12)
 
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
         text: "These values write ~/.config/omarchy/shell.toml and survive theme switches."
@@ -171,6 +272,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
         text: root.localFolder.length ? root.localFolder : "No extra folder selected"

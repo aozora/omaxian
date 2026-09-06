@@ -45,17 +45,46 @@ BarIndicator {
 
   Process {
     id: statusProc
-    command: ["dunstctl", "is-paused"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.paused = String(text || "").trim() === "true"
+    property string stdoutBuf: ""
+    property int maxStdout: 256
+    property bool overflowed: false
+    command: ["/usr/bin/dunstctl", "is-paused"]
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (statusProc.overflowed) return
+        statusProc.stdoutBuf += chunk
+        if (statusProc.stdoutBuf.length > statusProc.maxStdout) {
+          statusProc.overflowed = true
+          statusProc.stdoutBuf = ""
+          statusProc.signal(15)
+          dndKillTimer.start()
+        }
+      }
     }
-    onExited: function(exitCode) { if (exitCode !== 0) root.paused = false }
+    onStarted: {
+      dndKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function(exitCode) {
+      dndKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
+      if (exitCode !== 0) root.paused = false
+      else root.paused = raw === "true"
+    }
+  }
+
+  Timer {
+    id: dndKillTimer
+    interval: 2000
+    onTriggered: statusProc.signal(9)
   }
 
   onPressed: function() {
-    Quickshell.execDetached(["bash", "-lc",
-      "dunstctl set-paused " + (root.paused ? "false" : "true")])
+    Quickshell.execDetached(["/usr/bin/dunstctl", "set-paused", root.paused ? "false" : "true"])
     Qt.callLater(root.refresh)
   }
 }

@@ -67,7 +67,7 @@ Item {
       }
 
       if (!nextMinutes) {
-        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send", "Invalid reminder", "Enter the number of minutes"])
+        Util.notify("Invalid reminder", "Enter the number of minutes")
         return
       }
 

@@ -166,6 +166,9 @@ Item {
     NumberAnimation { target: root; property: "shakeOffset"; to: 8; duration: 50; easing.type: Easing.InOutQuad }
     NumberAnimation { target: root; property: "shakeOffset"; to: 0; duration: 55; easing.type: Easing.OutQuad }
   }
+  // Safe-read refuses root-owned files (uid != euid). /etc/pam.d/polkit-1 is
+  // system config, so keep FileView.text() here until a world-readable path
+  // policy is added to safe-read.py. Watcher still useful for live PAM edits.
   FileView {
     path: "/etc/pam.d/polkit-1"
     watchChanges: true
@@ -177,9 +180,41 @@ Item {
 
   Process {
     id: laptopClosedProc
+    property string stdoutBuf: ""
+    property int maxStdout: 256
+    property bool overflowed: false
     command: ["bash", "-c", "omarchy-hw-laptop-closed && echo closed || echo open"]
-    stdout: StdioCollector { id: laptopClosedOut; waitForEnd: true }
-    onExited: root.laptopClosed = String(laptopClosedOut.text || "").trim() === "closed"
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (laptopClosedProc.overflowed) return
+        laptopClosedProc.stdoutBuf += chunk
+        if (laptopClosedProc.stdoutBuf.length > laptopClosedProc.maxStdout) {
+          laptopClosedProc.overflowed = true
+          laptopClosedProc.stdoutBuf = ""
+          laptopClosedProc.signal(15)
+          laptopClosedKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      laptopClosedKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      laptopClosedKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
+      root.laptopClosed = raw === "closed"
+    }
+  }
+
+  Timer {
+    id: laptopClosedKillTimer
+    interval: 2000
+    onTriggered: laptopClosedProc.signal(9)
   }
 
   PolkitAgent {
@@ -313,6 +348,7 @@ Item {
         spacing: Style.space(14)
 
         Text {
+          textFormat: Text.PlainText
           text: "\uf023"
           color: root.errorFlash ? Color.polkit.textError : root.accent
           font.family: root.fontFamily

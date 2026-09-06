@@ -447,7 +447,11 @@ Panel {
 
   function copyToClipboard(value) {
     if (!value || !root.bar) return
-    Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(value) + " | { xclip -selection clipboard 2>/dev/null || xsel -b; }"])
+    Quickshell.execDetached([
+      "bash", "-c",
+      'printf %s "$1" | { xclip -selection clipboard 2>/dev/null || xsel -b; }',
+      "clip", value
+    ])
   }
 
   readonly property string icon: Model.connectionIcon(kind, signalStrength)
@@ -472,7 +476,7 @@ Panel {
     if (scanWifi === undefined) scanWifi = false
     if (!detailsProc.running) detailsProc.running = true
     if (!dnsProc.running) {
-      dnsProc.command = ["bash", "-c", root.dnsCommand("")]
+      dnsProc.command = ["omarchy-dns"]
       dnsProc.running = true
     }
     if (!bandProc.running) {
@@ -658,12 +662,6 @@ Panel {
     bar.shell.summon("omarchy.speedtest", connection ? JSON.stringify({ connection: connection }) : "{}")
   }
 
-  function dnsCommand(provider) {
-    var command = "omarchy-dns"
-    if (provider) command += " " + Util.shellQuote(provider)
-    return command
-  }
-
   function setDns(provider) {
     if (!root.bar || !provider || actionProc.running) return
 
@@ -672,17 +670,21 @@ Panel {
       // profile's float-terminal wrapper to run the interactive omarchy-dns.
       // Hold the window open on exit so a sudo/nmcli error is readable instead
       // of a floating terminal that just flashes and vanishes.
-      var script = root.dnsCommand(provider)
-        + "; status=$?; echo; "
-        + "[ $status -eq 0 ] && echo '[done]' || echo \"[failed: exit $status]\"; "
-        + "read -rsn1 -p 'Press any key to close…'"
-      root.bar.run("~/.config/i3/scripts/i3_term --float -e bash -lc " + Util.shellQuote(script))
+      // Constant script + "$1" so the provider never lands in a shell string.
+      Util.execArgv([
+        Quickshell.env("HOME") + "/.config/i3/scripts/i3_term",
+        "--float", "-e",
+        "bash", "-c",
+        'omarchy-dns "$1"; status=$?; echo; [ "$status" -eq 0 ] && echo "[done]" || echo "[failed: exit $status]"; read -rsn1 -p "Press any key to close…"',
+        "omarchy-dns-custom",
+        provider
+      ])
       root.close()
       return
     }
 
     root.pendingDnsProvider = provider
-    actionProc.command = ["bash", "-c", root.dnsCommand(provider)]
+    actionProc.command = ["omarchy-dns", provider]
     actionProc.running = true
     root.close()
   }
@@ -818,11 +820,41 @@ Panel {
   // Pulls everything we want about the active route's interface in one shot.
   Process {
     id: detailsProc
+    property string stdoutBuf: ""
+    property int maxStdout: 65536
+    property bool overflowed: false
     command: ["omarchy-network-status", "--verbose"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.updateDetails(text)
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (detailsProc.overflowed) return
+        detailsProc.stdoutBuf += chunk
+        if (detailsProc.stdoutBuf.length > detailsProc.maxStdout) {
+          detailsProc.overflowed = true
+          detailsProc.stdoutBuf = ""
+          detailsProc.signal(15)
+          detailsKillTimer.start()
+        }
+      }
     }
+    onStarted: {
+      detailsKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      detailsKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.updateDetails(raw)
+    }
+  }
+
+  Timer {
+    id: detailsKillTimer
+    interval: 2000
+    onTriggered: detailsProc.signal(9)
   }
 
   Timer {
@@ -846,18 +878,78 @@ Panel {
 
   Process {
     id: dnsProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.updateDns(text)
+    property string stdoutBuf: ""
+    property int maxStdout: 4096
+    property bool overflowed: false
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (dnsProc.overflowed) return
+        dnsProc.stdoutBuf += chunk
+        if (dnsProc.stdoutBuf.length > dnsProc.maxStdout) {
+          dnsProc.overflowed = true
+          dnsProc.stdoutBuf = ""
+          dnsProc.signal(15)
+          dnsKillTimer.start()
+        }
+      }
     }
+    onStarted: {
+      dnsKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      dnsKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.updateDns(raw)
+    }
+  }
+
+  Timer {
+    id: dnsKillTimer
+    interval: 2000
+    onTriggered: dnsProc.signal(9)
   }
 
   Process {
     id: bandProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.updateBand(text)
+    property string stdoutBuf: ""
+    property int maxStdout: 4096
+    property bool overflowed: false
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (bandProc.overflowed) return
+        bandProc.stdoutBuf += chunk
+        if (bandProc.stdoutBuf.length > bandProc.maxStdout) {
+          bandProc.overflowed = true
+          bandProc.stdoutBuf = ""
+          bandProc.signal(15)
+          bandKillTimer.start()
+        }
+      }
     }
+    onStarted: {
+      bandKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      bandKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.updateBand(raw)
+    }
+  }
+
+  Timer {
+    id: bandKillTimer
+    interval: 2000
+    onTriggered: bandProc.signal(9)
   }
 
   // Slower than detailsPoll on purpose: this shells out to nmcli several times,
@@ -878,9 +970,50 @@ Panel {
   // Quickshell.Networking NetworkManager backend directly.
   Process {
     id: actionProc
-    stdout: StdioCollector { id: actionStdout; waitForEnd: true }
-    stderr: StdioCollector { id: actionStderr; waitForEnd: true }
+    property string stdoutBuf: ""
+    property string stderrBuf: ""
+    property int maxStdout: 16384
+    property int maxStderr: 16384
+    property bool overflowed: false
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (actionProc.overflowed) return
+        actionProc.stdoutBuf += chunk
+        if (actionProc.stdoutBuf.length > actionProc.maxStdout) {
+          actionProc.overflowed = true
+          actionProc.stdoutBuf = ""
+          actionProc.stderrBuf = ""
+          actionProc.signal(15)
+          actionKillTimer.start()
+        }
+      }
+    }
+    stderr: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (actionProc.overflowed) return
+        actionProc.stderrBuf += chunk
+        if (actionProc.stderrBuf.length > actionProc.maxStderr) {
+          actionProc.overflowed = true
+          actionProc.stdoutBuf = ""
+          actionProc.stderrBuf = ""
+          actionProc.signal(15)
+          actionKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      actionKillTimer.stop()
+      stdoutBuf = ""
+      stderrBuf = ""
+      overflowed = false
+    }
     onExited: function(exitCode) {
+      actionKillTimer.stop()
+      stdoutBuf = ""
+      stderrBuf = ""
+      overflowed = false
       if (root.pendingDnsProvider !== "") {
         if (exitCode === 0) root.dnsProvider = root.pendingDnsProvider
         root.pendingDnsProvider = ""
@@ -895,6 +1028,12 @@ Panel {
         root.refresh()
       }
     }
+  }
+
+  Timer {
+    id: actionKillTimer
+    interval: 2000
+    onTriggered: actionProc.signal(9)
   }
 
   // Poll details while the panel is open so the IP/route header catches up
@@ -1297,7 +1436,7 @@ Panel {
 
           PanelSectionHeader {
             id: bandHeader
-            text: root.bandSectionTitle
+            text: Util.plain(root.bandSectionTitle)
             foreground: root.bar.foreground
             fontFamily: root.bar.fontFamily
             anchors.left: parent.left
@@ -1544,8 +1683,8 @@ Panel {
     required property string band
     required property int slot
 
-    text: root.bandLabel(band)
-    tooltipText: root.bandTooltip(band)
+    text: Util.plain(root.bandLabel(band))
+    tooltipText: Util.plain(root.bandTooltip(band))
     fontSize: Style.font.bodySmall
     foreground: root.bar.foreground
     fontFamily: root.bar.fontFamily

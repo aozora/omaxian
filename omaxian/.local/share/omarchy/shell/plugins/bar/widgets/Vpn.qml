@@ -27,12 +27,41 @@ BarWidget {
 
   Process {
     id: proc
+    property string stdoutBuf: ""
+    property int maxStdout: 1024
+    property bool overflowed: false
     command: ["bash", Quickshell.shellDir + "/scripts/vpn.sh"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        root.on = text.trim().length > 0 && text.trim().codePointAt(0) === 0xf0565
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (proc.overflowed) return
+        proc.stdoutBuf += chunk
+        if (proc.stdoutBuf.length > proc.maxStdout) {
+          proc.overflowed = true
+          proc.stdoutBuf = ""
+          proc.signal(15)
+          vpnKillTimer.start()
+        }
       }
     }
+    onStarted: {
+      vpnKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      vpnKillTimer.stop()
+      var text = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
+      root.on = text.length > 0 && text.codePointAt(0) === 0xf0565
+    }
+  }
+
+  Timer {
+    id: vpnKillTimer
+    interval: 2000
+    onTriggered: proc.signal(9)
   }
 
   implicitWidth: button.implicitWidth
@@ -47,6 +76,6 @@ BarWidget {
     foreground: root.on ? BarPalette.vpnOn : BarPalette.vpnOff
     horizontalMargin: 8.5
     verticalPadding: 6
-    onPressed: root.bar.run(Quickshell.shellDir + "/scripts/network-menu.sh")
+    onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/network-menu.sh"])
   }
 }

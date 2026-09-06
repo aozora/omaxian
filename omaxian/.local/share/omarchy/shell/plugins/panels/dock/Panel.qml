@@ -105,7 +105,14 @@ Item {
     root.appLibrary ? root.appLibrary.sortedEntries("") : []
   )
 
+  readonly property string pinnedPath: root.home + "/.config/omarchy/dock-pinned.json"
+  property string pinnedReadBuf: ""
+  property string themeDockReadBuf: ""
+  property string userDockReadBuf: ""
+  property string legacyJsonReadBuf: ""
+
   function persistPinned() {
+    // Write hardening is separate — keep FileView.setText for saves.
     pinnedFile.setText(Model.serializePinned(root.pinned))
   }
 
@@ -130,44 +137,220 @@ Item {
       root.appLibrary.launch(item.entry)
   }
 
+  function reloadPinnedFile() {
+    if (pinnedReadProc.running) {
+      pinnedReadProc.signal(15)
+      pinnedReadKill.start()
+    }
+    root.pinnedReadBuf = ""
+    pinnedReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.pinnedPath
+    ]
+    pinnedReadProc.running = true
+  }
+
+  function reloadThemeDockFile() {
+    if (themeDockReadProc.running) {
+      themeDockReadProc.signal(15)
+      themeDockReadKill.start()
+    }
+    root.themeDockReadBuf = ""
+    themeDockReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.themeDockPath
+    ]
+    themeDockReadProc.running = true
+  }
+
+  function reloadUserDockFile() {
+    if (userDockReadProc.running) {
+      userDockReadProc.signal(15)
+      userDockReadKill.start()
+    }
+    root.userDockReadBuf = ""
+    userDockReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.userDockPath
+    ]
+    userDockReadProc.running = true
+  }
+
+  function reloadLegacyJsonFile() {
+    if (legacyJsonReadProc.running) {
+      legacyJsonReadProc.signal(15)
+      legacyJsonReadKill.start()
+    }
+    root.legacyJsonReadBuf = ""
+    legacyJsonReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.legacyJsonPath
+    ]
+    legacyJsonReadProc.running = true
+  }
+
+  // Watcher + write only — bytes come from safe-read.py.
   FileView {
     id: pinnedFile
-    path: root.home + "/.config/omarchy/dock-pinned.json"
+    path: root.pinnedPath
+    preload: false
+    blockAllReads: true
+    watchChanges: false
+    atomicWrites: true
     printErrors: false
-    onLoaded: root.pinned = Model.parsePinned(text())
-    onLoadFailed: root.pinned = []
   }
 
   FileView {
     id: themeDockFile
     path: root.themeDockPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
-    onLoaded: {
-      root.themeSparse = Model.parseSettingsSparse(text())
-    }
-    onFileChanged: reload()
-    onLoadFailed: root.themeSparse = ({})
+    onFileChanged: root.reloadThemeDockFile()
   }
 
   FileView {
     id: userDockFile
     path: root.userDockPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
-    onLoaded: root.userSparse = Model.parseSettingsSparse(text())
-    onFileChanged: reload()
-    onLoadFailed: root.userSparse = ({})
+    onFileChanged: root.reloadUserDockFile()
   }
 
   FileView {
     id: legacyJsonFile
     path: root.legacyJsonPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
-    onLoaded: root.legacySparse = Model.parseSettingsSparse(text())
-    onFileChanged: reload()
-    onLoadFailed: root.legacySparse = ({})
+    onFileChanged: root.reloadLegacyJsonFile()
+  }
+
+  Process {
+    id: pinnedReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.pinnedReadBuf += String(chunk || "")
+        if (root.pinnedReadBuf.length > 65536) {
+          pinnedReadProc.signal(15)
+          pinnedReadKill.start()
+          root.pinnedReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.pinnedReadBuf
+      root.pinnedReadBuf = ""
+      if (exitCode === 0)
+        root.pinned = Model.parsePinned(raw)
+    }
+  }
+
+  Timer {
+    id: pinnedReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: pinnedReadProc.signal(9)
+  }
+
+  Process {
+    id: themeDockReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.themeDockReadBuf += String(chunk || "")
+        if (root.themeDockReadBuf.length > 65536) {
+          themeDockReadProc.signal(15)
+          themeDockReadKill.start()
+          root.themeDockReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.themeDockReadBuf
+      root.themeDockReadBuf = ""
+      if (exitCode === 0)
+        root.themeSparse = Model.parseSettingsSparse(raw)
+    }
+  }
+
+  Timer {
+    id: themeDockReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: themeDockReadProc.signal(9)
+  }
+
+  Process {
+    id: userDockReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.userDockReadBuf += String(chunk || "")
+        if (root.userDockReadBuf.length > 65536) {
+          userDockReadProc.signal(15)
+          userDockReadKill.start()
+          root.userDockReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.userDockReadBuf
+      root.userDockReadBuf = ""
+      if (exitCode === 0)
+        root.userSparse = Model.parseSettingsSparse(raw)
+    }
+  }
+
+  Timer {
+    id: userDockReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: userDockReadProc.signal(9)
+  }
+
+  Process {
+    id: legacyJsonReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.legacyJsonReadBuf += String(chunk || "")
+        if (root.legacyJsonReadBuf.length > 65536) {
+          legacyJsonReadProc.signal(15)
+          legacyJsonReadKill.start()
+          root.legacyJsonReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.legacyJsonReadBuf
+      root.legacyJsonReadBuf = ""
+      if (exitCode === 0)
+        root.legacySparse = Model.parseSettingsSparse(raw)
+    }
+  }
+
+  Timer {
+    id: legacyJsonReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: legacyJsonReadProc.signal(9)
+  }
+
+  Component.onCompleted: {
+    root.reloadPinnedFile()
+    root.reloadThemeDockFile()
+    root.reloadUserDockFile()
+    root.reloadLegacyJsonFile()
   }
 
   Variants {

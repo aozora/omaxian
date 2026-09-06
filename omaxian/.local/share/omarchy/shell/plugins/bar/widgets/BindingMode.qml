@@ -54,6 +54,7 @@ BarWidget {
     color: Color.urgent
 
     Text {
+      textFormat: Text.PlainText
       id: label
       anchors.centerIn: parent
       text: "[" + root.shortMode + " on]"

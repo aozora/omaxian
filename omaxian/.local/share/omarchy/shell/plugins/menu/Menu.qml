@@ -35,8 +35,8 @@ Item {
   }
 
   function refresh() {
-    defaultMenuFile.reload()
-    userMenuFile.reload()
+    root.reloadDefaultMenuFile()
+    root.reloadUserMenuFile()
     return "ok"
   }
 
@@ -138,10 +138,16 @@ Item {
       return
     }
 
+    // Constant scripts + positional args: selection/paths never enter the
+    // shell string (same-UID path plants still blocked by isSafeHandshakePath).
     if (selection === null || selection === undefined) {
-      resultProc.command = ["bash", "-c", ": > " + Util.shellQuote(activeDoneFile)]
+      resultProc.command = ["bash", "-c", ': > "$1"', "menu-done", activeDoneFile]
     } else {
-      resultProc.command = ["bash", "-c", "printf '%s\\n' " + Util.shellQuote(selection) + " > " + Util.shellQuote(activeSelectionFile) + "; : > " + Util.shellQuote(activeDoneFile)]
+      resultProc.command = [
+        "bash", "-c",
+        'printf "%s\\n" "$1" > "$2"; : > "$3"',
+        "menu-select", String(selection), activeSelectionFile, activeDoneFile
+      ]
     }
     resultProc.running = true
   }
@@ -964,7 +970,7 @@ Item {
 
   PointerMoveGate {
     id: pointerGate
-    referenceItem: card
+    referenceItem: panel
   }
 
   Connections {
@@ -977,23 +983,121 @@ Item {
   // The JSONC sources are watched so live edits to the default file (or the
   // user extension at ~/.config/omarchy/extensions/omarchy-menu.jsonc) take
   // effect without restarting the shell.
+  property string defaultMenuReadBuf: ""
+  property string userMenuReadBuf: ""
+
+  function reloadDefaultMenuFile() {
+    if (defaultMenuReadProc.running) {
+      defaultMenuReadProc.signal(15)
+      defaultMenuReadKill.start()
+    }
+    root.defaultMenuReadBuf = ""
+    defaultMenuReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "262144", root.defaultMenuPath
+    ]
+    defaultMenuReadProc.running = true
+  }
+
+  function reloadUserMenuFile() {
+    if (userMenuReadProc.running) {
+      userMenuReadProc.signal(15)
+      userMenuReadKill.start()
+    }
+    root.userMenuReadBuf = ""
+    userMenuReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "262144", root.userMenuPath
+    ]
+    userMenuReadProc.running = true
+  }
+
+  // Watcher only — bytes come from safe-read.py.
   FileView {
     id: defaultMenuFile
     path: root.defaultMenuPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
-    onLoaded: { root.defaultMenuItems = root.parseMenuJsonc(text()); root.rebuildItemsFromSources() }
-    onFileChanged: reload()
+    onFileChanged: root.reloadDefaultMenuFile()
   }
 
   FileView {
     id: userMenuFile
     path: root.userMenuPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
-    onLoaded: { root.userMenuItems = root.parseMenuJsonc(text()); root.rebuildItemsFromSources() }
-    onLoadFailed: { root.userMenuItems = []; root.rebuildItemsFromSources() }
-    onFileChanged: reload()
+    onFileChanged: root.reloadUserMenuFile()
+  }
+
+  Process {
+    id: defaultMenuReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.defaultMenuReadBuf += String(chunk || "")
+        if (root.defaultMenuReadBuf.length > 262144) {
+          defaultMenuReadProc.signal(15)
+          defaultMenuReadKill.start()
+          root.defaultMenuReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.defaultMenuReadBuf
+      root.defaultMenuReadBuf = ""
+      if (exitCode === 0) {
+        root.defaultMenuItems = root.parseMenuJsonc(raw)
+        root.rebuildItemsFromSources()
+      }
+    }
+  }
+
+  Timer {
+    id: defaultMenuReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: defaultMenuReadProc.signal(9)
+  }
+
+  Process {
+    id: userMenuReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.userMenuReadBuf += String(chunk || "")
+        if (root.userMenuReadBuf.length > 262144) {
+          userMenuReadProc.signal(15)
+          userMenuReadKill.start()
+          root.userMenuReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.userMenuReadBuf
+      root.userMenuReadBuf = ""
+      if (exitCode === 0) {
+        root.userMenuItems = root.parseMenuJsonc(raw)
+        root.rebuildItemsFromSources()
+      }
+    }
+  }
+
+  Timer {
+    id: userMenuReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: userMenuReadProc.signal(9)
+  }
+
+  Component.onCompleted: {
+    root.reloadDefaultMenuFile()
+    root.reloadUserMenuFile()
   }
 
   // ---------------------------------------------------------------- guards
@@ -1158,7 +1262,7 @@ Item {
           anchors.fill: parent
           opened: root.deleteConfirmOpen
           z: 10
-          message: "Do you want to uninstall " + ((root.deleteTarget && root.deleteTarget.label) || "") + "?"
+          message: Util.plain("Do you want to uninstall " + ((root.deleteTarget && root.deleteTarget.label) || "") + "?")
           confirmText: "Uninstall"
           background: root.background
           foreground: root.foreground
@@ -1427,6 +1531,7 @@ Item {
             visible: displayModel.count === 0 && root.mode !== "input"
 
             Text {
+              textFormat: Text.PlainText
               text: "󰈉"
               color: root.selectedText
               opacity: 0.8

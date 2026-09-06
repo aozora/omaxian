@@ -19,17 +19,63 @@ Item {
 
   property var apps: []
   property string addValue: ""
+  readonly property string startupPath: Quickshell.env("HOME") + "/.config/omarchy/startup.json"
+  property string startupReadBuf: ""
 
+  function reloadStartupFile() {
+    if (startupReadProc.running) {
+      startupReadProc.signal(15)
+      startupReadKill.start()
+    }
+    root.startupReadBuf = ""
+    startupReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.startupPath
+    ]
+    startupReadProc.running = true
+  }
+
+  // Watcher/write only — bytes come from safe-read.py. Write hardening is separate.
   FileView {
     id: startupFile
-    path: Quickshell.env("HOME") + "/.config/omarchy/startup.json"
+    path: root.startupPath
+    preload: false
+    blockAllReads: true
     watchChanges: false
     atomicWrites: true
     printErrors: false
-    onLoaded: root.apps = Model.parseStartup(text()).apps
-    onFileChanged: reload()
-    onLoadFailed: root.apps = []
   }
+
+  Process {
+    id: startupReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.startupReadBuf += String(chunk || "")
+        if (root.startupReadBuf.length > 65536) {
+          startupReadProc.signal(15)
+          startupReadKill.start()
+          root.startupReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.startupReadBuf
+      root.startupReadBuf = ""
+      if (exitCode === 0)
+        root.apps = Model.parseStartup(raw).apps
+    }
+  }
+
+  Timer {
+    id: startupReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: startupReadProc.signal(9)
+  }
+
+  Component.onCompleted: root.reloadStartupFile()
 
   readonly property var addOptions: {
     var lib = root.appLibrary
@@ -58,11 +104,11 @@ Item {
     var lib = root.appLibrary
     if (lib && typeof lib.normalizeDesktopId === "function") {
       var entry = DesktopEntries.byId(desktopId)
-      if (entry && typeof lib.entryName === "function") return lib.entryName(entry)
+      if (entry && typeof lib.entryName === "function") return Util.plain(lib.entryName(entry))
     }
     var byId = DesktopEntries.byId(desktopId)
-    if (byId && byId.name) return String(byId.name)
-    return desktopId
+    if (byId && byId.name) return Util.plain(byId.name)
+    return Util.plain(desktopId)
   }
 
   function entryIcon(desktopId) {
@@ -132,6 +178,7 @@ Item {
       spacing: Style.space(12)
 
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
         text: "Extra apps started at login, after the session daemons. Changes save immediately and take effect on the next login — use Launch now to test."
@@ -185,6 +232,7 @@ Item {
             spacing: 0
 
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               elide: Text.ElideRight
               text: root.entryLabel(modelData.desktopId)
@@ -194,9 +242,10 @@ Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               elide: Text.ElideMiddle
-              text: modelData.desktopId
+              text: Util.plain(modelData.desktopId)
               color: Qt.darker(root.foreground, 1.5)
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -275,6 +324,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: root.apps.length === 0
         text: "No extra startup apps yet."
         color: Qt.darker(root.foreground, 1.5)

@@ -37,7 +37,9 @@ BarIndicator {
 
   onPressed: function() {
     if (root.bar) {
-      root.bar.run(root.recording ? "omarchy-capture-screenrecording --stop-recording" : "omarchy-menu toggle trigger.capture.screenrecord")
+      root.bar.runArgv(root.recording
+        ? ["omarchy-capture-screenrecording", "--stop-recording"]
+        : ["omarchy-menu", "toggle", "trigger.capture.screenrecord"])
     }
   }
 }

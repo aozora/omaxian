@@ -57,6 +57,7 @@ Item {
       spacing: Style.space(10)
 
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
         text: "Enable or disable first-party panels and services, and third-party plugins. Add / clone / remove still lives under Menu → Setup → Plugins."
@@ -71,12 +72,12 @@ Item {
         delegate: Toggle {
           required property var modelData
           width: col.width
-          label: modelData.name
+          label: Util.plain(modelData.name)
           description: {
             var bits = []
-            if (modelData.description) bits.push(modelData.description)
+            if (modelData.description) bits.push(Util.plain(modelData.description, 240))
             bits.push(modelData.firstParty ? "Built-in" : "Third-party")
-            bits.push(modelData.id)
+            bits.push(Util.plain(modelData.id))
             if (modelData.note) bits.push(modelData.note)
             return bits.join(" · ")
           }

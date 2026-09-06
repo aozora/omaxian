@@ -265,7 +265,7 @@ BarWidget {
         text: root.isPlaying ? "󰎆" : "󰝚"
         active: root.isPlaying || root.popupOpen
         useActiveColor: root.isPlaying
-        tooltipText: root.hasMedia ? (root.trackTitle + (root.trackArtist ? " — " + root.trackArtist : "")) : "Media Controller"
+        tooltipText: root.hasMedia ? Util.plain(root.trackTitle + (root.trackArtist ? " — " + root.trackArtist : "")) : "Media Controller"
 
         iconComponent: Component {
             Text {

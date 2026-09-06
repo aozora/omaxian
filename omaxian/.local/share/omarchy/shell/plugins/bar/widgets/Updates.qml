@@ -29,13 +29,42 @@ BarWidget {
 
   Process {
     id: proc
+    property string stdoutBuf: ""
+    property int maxStdout: 4096
+    property bool overflowed: false
     command: ["bash", Quickshell.shellDir + "/scripts/updates.sh"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var t = text.replace(/\n$/, "")
-        if (t.length > 0) root.suffix = t
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (proc.overflowed) return
+        proc.stdoutBuf += chunk
+        if (proc.stdoutBuf.length > proc.maxStdout) {
+          proc.overflowed = true
+          proc.stdoutBuf = ""
+          proc.signal(15)
+          updatesKillTimer.start()
+        }
       }
     }
+    onStarted: {
+      updatesKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      updatesKillTimer.stop()
+      var text = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      var t = text.replace(/\n$/, "")
+      if (t.length > 0) root.suffix = t
+    }
+  }
+
+  Timer {
+    id: updatesKillTimer
+    interval: 2000
+    onTriggered: proc.signal(9)
   }
 
   implicitWidth: button.implicitWidth
@@ -50,6 +79,6 @@ BarWidget {
     foreground: BarPalette.updates
     horizontalMargin: 8.5
     verticalPadding: 6
-    onPressed: root.bar.run(Quickshell.shellDir + "/scripts/updates-install.sh")
+    onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/updates-install.sh"])
   }
 }

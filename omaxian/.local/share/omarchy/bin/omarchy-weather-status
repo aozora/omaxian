@@ -2,6 +2,8 @@
 
 # omarchy:summary=Returns a formatted weather status string with temperature and wind speed.
 
+set -o pipefail
+
 place=$(omarchy-weather-location 2>/dev/null)
 
 if [[ -z $place ]]; then
@@ -10,9 +12,18 @@ if [[ -z $place ]]; then
 fi
 
 query=$(jq -rn --arg place "$place" '$place | @uri')
-weather=$(curl -fsS --max-time 4 "https://wttr.in/${query}?format=%t|%w" 2>/dev/null | tr -d '\n')
 
-if [[ -z $weather ]]; then
+curl_bin=curl
+head_bin=head
+[[ -x /usr/bin/curl ]] && curl_bin=/usr/bin/curl
+[[ -x /usr/bin/head ]] && head_bin=/usr/bin/head
+
+weather=$("$curl_bin" -q -fsS --proto '=https' --proto-redir '=https' \
+  --max-time 4 --max-filesize 4096 --noproxy '*' -- \
+  "https://wttr.in/${query}?format=%t|%w" 2>/dev/null | "$head_bin" -c 4097) || true
+weather=${weather//$'\n'/}
+
+if [[ -z $weather ]] || (( ${#weather} > 4096 )); then
   echo "Weather unavailable"
   exit 1
 fi

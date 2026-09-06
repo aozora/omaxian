@@ -303,6 +303,7 @@ Panel {
               spacing: Style.space(22)
 
               Text {
+                textFormat: Text.PlainText
                 // Baseline-aligned, not center-aligned: "July 26" carries a
                 // descender, so centering the two boxes leaves the icon
                 // sitting visibly low against the digits.
@@ -377,6 +378,7 @@ Panel {
                 spacing: Style.space(10)
 
                 Text {
+                  textFormat: Text.PlainText
                   anchors.verticalCenter: parent.verticalCenter
                   text: "BORN"
                   color: Qt.darker(root.contentForeground, 1.5)
@@ -398,6 +400,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   anchors.verticalCenter: parent.verticalCenter
                   anchors.verticalCenterOffset: 0
                   leftPadding: Style.space(6)
@@ -485,6 +488,7 @@ Panel {
               height: Math.max(lifeLabel.implicitHeight, Style.space(10))
 
               Text {
+                textFormat: Text.PlainText
                 id: lifeLabel
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
@@ -586,6 +590,7 @@ Panel {
                     : "transparent"
 
                   Text {
+                    textFormat: Text.PlainText
                     anchors.centerIn: parent
                     text: "W"
                     color: weekStartMouse.containsMouse

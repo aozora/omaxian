@@ -26,14 +26,14 @@ Panel {
     openedFromHotkey = false
     setCenterHoverRevealSuppressed(false)
     root.controller.show()
-    locationFile.reload()
+    root.reloadLocationFile()
     root.refresh()
   }
 
   function openFromHotkey() {
     openedFromHotkey = true
     root.controller.show()
-    locationFile.reload()
+    root.reloadLocationFile()
     root.refresh()
     // Set after showing, not before: showing hands the popout coordinator
     // over, which closes whichever panel was open, and that close clears the
@@ -92,13 +92,62 @@ Panel {
     Qt.callLater(refresh)
   }
 
-  property FileView locationFile: FileView {
-    path: Quickshell.env("HOME") + "/.local/state/omarchy/settings/weather.json"
+  readonly property string locationPath: Quickshell.env("HOME") + "/.local/state/omarchy/settings/weather.json"
+  property string locationReadBuf: ""
+
+  function reloadLocationFile() {
+    if (locationReadProc.running) {
+      locationReadProc.signal(15)
+      locationReadKill.start()
+    }
+    root.locationReadBuf = ""
+    locationReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.locationPath
+    ]
+    locationReadProc.running = true
+  }
+
+  // Watcher only — bytes come from safe-read.py (O_NOFOLLOW|O_NONBLOCK, capped).
+  FileView {
+    id: locationFile
+    path: root.locationPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
-    onFileChanged: reload()
-    onLoaded: root.configuredLocationState = Model.parseLocationFile(text())
-    onLoadFailed: root.configuredLocationState = Model.parseLocationFile("")
+    onFileChanged: root.reloadLocationFile()
+  }
+
+  Process {
+    id: locationReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.locationReadBuf += String(chunk || "")
+        if (root.locationReadBuf.length > 65536) {
+          locationReadProc.signal(15)
+          locationReadKill.start()
+          root.locationReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.locationReadBuf
+      root.locationReadBuf = ""
+      // Exit 0 covers both a successful read and a missing file (empty raw).
+      // Non-zero means refuse (symlink/FIFO/overflow) — keep last-good state.
+      if (exitCode === 0)
+        root.configuredLocationState = Model.parseLocationFile(raw)
+    }
+  }
+
+  Timer {
+    id: locationReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: locationReadProc.signal(9)
   }
 
   // The first read can race shell startup (observed sporadically), leaving a
@@ -108,8 +157,10 @@ Panel {
   Timer {
     interval: 1500
     running: true
-    onTriggered: locationFile.reload()
+    onTriggered: root.reloadLocationFile()
   }
+
+  Component.onCompleted: root.reloadLocationFile()
 
   property int forecastRetries: 0
   property int dailyForecastRetries: 0
@@ -187,7 +238,12 @@ Panel {
       + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"
       + "&forecast_days=4"
       + "&timezone=auto"
-    dailyForecastProc.command = ["curl", "-fsS", "--max-time", "5", url]
+    dailyForecastProc.command = [
+      "curl", "-q", "-sS", "--fail",
+      "--proto", "=https", "--proto-redir", "=https",
+      "--max-time", "5", "--max-filesize", "1048576",
+      "--", url
+    ]
     dailyForecastProc.running = true
   }
 
@@ -278,8 +334,14 @@ Panel {
 
   function startGeocode() {
     geocodeActiveQuery = geocodePendingQuery
-    geocodeProc.command = ["curl", "-fsS", "--max-time", "5",
-      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json"]
+    geocodeProc.command = [
+      "curl", "-q", "-sS", "--fail",
+      "--proto", "=https", "--proto-redir", "=https",
+      "--max-time", "5", "--max-filesize", "65536",
+      "--",
+      "https://geocoding-api.open-meteo.com/v1/search?name="
+        + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json"
+    ]
     geocodeProc.running = true
   }
 
@@ -336,33 +398,65 @@ Panel {
 
   Process {
     id: forecastProc
-    command: ["curl", "-fsS", "--max-time", "10", "https://wttr.in/" + root.locationQuery + "?format=j1"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) {
-          root.scheduleForecastRetry()
-          return
-        }
-        try {
-          var parsed = JSON.parse(raw)
-          root.report = parsed
-          if (!root.hasConfiguredCoordinates)
-            root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
-          root.forecastRetries = 0
-          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
-            root.finishSavingLocation()
-          // Stored coordinates already drove the fast open-meteo fetch from
-          // refresh(); only auto-detect needs the area wttr reported.
-          if (isNaN(parseFloat(String(root.configuredLocationState.latitude))))
-            root.refreshDailyForecast(parsed)
-        } catch (e) {
-          // Keep last-good report visible, but try again shortly.
-          root.scheduleForecastRetry()
+    property string stdoutBuf: ""
+    property int maxStdout: 1048576
+    property bool overflowed: false
+    command: [
+      "curl", "-q", "-sS", "--fail",
+      "--proto", "=https", "--proto-redir", "=https",
+      "--max-time", "10", "--max-filesize", "1048576",
+      "--", "https://wttr.in/" + root.locationQuery + "?format=j1"
+    ]
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (forecastProc.overflowed) return
+        forecastProc.stdoutBuf += chunk
+        if (forecastProc.stdoutBuf.length > forecastProc.maxStdout) {
+          forecastProc.overflowed = true
+          forecastProc.stdoutBuf = ""
+          forecastProc.signal(15)
+          forecastKillTimer.start()
         }
       }
     }
+    onStarted: {
+      forecastKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      forecastKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
+      if (!raw) {
+        root.scheduleForecastRetry()
+        return
+      }
+      try {
+        var parsed = JSON.parse(raw)
+        root.report = parsed
+        if (!root.hasConfiguredCoordinates)
+          root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
+        root.forecastRetries = 0
+        if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
+          root.finishSavingLocation()
+        // Stored coordinates already drove the fast open-meteo fetch from
+        // refresh(); only auto-detect needs the area wttr reported.
+        if (isNaN(parseFloat(String(root.configuredLocationState.latitude))))
+          root.refreshDailyForecast(parsed)
+      } catch (e) {
+        // Keep last-good report visible, but try again shortly.
+        root.scheduleForecastRetry()
+      }
+    }
+  }
+
+  Timer {
+    id: forecastKillTimer
+    interval: 2000
+    onTriggered: forecastProc.signal(9)
   }
 
   // wttr.in can be slow or flaky, especially for a location it hasn't
@@ -396,40 +490,95 @@ Panel {
 
   Process {
     id: dailyForecastProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) {
-          root.scheduleDailyForecastRetry()
-          return
+    property string stdoutBuf: ""
+    property int maxStdout: 1048576
+    property bool overflowed: false
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (dailyForecastProc.overflowed) return
+        dailyForecastProc.stdoutBuf += chunk
+        if (dailyForecastProc.stdoutBuf.length > dailyForecastProc.maxStdout) {
+          dailyForecastProc.overflowed = true
+          dailyForecastProc.stdoutBuf = ""
+          dailyForecastProc.signal(15)
+          dailyForecastKillTimer.start()
         }
-        try {
-          var parsed = JSON.parse(raw)
-          var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
-          root.dailyForecastReport = parsed
-          root.label = Model.currentIcon(parsedCurrent, root.label)
-          root.dailyForecastRetries = 0
-          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
-            root.finishSavingLocation()
-        } catch (e) {
-          // Keep last-good daily forecast visible, but try again shortly.
-          root.scheduleDailyForecastRetry()
-        }
+      }
+    }
+    onStarted: {
+      dailyForecastKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      dailyForecastKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
+      if (!raw) {
+        root.scheduleDailyForecastRetry()
+        return
+      }
+      try {
+        var parsed = JSON.parse(raw)
+        var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
+        root.dailyForecastReport = parsed
+        root.label = Model.currentIcon(parsedCurrent, root.label)
+        root.dailyForecastRetries = 0
+        if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
+          root.finishSavingLocation()
+      } catch (e) {
+        // Keep last-good daily forecast visible, but try again shortly.
+        root.scheduleDailyForecastRetry()
       }
     }
   }
 
+  Timer {
+    id: dailyForecastKillTimer
+    interval: 2000
+    onTriggered: dailyForecastProc.signal(9)
+  }
+
   Process {
     id: geocodeProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.locationSuggestions = root.editingLocation ? Model.parseGeocodingResults(text) : []
-        root.suggestionIndex = 0
-        if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
+    property string stdoutBuf: ""
+    property int maxStdout: 65536
+    property bool overflowed: false
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (geocodeProc.overflowed) return
+        geocodeProc.stdoutBuf += chunk
+        if (geocodeProc.stdoutBuf.length > geocodeProc.maxStdout) {
+          geocodeProc.overflowed = true
+          geocodeProc.stdoutBuf = ""
+          geocodeProc.signal(15)
+          geocodeKillTimer.start()
+        }
       }
     }
+    onStarted: {
+      geocodeKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      geocodeKillTimer.stop()
+      var raw = overflowed ? "" : stdoutBuf
+      stdoutBuf = ""
+      overflowed = false
+      root.locationSuggestions = root.editingLocation ? Model.parseGeocodingResults(raw) : []
+      root.suggestionIndex = 0
+      if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
+    }
+  }
+
+  Timer {
+    id: geocodeKillTimer
+    interval: 2000
+    onTriggered: geocodeProc.signal(9)
   }
 
   Timer {
@@ -443,9 +592,9 @@ Panel {
     onExited: function(exitCode) {
       if (exitCode !== 0 || !root.savingLocation) return
 
-      // FileView handles changed locations. Explicitly refresh here too so
-      // saving the already-active location cannot strand the spinner.
-      locationFile.reload()
+      // Watcher + safe-read handle changed locations. Explicitly refresh here
+      // too so saving the already-active location cannot strand the spinner.
+      root.reloadLocationFile()
       if (!root.savingLocationQueryStarted) {
         root.savingLocationQueryStarted = true
         root.forecastRetries = 0
@@ -459,15 +608,47 @@ Panel {
 
   Process {
     id: locationProc
-    command: ["curl", "-fsS", "--max-time", "4", "https://wttr.in/?format=%l"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) return
-        root.wttrLocation = raw.split(",")[0]
+    property string stdoutBuf: ""
+    property int maxStdout: 65536
+    property bool overflowed: false
+    command: [
+      "curl", "-q", "-sS", "--fail",
+      "--proto", "=https", "--proto-redir", "=https",
+      "--max-time", "4", "--max-filesize", "65536",
+      "--", "https://wttr.in/?format=%l"
+    ]
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (locationProc.overflowed) return
+        locationProc.stdoutBuf += chunk
+        if (locationProc.stdoutBuf.length > locationProc.maxStdout) {
+          locationProc.overflowed = true
+          locationProc.stdoutBuf = ""
+          locationProc.signal(15)
+          locationKillTimer.start()
+        }
       }
     }
+    onStarted: {
+      locationKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      locationKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
+      if (!raw) return
+      root.wttrLocation = raw.split(",")[0]
+    }
+  }
+
+  Timer {
+    id: locationKillTimer
+    interval: 2000
+    onTriggered: locationProc.signal(9)
   }
 
   Timer {
@@ -595,6 +776,7 @@ Panel {
             }
 
             Text {
+              textFormat: Text.PlainText
               text: ""  // nf-fa-map_marker
               color: Qt.darker(root.bar.foreground, 1.4)
               font.family: root.bar.fontFamily
@@ -687,6 +869,7 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
+                textFormat: Text.PlainText
                 text: "FEELS"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -705,6 +888,7 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
+                textFormat: Text.PlainText
                 text: "WIND"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -723,6 +907,7 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
+                textFormat: Text.PlainText
                 text: "HUMID"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -795,6 +980,7 @@ Panel {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: !root.current
         text: "Fetching forecast…"
         color: Qt.darker(root.bar.foreground, 1.5)

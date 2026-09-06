@@ -53,13 +53,42 @@ BarWidget {
 
   Process {
     id: headerProc
+    property string stdoutBuf: ""
+    property int maxStdout: 4096
+    property bool overflowed: false
     command: ["bash", Quickshell.shellDir + "/scripts/powermenu-header.sh"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var t = text.replace(/\n$/, "")
-        if (t.length > 0) root.headerText = t
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (headerProc.overflowed) return
+        headerProc.stdoutBuf += chunk
+        if (headerProc.stdoutBuf.length > headerProc.maxStdout) {
+          headerProc.overflowed = true
+          headerProc.stdoutBuf = ""
+          headerProc.signal(15)
+          headerKillTimer.start()
+        }
       }
     }
+    onStarted: {
+      headerKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      headerKillTimer.stop()
+      var text = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      var t = text.replace(/\n$/, "")
+      if (t.length > 0) root.headerText = t
+    }
+  }
+
+  Timer {
+    id: headerKillTimer
+    interval: 2000
+    onTriggered: headerProc.signal(9)
   }
 
   implicitWidth: button.implicitWidth
@@ -101,6 +130,7 @@ BarWidget {
         fontFamily: Style.font.family
         iconComponent: Component {
           Text {
+            textFormat: Text.PlainText
             text: "󰐥"
             color: Color.foreground
             font.family: Style.font.family
@@ -198,7 +228,7 @@ BarWidget {
     ConfirmDialog {
       anchors.fill: parent
       opened: root.pendingAction.length > 0
-      message: "Are you sure? Action: " + root.pendingAction
+      message: Util.plain("Are you sure? Action: " + root.pendingAction)
       onCanceled: root.pendingAction = ""
       onConfirmed: {
         var action = root.pendingAction

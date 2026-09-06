@@ -69,11 +69,11 @@ BarWidget {
     fontSize: Style.font.body + 3
     text: root.glyph() + " " + root.label
     foreground: (root.activeWifi || root.activeWired) ? BarPalette.network : Color.muted
-    tooltipText: root.activeWifi ? root.activeWifi.name : ""
+    tooltipText: root.activeWifi ? Util.plain(root.activeWifi.name) : ""
     horizontalMargin: 8.5
     verticalPadding: 6
     onPressed: function(mouseButton) {
-      root.bar.run(Quickshell.shellDir + "/scripts/network-menu.sh")
+      root.bar.runArgv([Quickshell.shellDir + "/scripts/network-menu.sh"])
     }
   }
 }

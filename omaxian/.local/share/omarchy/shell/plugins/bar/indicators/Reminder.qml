@@ -39,17 +39,46 @@ BarIndicator {
 
   Process {
     id: jsonProc
+    property string stdoutBuf: ""
+    property int maxStdout: 16384
+    property bool overflowed: false
     command: ["omarchy-reminder", "show", "--json"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.update(text)
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (jsonProc.overflowed) return
+        jsonProc.stdoutBuf += chunk
+        if (jsonProc.stdoutBuf.length > jsonProc.maxStdout) {
+          jsonProc.overflowed = true
+          jsonProc.stdoutBuf = ""
+          jsonProc.signal(15)
+          reminderKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      reminderKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
     }
     onExited: function(exitCode) {
+      reminderKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
       if (exitCode !== 0) {
         root.reminderCount = 0
         root.tooltip = ""
+        return
       }
+      root.update(raw)
     }
+  }
+
+  Timer {
+    id: reminderKillTimer
+    interval: 2000
+    onTriggered: jsonProc.signal(9)
   }
 
   onPressed: function() {

@@ -108,6 +108,7 @@ Item {
       spacing: Style.space(16)
 
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
         text: "Per-widget options stored on the bar layout entry in shell.json. Add a widget on the Bar tab before editing it here."
@@ -126,12 +127,13 @@ Item {
           spacing: Style.space(8)
 
           PanelSectionHeader {
-            text: root.widgetName(widgetId)
+            text: Util.plain(root.widgetName(widgetId))
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: !root.widgetOnBar(widgetId)
             width: parent.width
             wrapMode: Text.Wrap
@@ -155,6 +157,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: root.widgetIds.length === 0
         text: "No bar widgets currently expose a settings schema."
         color: Qt.darker(root.foreground, 1.5)

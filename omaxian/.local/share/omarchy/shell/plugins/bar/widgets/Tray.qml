@@ -149,7 +149,7 @@ BarWidget {
   }
 
   function trayTooltip(item) {
-    return item.tooltipTitle || item.title || item.id || ""
+    return Util.plain(item.tooltipTitle || item.title || item.id || "")
   }
 
   function classifyItem(item) {
@@ -410,6 +410,7 @@ BarWidget {
       spacing: Style.space(8)
 
       Text {
+        textFormat: Text.PlainText
         text: "Tray icons"
         color: root.foreground
         font.family: root.fontFamily
@@ -418,6 +419,7 @@ BarWidget {
       }
 
       Text {
+        textFormat: Text.PlainText
         text: "Pinned icons stay visible. Hidden icons never show."
         color: Qt.darker(root.foreground, 1.4)
         font.family: root.fontFamily
@@ -427,6 +429,7 @@ BarWidget {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: root.allItems.length === 0
         text: "No tray items reporting."
         color: Qt.darker(root.foreground, 1.5)
@@ -567,6 +570,7 @@ BarWidget {
           }
 
           Text {
+            textFormat: Text.PlainText
             anchors.verticalCenter: parent.verticalCenter
             anchors.left: parent.left
             width: Style.space(22)
@@ -727,6 +731,7 @@ BarWidget {
               }
 
               Text {
+                textFormat: Text.PlainText
                 id: submenuGlyph
                 visible: !menuRow.modelData.isSeparator && menuRow.modelData.hasChildren
                 anchors.verticalCenter: parent.verticalCenter

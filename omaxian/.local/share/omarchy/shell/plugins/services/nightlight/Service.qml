@@ -49,33 +49,74 @@ Item {
 
   function runApply(temp) {
     var t = Number(temp)
+    var dir = Quickshell.env("HOME") + "/.local/state/omarchy"
+    var file = root.stateFile
     // -P resets gamma ramps first so repeated toggles don't stack; -x is a
     // full reset for the day temperature. Then persist the applied value.
-    var apply = (t >= root.dayTemperature)
-      ? "redshift -x >/dev/null 2>&1 || true"
-      : ("redshift -P -O " + t + " >/dev/null 2>&1 || true")
-    applyProcess.command = ["bash", "-lc",
-      "mkdir -p \"$(dirname '" + root.stateFile + "')\"; " +
-      apply + "; printf '%s' " + t + " > \"" + root.stateFile + "\""]
+    // Paths and values stay in argv ($1…); the script string is constant.
+    if (t >= root.dayTemperature) {
+      applyProcess.command = [
+        "bash", "-c",
+        'redshift -x >/dev/null 2>&1 || true; mkdir -p -- "$1" && printf %s "$2" >"$3"',
+        "nightlight-write", dir, String(t), file
+      ]
+    } else {
+      applyProcess.command = [
+        "bash", "-c",
+        'redshift -P -O "$1" >/dev/null 2>&1 || true; mkdir -p -- "$2" && printf %s "$1" >"$3"',
+        "nightlight-write", String(t), dir, file
+      ]
+    }
     applyProcess.running = true
   }
 
   Process {
     id: statusProbe
-    command: ["bash", "-lc", "cat \"" + root.stateFile + "\" 2>/dev/null || echo " + root.dayTemperature]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.temperature = NightlightModel.temperatureFromOutput(text)
-        root.stateLoaded = true
+    property string stdoutBuf: ""
+    property int maxStdout: 256
+    property bool overflowed: false
+    command: [
+      "bash", "-c",
+      'cat -- "$1" 2>/dev/null || printf %s "$2"',
+      "nightlight-read", root.stateFile, String(root.dayTemperature)
+    ]
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (statusProbe.overflowed) return
+        statusProbe.stdoutBuf += chunk
+        if (statusProbe.stdoutBuf.length > statusProbe.maxStdout) {
+          statusProbe.overflowed = true
+          statusProbe.stdoutBuf = ""
+          statusProbe.signal(15)
+          statusProbeKillTimer.start()
+        }
       }
     }
+    onStarted: {
+      statusProbeKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
     onExited: function(exitCode) {
+      statusProbeKillTimer.stop()
+      var text = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
       if (exitCode !== 0) {
         root.temperature = root.dayTemperature
         root.stateLoaded = true
+        return
       }
+      root.temperature = NightlightModel.temperatureFromOutput(text)
+      root.stateLoaded = true
     }
+  }
+
+  Timer {
+    id: statusProbeKillTimer
+    interval: 2000
+    onTriggered: statusProbe.signal(9)
   }
 
   Process {

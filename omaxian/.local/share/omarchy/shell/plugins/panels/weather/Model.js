@@ -40,7 +40,7 @@ function parseGeocodingResults(raw) {
     if (!results || !results.length) return []
 
     var out = []
-    for (var i = 0; i < results.length; i++) {
+    for (var i = 0; i < results.length && out.length < 5; i++) {
       var r = results[i]
       if (!r || !r.name || r.latitude === undefined || r.longitude === undefined) continue
       var region = [r.admin1, r.country].filter(function(part) { return !!part }).join(", ")

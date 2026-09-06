@@ -106,6 +106,7 @@ Column {
           spacing: Style.space(4)
 
           Text {
+            textFormat: Text.PlainText
             text: fieldLabel
             color: Qt.darker(root.foreground, 1.4)
             font.family: root.fontFamily
@@ -114,6 +115,7 @@ Column {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: fieldDescription !== ""
             width: parent.width
             wrapMode: Text.Wrap

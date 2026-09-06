@@ -205,6 +205,7 @@ Item {
         spacing: Style.space(2)
 
         Text {
+          textFormat: Text.PlainText
           text: "Bluetooth"
           color: root.bar.foreground
           font.family: root.bar.fontFamily
@@ -435,7 +436,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: Model.deviceLabel(row.dev) || "Device"
+          text: Util.plain(Model.deviceLabel(row.dev) || "Device")
           color: row.bar ? row.bar.foreground : Color.foreground
           font.family: row.bar ? row.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.body

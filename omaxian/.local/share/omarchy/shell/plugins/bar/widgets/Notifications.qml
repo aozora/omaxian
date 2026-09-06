@@ -25,6 +25,6 @@ BarWidget {
     foreground: Color.bar.text
     horizontalMargin: 8.5
     verticalPadding: 6
-    onPressed: root.bar.run(Quickshell.shellDir + "/scripts/notifications.sh")
+    onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/notifications.sh"])
   }
 }

@@ -210,20 +210,119 @@ Panel {
 
   Process {
     id: batteryProc
+    property string stdoutBuf: ""
+    property int maxStdout: 4096
+    property bool overflowed: false
     command: ["omarchy-battery-status", "--shell"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateKeyValue(text, "battery") }
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (batteryProc.overflowed) return
+        batteryProc.stdoutBuf += chunk
+        if (batteryProc.stdoutBuf.length > batteryProc.maxStdout) {
+          batteryProc.overflowed = true
+          batteryProc.stdoutBuf = ""
+          batteryProc.signal(15)
+          batteryKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      batteryKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      batteryKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.updateKeyValue(raw, "battery")
+    }
+  }
+
+  Timer {
+    id: batteryKillTimer
+    interval: 2000
+    onTriggered: batteryProc.signal(9)
   }
 
   Process {
     id: profilesProc
+    property string stdoutBuf: ""
+    property int maxStdout: 4096
+    property bool overflowed: false
     command: ["omarchy-powerprofiles-list", "--active-state"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateProfiles(text) }
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (profilesProc.overflowed) return
+        profilesProc.stdoutBuf += chunk
+        if (profilesProc.stdoutBuf.length > profilesProc.maxStdout) {
+          profilesProc.overflowed = true
+          profilesProc.stdoutBuf = ""
+          profilesProc.signal(15)
+          profilesKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      profilesKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      profilesKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.updateProfiles(raw)
+    }
+  }
+
+  Timer {
+    id: profilesKillTimer
+    interval: 2000
+    onTriggered: profilesProc.signal(9)
   }
 
   Process {
     id: systemProc
+    property string stdoutBuf: ""
+    property int maxStdout: 65536
+    property bool overflowed: false
     command: ["omarchy-system-stats"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateKeyValue(text, "system") }
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (systemProc.overflowed) return
+        systemProc.stdoutBuf += chunk
+        if (systemProc.stdoutBuf.length > systemProc.maxStdout) {
+          systemProc.overflowed = true
+          systemProc.stdoutBuf = ""
+          systemProc.signal(15)
+          systemKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      systemKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      systemKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.updateKeyValue(raw, "system")
+    }
+  }
+
+  Timer {
+    id: systemKillTimer
+    interval: 2000
+    onTriggered: systemProc.signal(9)
   }
 
   Process {
@@ -349,6 +448,7 @@ Panel {
             spacing: Style.space(2)
 
             Text {
+              textFormat: Text.PlainText
               text: "Battery"
               color: root.bar.foreground
               font.family: root.bar.fontFamily

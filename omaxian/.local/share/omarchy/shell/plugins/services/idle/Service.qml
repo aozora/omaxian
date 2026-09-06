@@ -33,28 +33,68 @@ Item {
   function setStayAwake(value) {
     root.stayAwake = value
     root.stayAwakeStateLoaded = true
-    applyProc.command = ["bash", "-lc",
-      "mkdir -p \"" + root.stayAwakeStateDir + "\"; " +
-      (value
-        ? "echo 1 > \"" + root.stayAwakeStatePath + "\"; xset s off -dpms"
-        : "echo 0 > \"" + root.stayAwakeStatePath + "\"; xset s on +dpms; xset s default")]
+    // Paths stay in argv ($1/$2); the script string is constant.
+    if (value) {
+      applyProc.command = [
+        "bash", "-c",
+        'mkdir -p -- "$1" && printf %s 1 >"$2" && xset s off -dpms',
+        "idle-awake", root.stayAwakeStateDir, root.stayAwakeStatePath
+      ]
+    } else {
+      applyProc.command = [
+        "bash", "-c",
+        'mkdir -p -- "$1" && printf %s 0 >"$2" && xset s on +dpms && xset s default',
+        "idle-sleep", root.stayAwakeStateDir, root.stayAwakeStatePath
+      ]
+    }
     applyProc.running = true
   }
 
   Process {
     id: stateProbe
-    command: ["bash", "-lc", "cat \"" + root.stayAwakeStatePath + "\" 2>/dev/null || echo 0"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var on = String(text || "").trim() === "1"
-        root.stayAwakeStateLoaded = true
-        // Re-assert `xset s off` on a fresh session that had stay-awake on.
-        if (on) root.setStayAwake(true)
-        else root.stayAwake = false
+    property string stdoutBuf: ""
+    property int maxStdout: 256
+    property bool overflowed: false
+    command: [
+      "bash", "-c",
+      'cat -- "$1" 2>/dev/null || printf %s 0',
+      "idle-read", root.stayAwakeStatePath
+    ]
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (stateProbe.overflowed) return
+        stateProbe.stdoutBuf += chunk
+        if (stateProbe.stdoutBuf.length > stateProbe.maxStdout) {
+          stateProbe.overflowed = true
+          stateProbe.stdoutBuf = ""
+          stateProbe.signal(15)
+          stateProbeKillTimer.start()
+        }
       }
     }
-    onExited: root.stayAwakeStateLoaded = true
+    onStarted: {
+      stateProbeKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      stateProbeKillTimer.stop()
+      var text = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      var on = String(text || "").trim() === "1"
+      root.stayAwakeStateLoaded = true
+      // Re-assert `xset s off` on a fresh session that had stay-awake on.
+      if (on) root.setStayAwake(true)
+      else root.stayAwake = false
+    }
+  }
+
+  Timer {
+    id: stateProbeKillTimer
+    interval: 2000
+    onTriggered: stateProbe.signal(9)
   }
 
   Process { id: applyProc }

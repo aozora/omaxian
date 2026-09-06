@@ -46,37 +46,132 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  readonly property string themeNamePath: root.home + "/.local/state/omarchy/current/theme.name"
+  readonly property string settingsPath: root.home + "/.config/omarchy/wallpaper-settings.json"
+  property string themeNameReadBuf: ""
+  property string settingsReadBuf: ""
+
+  function applyThemeName(raw) {
+    root.themeName = String(raw || "").trim()
+    root.themeDirCandidates = WModel.themeBackgroundCandidates(root.home, root.omarchyPath, root.themeName)
+    root.rescan()
+  }
+
+  function reloadThemeNameFile() {
+    if (themeNameReadProc.running) {
+      themeNameReadProc.signal(15)
+      themeNameReadKill.start()
+    }
+    root.themeNameReadBuf = ""
+    themeNameReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "4096", root.themeNamePath
+    ]
+    themeNameReadProc.running = true
+  }
+
+  function reloadSettingsFile() {
+    if (settingsReadProc.running) {
+      settingsReadProc.signal(15)
+      settingsReadKill.start()
+    }
+    root.settingsReadBuf = ""
+    settingsReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.settingsPath
+    ]
+    settingsReadProc.running = true
+  }
+
+  // Watcher only — bytes come from safe-read.py.
   FileView {
     id: themeNameFile
-    path: root.home + "/.local/state/omarchy/current/theme.name"
+    path: root.themeNamePath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
-    onLoaded: {
-      root.themeName = String(text()).trim()
-      root.themeDirCandidates = WModel.themeBackgroundCandidates(root.home, root.omarchyPath, root.themeName)
-      root.rescan()
-    }
-    onFileChanged: reload()
-    onLoadFailed: {
-      root.themeName = ""
-      root.themeDirCandidates = WModel.themeBackgroundCandidates(root.home, root.omarchyPath, "")
-      root.rescan()
-    }
+    onFileChanged: root.reloadThemeNameFile()
   }
 
   // watchChanges so a pick made in the Control Panel's Wallpaper tab (which
   // writes the same file) shows up here without a shell restart. Writes are
   // rare and idempotent, so the self-write/watch race dock-pinned.json
   // guards against doesn't matter here.
+  // Write path still uses FileView.setText; read hardening is via safe-read.
   FileView {
     id: settingsFile
-    path: root.home + "/.config/omarchy/wallpaper-settings.json"
+    path: root.settingsPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     atomicWrites: true
     printErrors: false
-    onLoaded: root.localFolder = WModel.parseSettings(text()).localFolder
-    onFileChanged: root.localFolder = WModel.parseSettings(text()).localFolder
-    onLoadFailed: root.localFolder = ""
+    onFileChanged: root.reloadSettingsFile()
+  }
+
+  Process {
+    id: themeNameReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.themeNameReadBuf += String(chunk || "")
+        if (root.themeNameReadBuf.length > 4096) {
+          themeNameReadProc.signal(15)
+          themeNameReadKill.start()
+          root.themeNameReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.themeNameReadBuf
+      root.themeNameReadBuf = ""
+      if (exitCode === 0)
+        root.applyThemeName(raw)
+    }
+  }
+
+  Timer {
+    id: themeNameReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: themeNameReadProc.signal(9)
+  }
+
+  Process {
+    id: settingsReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.settingsReadBuf += String(chunk || "")
+        if (root.settingsReadBuf.length > 65536) {
+          settingsReadProc.signal(15)
+          settingsReadKill.start()
+          root.settingsReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.settingsReadBuf
+      root.settingsReadBuf = ""
+      if (exitCode === 0)
+        root.localFolder = WModel.parseSettings(raw).localFolder
+    }
+  }
+
+  Timer {
+    id: settingsReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: settingsReadProc.signal(9)
+  }
+
+  Component.onCompleted: {
+    root.reloadThemeNameFile()
+    root.reloadSettingsFile()
+    root.rescan()
   }
 
   WidgetButton {
@@ -129,7 +224,6 @@ BarWidget {
   }
 
   onActiveDirChanged: if (root.subTab === "folder") rescan()
-  Component.onCompleted: rescan()
   onMenuOpenChanged: if (menuOpen) rescan()
 
   PopupCard {
@@ -154,6 +248,7 @@ BarWidget {
       RowLayout {
         Layout.fillWidth: true
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           text: "Wallpapers"
           color: Color.popups.text
@@ -162,6 +257,7 @@ BarWidget {
           font.bold: true
         }
         Text {
+          textFormat: Text.PlainText
           text: bgModel.count + (bgModel.count === 1 ? " image" : " images")
           color: BarPalette.popupSubtext
           font.family: Style.font.family
@@ -189,6 +285,7 @@ BarWidget {
         spacing: Style.spacing.sm
 
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           text: root.localFolder.length ? root.localFolder : "No folder selected"
           color: BarPalette.popupSubtext
@@ -207,6 +304,7 @@ BarWidget {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: bgModel.status === FolderListModel.Ready && bgModel.count === 0
         Layout.fillWidth: true
         text: root.subTab === "folder"

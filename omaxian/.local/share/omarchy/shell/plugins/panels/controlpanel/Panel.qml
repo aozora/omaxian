@@ -335,6 +335,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             visible: {
               var loader = contentArea.activeLoader

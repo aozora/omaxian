@@ -222,6 +222,7 @@ Item {
     spacing: Style.space(6)
 
     Text {
+      textFormat: Text.PlainText
       width: parent.width - upBtn.width - downBtn.width - removeBtn.width - parent.spacing * 3
       anchors.verticalCenter: parent.verticalCenter
       elide: Text.ElideRight
@@ -296,6 +297,7 @@ Item {
         color: Style.hoverFillFor(root.foreground, Color.accent)
 
         Text {
+          textFormat: Text.PlainText
           id: headerLabel
           anchors.left: parent.left
           anchors.right: parent.right
@@ -332,6 +334,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: !sectionModel || sectionModel.count === 0
             width: parent.width
             wrapMode: Text.Wrap
@@ -354,6 +357,7 @@ Item {
     spacing: Style.space(6)
 
     Text {
+      textFormat: Text.PlainText
       width: parent.width - addBtn.width - parent.spacing
       anchors.verticalCenter: parent.verticalCenter
       elide: Text.ElideRight
@@ -397,6 +401,7 @@ Item {
         color: Style.hoverFillFor(root.foreground, Color.accent)
 
         Text {
+          textFormat: Text.PlainText
           id: availHeader
           anchors.left: parent.left
           anchors.right: parent.right
@@ -431,6 +436,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: availableModel.count === 0
             width: parent.width
             wrapMode: Text.Wrap

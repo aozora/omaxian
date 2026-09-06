@@ -36,6 +36,7 @@ Item {
       spacing: Style.space(10)
 
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
         text: "These open in your editor. There is no form UI for i3 / picom / dunst yet."
@@ -91,6 +92,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
         text: "Keyboard layout is set in ~/.config/i3/scripts/i3_autostart (setxkbmap) — not a live setting."
@@ -100,6 +102,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
         text: "Idle screensaver / lock in shell.json ("

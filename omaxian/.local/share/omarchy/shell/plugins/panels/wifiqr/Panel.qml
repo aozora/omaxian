@@ -127,15 +127,56 @@ Item {
 
   Process {
     id: qrProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: if (!root.expectedStop) root.updateQr(text)
+    property string stdoutBuf: ""
+    property string stderrBuf: ""
+    property int maxStdout: 65536
+    property int maxStderr: 4096
+    property bool overflowed: false
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (qrProc.overflowed) return
+        qrProc.stdoutBuf += chunk
+        if (qrProc.stdoutBuf.length > qrProc.maxStdout) {
+          qrProc.overflowed = true
+          qrProc.stdoutBuf = ""
+          qrProc.stderrBuf = ""
+          qrProc.signal(15)
+          qrKillTimer.start()
+        }
+      }
     }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: if (!root.expectedStop) root.error = String(text || "").trim()
+    stderr: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (qrProc.overflowed) return
+        qrProc.stderrBuf += chunk
+        if (qrProc.stderrBuf.length > qrProc.maxStderr) {
+          qrProc.overflowed = true
+          qrProc.stdoutBuf = ""
+          qrProc.stderrBuf = ""
+          qrProc.signal(15)
+          qrKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      qrKillTimer.stop()
+      stdoutBuf = ""
+      stderrBuf = ""
+      overflowed = false
     }
     onExited: function(exitCode) {
+      qrKillTimer.stop()
+      var out = overflowed ? "" : stdoutBuf
+      var err = overflowed ? "" : String(stderrBuf || "").trim()
+      stdoutBuf = ""
+      stderrBuf = ""
+      overflowed = false
+      if (!root.expectedStop) {
+        if (out) root.updateQr(out)
+        if (err) root.error = Util.plain(err, 240)
+      }
       root.loading = false
       if (root.pendingShow) {
         root.pendingShow = false
@@ -151,18 +192,56 @@ Item {
     }
   }
 
+  Timer {
+    id: qrKillTimer
+    interval: 2000
+    onTriggered: qrProc.signal(9)
+  }
+
   Process {
     id: pwProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: if (root.opened && !root.pwExpectedStop) root.password = String(text || "").trim()
+    property string stdoutBuf: ""
+    property int maxStdout: 4096
+    property bool overflowed: false
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (pwProc.overflowed) return
+        pwProc.stdoutBuf += chunk
+        if (pwProc.stdoutBuf.length > pwProc.maxStdout) {
+          pwProc.overflowed = true
+          pwProc.stdoutBuf = ""
+          pwProc.signal(15)
+          pwKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      pwKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
     }
     onExited: function(exitCode) {
+      pwKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
       if (root.pwExpectedStop) return
       if (!root.opened) return
-      if (exitCode === 0 && root.password !== "") root.passwordVisible = true
-      else root.passwordError = "Could not read the Wi-Fi password"
+      // Cap before assign; never log the secret.
+      if (exitCode === 0 && raw !== "") {
+        root.password = raw.length > 4096 ? raw.slice(0, 4096) : raw
+        root.passwordVisible = true
+      } else {
+        root.passwordError = "Could not read the Wi-Fi password"
+      }
     }
+  }
+
+  Timer {
+    id: pwKillTimer
+    interval: 2000
+    onTriggered: pwProc.signal(9)
   }
 
   CenteredModal {
@@ -187,7 +266,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: (root.ssid || "Wi-Fi").toUpperCase()
+          text: (root.ssid ? Util.plain(root.ssid) : "Wi-Fi").toUpperCase()
           color: Qt.darker(Color.popups.text, 1.0)
           opacity: 0.7
           font.family: root.fontFamily
@@ -230,6 +309,7 @@ Item {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: root.loading
           text: "Generating QR code…"
           color: Color.popups.text
@@ -243,7 +323,7 @@ Item {
         Text {
           textFormat: Text.PlainText
           visible: root.error !== ""
-          text: root.error
+          text: Util.plain(root.error, 240)
           color: Color.error !== undefined ? Color.error : "#ff6b6b"
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
@@ -253,6 +333,7 @@ Item {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: root.showingQr
           text: "Scan to join this network"
           color: Color.popups.text

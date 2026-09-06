@@ -106,6 +106,7 @@ BarWidget {
       spacing: Style.spacing.md
 
       Text {
+        textFormat: Text.PlainText
         text: "Run"
         color: Color.popups.text
         font.family: Style.font.family

@@ -1,10 +1,14 @@
 import QtQuick
+import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
 BarWidget {
   id: root
   moduleName: "omarchy.weather"
+
+  property string statusNotifyBuf: ""
 
   function injectPanel() {
     var target = panelLoader.item
@@ -46,6 +50,12 @@ BarWidget {
     if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
   }
 
+  function notifyStatus() {
+    if (statusNotifyProc.running) return
+    root.statusNotifyBuf = ""
+    statusNotifyProc.running = true
+  }
+
   visible: panelLoader.item && panelLoader.item.label !== ""
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -72,18 +82,52 @@ BarWidget {
     }
   }
 
+  Process {
+    id: statusNotifyProc
+    command: ["omarchy-weather-status"]
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (root.statusNotifyBuf.length > 512) {
+          statusNotifyProc.signal(15)
+          statusNotifyKill.start()
+          return
+        }
+        root.statusNotifyBuf += String(chunk || "")
+        if (root.statusNotifyBuf.length > 512) {
+          statusNotifyProc.signal(15)
+          statusNotifyKill.start()
+          root.statusNotifyBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.statusNotifyBuf
+      root.statusNotifyBuf = ""
+      if (exitCode !== 0 || !String(raw || "").trim()) return
+      Util.notify(raw)
+    }
+  }
+
+  Timer {
+    id: statusNotifyKill
+    interval: 2000
+    repeat: false
+    onTriggered: statusNotifyProc.signal(9)
+  }
+
   BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: panelLoader.item ? panelLoader.item.label : ""
+    text: panelLoader.item ? Util.plain(panelLoader.item.label) : ""
     slotSize: Style.bar.statusSlot
     // Tooltip suppressed because the panel is the detail view.
     tooltipText: ""
 
     onPressed: function(b) {
       if (!root.bar) return
-      if (b === Qt.RightButton) root.bar.run("omarchy-notification-send \"$(omarchy-weather-status)\"")
+      if (b === Qt.RightButton) root.notifyStatus()
       else if (b === Qt.MiddleButton) root.refresh()
       else root.togglePanel()
     }

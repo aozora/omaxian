@@ -35,6 +35,9 @@ Item {
   // slug \t pretty \t previewPath \t current(1|empty), one row per theme.
   Process {
     id: proc
+    property string stdoutBuf: ""
+    property int maxStdout: 262144
+    property bool overflowed: false
     command: ["bash", "-c",
       "cur=$(omarchy-theme-current 2>/dev/null); " +
       "omarchy-theme-list 2>/dev/null | while IFS= read -r name; do " +
@@ -44,19 +47,45 @@ Item {
       "flag=; [ \"$name\" = \"$cur\" ] && flag=1; " +
       "printf '%s\\t%s\\t%s/preview.png\\t%s\\n' \"$slug\" \"$name\" \"$dir\" \"$flag\"; " +
       "done"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var out = []
-        var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) {
-          if (!lines[i]) continue
-          var f = lines[i].split("\t")
-          if (f.length < 3) continue
-          out.push({ slug: f[0], pretty: f[1], preview: f[2], current: f[3] === "1" })
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (proc.overflowed) return
+        proc.stdoutBuf += chunk
+        if (proc.stdoutBuf.length > proc.maxStdout) {
+          proc.overflowed = true
+          proc.stdoutBuf = ""
+          proc.signal(15)
+          themeKillTimer.start()
         }
-        root.themes = out
       }
     }
+    onStarted: {
+      themeKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      themeKillTimer.stop()
+      var text = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      var out = []
+      var lines = text.split("\n")
+      for (var i = 0; i < lines.length; i++) {
+        if (!lines[i]) continue
+        var f = lines[i].split("\t")
+        if (f.length < 3) continue
+        out.push({ slug: f[0], pretty: f[1], preview: f[2], current: f[3] === "1" })
+      }
+      root.themes = out
+    }
+  }
+
+  Timer {
+    id: themeKillTimer
+    interval: 2000
+    onTriggered: proc.signal(9)
   }
 
   ColumnLayout {
@@ -66,6 +95,7 @@ Item {
     RowLayout {
       Layout.fillWidth: true
       Text {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         text: "Theme"
         color: BarPalette.popupHeaderAccent
@@ -74,6 +104,7 @@ Item {
         font.bold: true
       }
       Text {
+        textFormat: Text.PlainText
         text: root.themes.length + (root.themes.length === 1 ? " theme" : " themes")
         color: BarPalette.popupSubtext
         font.family: Style.font.family
@@ -126,6 +157,7 @@ Item {
             color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 0.78)
 
             Text {
+              textFormat: Text.PlainText
               id: label
               anchors.fill: parent
               anchors.margins: Style.spacing.sm

@@ -35,33 +35,127 @@ Item {
   implicitWidth: Style.space(1000)
   implicitHeight: Style.space(720)
 
-  FileView {
-    id: themeNameFile
-    path: root.home + "/.local/state/omarchy/current/theme.name"
-    watchChanges: true
-    printErrors: false
-    onLoaded: {
-      root.themeName = String(text()).trim()
-      root.themeDirCandidates = Model.themeBackgroundCandidates(root.home, root.omarchyPath, root.themeName)
-      if (root.active) root.refresh()
-    }
-    onFileChanged: reload()
-    onLoadFailed: {
-      root.themeName = ""
-      root.themeDirCandidates = Model.themeBackgroundCandidates(root.home, root.omarchyPath, "")
-      if (root.active) root.refresh()
-    }
+  readonly property string themeNamePath: root.home + "/.local/state/omarchy/current/theme.name"
+  readonly property string settingsPath: root.home + "/.config/omarchy/wallpaper-settings.json"
+  property string themeNameReadBuf: ""
+  property string settingsReadBuf: ""
+
+  function applyThemeName(raw) {
+    root.themeName = String(raw || "").trim()
+    root.themeDirCandidates = Model.themeBackgroundCandidates(root.home, root.omarchyPath, root.themeName)
+    if (root.active) root.refresh()
   }
 
+  function reloadThemeNameFile() {
+    if (themeNameReadProc.running) {
+      themeNameReadProc.signal(15)
+      themeNameReadKill.start()
+    }
+    root.themeNameReadBuf = ""
+    themeNameReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "4096", root.themeNamePath
+    ]
+    themeNameReadProc.running = true
+  }
+
+  function reloadSettingsFile() {
+    if (settingsReadProc.running) {
+      settingsReadProc.signal(15)
+      settingsReadKill.start()
+    }
+    root.settingsReadBuf = ""
+    settingsReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.settingsPath
+    ]
+    settingsReadProc.running = true
+  }
+
+  // Watcher only — bytes come from safe-read.py.
+  FileView {
+    id: themeNameFile
+    path: root.themeNamePath
+    preload: false
+    blockAllReads: true
+    watchChanges: true
+    printErrors: false
+    onFileChanged: root.reloadThemeNameFile()
+  }
+
+  // Write path still uses FileView.setText; read hardening is via safe-read.
   FileView {
     id: settingsFile
-    path: root.home + "/.config/omarchy/wallpaper-settings.json"
+    path: root.settingsPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     atomicWrites: true
     printErrors: false
-    onLoaded: root.localFolder = Model.parseWallpaperSettings(text()).localFolder
-    onFileChanged: root.localFolder = Model.parseWallpaperSettings(text()).localFolder
-    onLoadFailed: root.localFolder = ""
+    onFileChanged: root.reloadSettingsFile()
+  }
+
+  Process {
+    id: themeNameReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.themeNameReadBuf += String(chunk || "")
+        if (root.themeNameReadBuf.length > 4096) {
+          themeNameReadProc.signal(15)
+          themeNameReadKill.start()
+          root.themeNameReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.themeNameReadBuf
+      root.themeNameReadBuf = ""
+      if (exitCode === 0)
+        root.applyThemeName(raw)
+    }
+  }
+
+  Timer {
+    id: themeNameReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: themeNameReadProc.signal(9)
+  }
+
+  Process {
+    id: settingsReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.settingsReadBuf += String(chunk || "")
+        if (root.settingsReadBuf.length > 65536) {
+          settingsReadProc.signal(15)
+          settingsReadKill.start()
+          root.settingsReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.settingsReadBuf
+      root.settingsReadBuf = ""
+      if (exitCode === 0)
+        root.localFolder = Model.parseWallpaperSettings(raw).localFolder
+    }
+  }
+
+  Timer {
+    id: settingsReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: settingsReadProc.signal(9)
+  }
+
+  Component.onCompleted: {
+    root.reloadThemeNameFile()
+    root.reloadSettingsFile()
   }
 
   FolderListModel {
@@ -116,6 +210,7 @@ Item {
     RowLayout {
       Layout.fillWidth: true
       Text {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         text: "Wallpapers"
         color: Color.popups.text
@@ -124,6 +219,7 @@ Item {
         font.bold: true
       }
       Text {
+        textFormat: Text.PlainText
         text: bgModel.count + (bgModel.count === 1 ? " image" : " images")
         color: BarPalette.popupSubtext
         font.family: Style.font.family
@@ -151,6 +247,7 @@ Item {
       spacing: Style.spacing.sm
 
       Text {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         text: root.localFolder.length ? root.localFolder : "No folder selected"
         color: BarPalette.popupSubtext
@@ -169,6 +266,7 @@ Item {
     }
 
     Text {
+      textFormat: Text.PlainText
       visible: bgModel.status === FolderListModel.Ready && bgModel.count === 0
       Layout.fillWidth: true
       text: root.subTab === "folder"
@@ -231,6 +329,7 @@ Item {
             height: sizeLabel.implicitHeight + Style.space(4)
 
             Text {
+              textFormat: Text.PlainText
               id: sizeLabel
               anchors.centerIn: parent
               text: Model.wallpaperSizeLabel(cell.fileName)

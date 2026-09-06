@@ -122,6 +122,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             text: "Settings"
@@ -260,6 +261,7 @@ Item {
             TabLoader { id: advancedLoader; tabId: "advanced"; tabUrl: "AdvancedTab.qml" }
 
             Text {
+              textFormat: Text.PlainText
               anchors.centerIn: parent
               visible: {
                 var loader = contentArea.activeLoader

@@ -34,7 +34,7 @@ Panel {
   // module-switch-on-connect handles that; the panel is pure BlueZ control.
 
   function deviceLabel(device) {
-    return Model.deviceLabel(device)
+    return Util.plain(Model.deviceLabel(device))
   }
 
   function isUuidLike(value) {
@@ -671,6 +671,7 @@ Panel {
             spacing: Style.space(2)
 
             Text {
+              textFormat: Text.PlainText
               text: "Bluetooth"
               color: root.bar.foreground
               font.family: root.bar.fontFamily

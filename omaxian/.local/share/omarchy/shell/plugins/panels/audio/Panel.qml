@@ -480,20 +480,80 @@ Panel {
 
   Process {
     id: sinkAvailabilityProc
+    property string stdoutBuf: ""
+    property int maxStdout: 4096
+    property bool overflowed: false
     command: ["omarchy-audio-sink-availability"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.updateSinkAvailability(text)
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (sinkAvailabilityProc.overflowed) return
+        sinkAvailabilityProc.stdoutBuf += chunk
+        if (sinkAvailabilityProc.stdoutBuf.length > sinkAvailabilityProc.maxStdout) {
+          sinkAvailabilityProc.overflowed = true
+          sinkAvailabilityProc.stdoutBuf = ""
+          sinkAvailabilityProc.signal(15)
+          sinkAvailabilityKillTimer.start()
+        }
+      }
     }
+    onStarted: {
+      sinkAvailabilityKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      sinkAvailabilityKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.updateSinkAvailability(raw)
+    }
+  }
+
+  Timer {
+    id: sinkAvailabilityKillTimer
+    interval: 2000
+    onTriggered: sinkAvailabilityProc.signal(9)
   }
 
   Process {
     id: volumeSinkProc
+    property string stdoutBuf: ""
+    property int maxStdout: 1024
+    property bool overflowed: false
     command: ["omarchy-audio-output-sink"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.volumeSinkName = String(text).trim()
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (volumeSinkProc.overflowed) return
+        volumeSinkProc.stdoutBuf += chunk
+        if (volumeSinkProc.stdoutBuf.length > volumeSinkProc.maxStdout) {
+          volumeSinkProc.overflowed = true
+          volumeSinkProc.stdoutBuf = ""
+          volumeSinkProc.signal(15)
+          volumeSinkKillTimer.start()
+        }
+      }
     }
+    onStarted: {
+      volumeSinkKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      volumeSinkKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.volumeSinkName = raw
+    }
+  }
+
+  Timer {
+    id: volumeSinkKillTimer
+    interval: 2000
+    onTriggered: volumeSinkProc.signal(9)
   }
 
   Timer {
@@ -637,6 +697,7 @@ Panel {
               spacing: Style.space(2)
 
               Text {
+                textFormat: Text.PlainText
                 text: "Audio"
                 color: root.bar.foreground
                 font.family: root.bar.fontFamily

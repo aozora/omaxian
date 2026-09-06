@@ -118,13 +118,79 @@ Panel {
 
   Process {
     id: listProc
+    property string stdoutBuf: ""
+    property int maxStdout: 65536
+    property bool overflowed: false
     command: ["omarchy-monitor-list"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.ingest(text) }
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (listProc.overflowed) return
+        listProc.stdoutBuf += chunk
+        if (listProc.stdoutBuf.length > listProc.maxStdout) {
+          listProc.overflowed = true
+          listProc.stdoutBuf = ""
+          listProc.signal(15)
+          listKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      listKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      listKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.ingest(raw)
+    }
+  }
+
+  Timer {
+    id: listKillTimer
+    interval: 2000
+    onTriggered: listProc.signal(9)
   }
 
   Process {
     id: setProc
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.ingest(text) }
+    property string stdoutBuf: ""
+    property int maxStdout: 65536
+    property bool overflowed: false
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (setProc.overflowed) return
+        setProc.stdoutBuf += chunk
+        if (setProc.stdoutBuf.length > setProc.maxStdout) {
+          setProc.overflowed = true
+          setProc.stdoutBuf = ""
+          setProc.signal(15)
+          setKillTimer.start()
+        }
+      }
+    }
+    onStarted: {
+      setKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      setKillTimer.stop()
+      var raw = overflowed ? "" : String(stdoutBuf || "")
+      stdoutBuf = ""
+      overflowed = false
+      if (raw) root.ingest(raw)
+    }
+  }
+
+  Timer {
+    id: setKillTimer
+    interval: 2000
+    onTriggered: setProc.signal(9)
   }
 
   Timer { interval: 3000; running: root.opened; repeat: true; onTriggered: root.refresh() }
@@ -191,6 +257,7 @@ Panel {
             spacing: Style.space(2)
 
             Text {
+              textFormat: Text.PlainText
               text: "Monitor"
               color: root.bar.foreground
               font.family: root.bar.fontFamily
@@ -245,8 +312,8 @@ Panel {
                   id: sectionHeader
                   anchors.left: parent.left
                   anchors.verticalCenter: parent.verticalCenter
-                  text: outputSection.output.name.toUpperCase()
-                    + (outputSection.output.isLaptopPanel ? " (LAPTOP)" : "")
+                  text: Util.plain(outputSection.output.name.toUpperCase()
+                    + (outputSection.output.isLaptopPanel ? " (LAPTOP)" : ""))
                     + (outputSection.output.primary ? " · PRIMARY" : "")
                   foreground: root.bar.foreground
                   fontFamily: root.bar.fontFamily
@@ -304,6 +371,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: root.connectedOutputs.length === 0
           text: "No displays detected"
           color: Qt.darker(root.bar.foreground, 1.5)

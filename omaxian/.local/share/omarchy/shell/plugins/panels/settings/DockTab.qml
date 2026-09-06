@@ -24,6 +24,14 @@ Item {
   property var themeSparse: ({})
   property var userSparse: ({})
   property var legacySparse: ({})
+  property string userDockRaw: ""
+  property string themeDockReadBuf: ""
+  property string userDockReadBuf: ""
+  property string legacyJsonReadBuf: ""
+
+  readonly property string themeDockPath: root.home + "/.local/state/omarchy/current/theme/dock.toml"
+  readonly property string userDockPath: root.home + "/.config/omarchy/dock.toml"
+  readonly property string legacyJsonPath: root.home + "/.config/omarchy/dock-settings.json"
 
   readonly property var settings: DockModel.mergeSettings(
     root.themeSparse,
@@ -35,51 +43,183 @@ Item {
     return hex ? Style.colorFromHex(hex, Color.bar.background) : Color.bar.background
   }
 
-  FileView {
-    id: themeDockFile
-    path: root.home + "/.local/state/omarchy/current/theme/dock.toml"
-    watchChanges: true
-    printErrors: false
-    onLoaded: root.themeSparse = DockModel.parseSettingsSparse(text())
-    onFileChanged: reload()
-    onLoadFailed: root.themeSparse = ({})
+  function applyUserDockRaw(raw) {
+    root.userDockRaw = String(raw || "")
+    root.userSparse = DockModel.parseSettingsSparse(root.userDockRaw)
+    if (!bgField.activeFocus)
+      bgField.text = root.settings.background || ""
   }
 
+  function reloadThemeDockFile() {
+    if (themeDockReadProc.running) {
+      themeDockReadProc.signal(15)
+      themeDockReadKill.start()
+    }
+    root.themeDockReadBuf = ""
+    themeDockReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.themeDockPath
+    ]
+    themeDockReadProc.running = true
+  }
+
+  function reloadUserDockFile() {
+    if (userDockReadProc.running) {
+      userDockReadProc.signal(15)
+      userDockReadKill.start()
+    }
+    root.userDockReadBuf = ""
+    userDockReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.userDockPath
+    ]
+    userDockReadProc.running = true
+  }
+
+  function reloadLegacyJsonFile() {
+    if (legacyJsonReadProc.running) {
+      legacyJsonReadProc.signal(15)
+      legacyJsonReadKill.start()
+    }
+    root.legacyJsonReadBuf = ""
+    legacyJsonReadProc.command = [
+      "/usr/bin/python3", "-I", "-S",
+      Quickshell.shellDir + "/scripts/safe-read.py",
+      "65536", root.legacyJsonPath
+    ]
+    legacyJsonReadProc.running = true
+  }
+
+  // Watcher only — bytes come from safe-read.py.
+  FileView {
+    id: themeDockFile
+    path: root.themeDockPath
+    preload: false
+    blockAllReads: true
+    watchChanges: true
+    printErrors: false
+    onFileChanged: root.reloadThemeDockFile()
+  }
+
+  // Write path still uses FileView.setText; read hardening is via safe-read.
   FileView {
     id: userDockFile
-    path: root.home + "/.config/omarchy/dock.toml"
+    path: root.userDockPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     atomicWrites: true
     printErrors: false
-    onLoaded: {
-      root.userSparse = DockModel.parseSettingsSparse(text())
-      if (!bgField.activeFocus)
-        bgField.text = root.settings.background || ""
-    }
-    onFileChanged: reload()
-    onLoadFailed: {
-      root.userSparse = ({})
-      if (!bgField.activeFocus)
-        bgField.text = root.settings.background || ""
-    }
+    onFileChanged: root.reloadUserDockFile()
   }
 
   FileView {
     id: legacyJsonFile
-    path: root.home + "/.config/omarchy/dock-settings.json"
+    path: root.legacyJsonPath
+    preload: false
+    blockAllReads: true
     watchChanges: true
     printErrors: false
-    onLoaded: root.legacySparse = DockModel.parseSettingsSparse(text())
-    onFileChanged: reload()
-    onLoadFailed: root.legacySparse = ({})
+    onFileChanged: root.reloadLegacyJsonFile()
+  }
+
+  Process {
+    id: themeDockReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.themeDockReadBuf += String(chunk || "")
+        if (root.themeDockReadBuf.length > 65536) {
+          themeDockReadProc.signal(15)
+          themeDockReadKill.start()
+          root.themeDockReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.themeDockReadBuf
+      root.themeDockReadBuf = ""
+      if (exitCode === 0)
+        root.themeSparse = DockModel.parseSettingsSparse(raw)
+    }
+  }
+
+  Timer {
+    id: themeDockReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: themeDockReadProc.signal(9)
+  }
+
+  Process {
+    id: userDockReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.userDockReadBuf += String(chunk || "")
+        if (root.userDockReadBuf.length > 65536) {
+          userDockReadProc.signal(15)
+          userDockReadKill.start()
+          root.userDockReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.userDockReadBuf
+      root.userDockReadBuf = ""
+      if (exitCode === 0)
+        root.applyUserDockRaw(raw)
+    }
+  }
+
+  Timer {
+    id: userDockReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: userDockReadProc.signal(9)
+  }
+
+  Process {
+    id: legacyJsonReadProc
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        root.legacyJsonReadBuf += String(chunk || "")
+        if (root.legacyJsonReadBuf.length > 65536) {
+          legacyJsonReadProc.signal(15)
+          legacyJsonReadKill.start()
+          root.legacyJsonReadBuf = ""
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      var raw = root.legacyJsonReadBuf
+      root.legacyJsonReadBuf = ""
+      if (exitCode === 0)
+        root.legacySparse = DockModel.parseSettingsSparse(raw)
+    }
+  }
+
+  Timer {
+    id: legacyJsonReadKill
+    interval: 2000
+    repeat: false
+    onTriggered: legacyJsonReadProc.signal(9)
+  }
+
+  Component.onCompleted: {
+    root.reloadThemeDockFile()
+    root.reloadUserDockFile()
+    root.reloadLegacyJsonFile()
   }
 
   function persist(next) {
-    var body = DockModel.upsertToml(userDockFile.text() || "", next)
+    var body = DockModel.upsertToml(root.userDockRaw || "", next)
+    // Write hardening is separate — keep FileView.setText for saves.
     userDockFile.setText(body)
-    root.userSparse = DockModel.parseSettingsSparse(body)
-    if (!bgField.activeFocus)
-      bgField.text = root.settings.background || ""
+    root.applyUserDockRaw(body)
   }
 
   function setDockEnabled(value) {
@@ -93,15 +233,42 @@ Item {
 
   Process {
     id: colorPick
+    property string stdoutBuf: ""
+    property int maxStdout: 256
+    property bool overflowed: false
     command: ["gpick", "-p", "-s", "-o", "--no-newline", "-c", "color_web_hex"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var hex = String(text()).trim()
-        if (hex)
-          root.persist({ background: hex })
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (colorPick.overflowed) return
+        colorPick.stdoutBuf += chunk
+        if (colorPick.stdoutBuf.length > colorPick.maxStdout) {
+          colorPick.overflowed = true
+          colorPick.stdoutBuf = ""
+          colorPick.signal(15)
+          colorPickKillTimer.start()
+        }
       }
     }
+    onStarted: {
+      colorPickKillTimer.stop()
+      stdoutBuf = ""
+      overflowed = false
+    }
+    onExited: function() {
+      colorPickKillTimer.stop()
+      var hex = overflowed ? "" : String(stdoutBuf || "").trim()
+      stdoutBuf = ""
+      overflowed = false
+      if (hex)
+        root.persist({ background: hex })
+    }
+  }
+
+  Timer {
+    id: colorPickKillTimer
+    interval: 2000
+    onTriggered: colorPick.signal(9)
   }
 
   Flickable {
@@ -118,6 +285,7 @@ Item {
       spacing: Style.space(12)
 
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
         text: "Theme dock.toml sets defaults. Settings write ~/.config/omarchy/dock.toml (survives theme switches)."
@@ -177,6 +345,7 @@ Item {
         spacing: Style.space(6)
 
         Text {
+          textFormat: Text.PlainText
           text: "Background color"
           color: Qt.darker(root.foreground, 1.4)
           font.family: root.fontFamily
@@ -184,6 +353,7 @@ Item {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           wrapMode: Text.Wrap
           text: "Empty matches the bar background. Enter #rgb / #rrggbb, or pick a color."
@@ -257,6 +427,7 @@ Item {
         spacing: Style.space(6)
 
         Text {
+          textFormat: Text.PlainText
           text: "Background opacity"
           color: Qt.darker(root.foreground, 1.4)
           font.family: root.fontFamily
@@ -287,6 +458,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText
             id: opacityValue
             anchors.verticalCenter: parent.verticalCenter
             width: Style.space(36)
@@ -317,6 +489,7 @@ Item {
         opacity: root.settings.hoverAnimation ? 1 : 0.45
 
         Text {
+          textFormat: Text.PlainText
           text: "Hover scale"
           color: Qt.darker(root.foreground, 1.4)
           font.family: root.fontFamily
@@ -347,6 +520,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText
             id: scaleValue
             anchors.verticalCenter: parent.verticalCenter
             width: Style.space(36)
