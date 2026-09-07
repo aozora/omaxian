@@ -40,6 +40,18 @@ if [[ ${OMARCHY_RESTART_DETACHED:-} != 1 ]]; then
 	exit 0
 fi
 
+# Only one restart may run the stop/relaunch sequence at a time. Concurrent
+# callers (the menu firing this twice, or a user re-running it) otherwise each
+# stop picom and re-run the kill loop — repeated glx teardown has taken X
+# clients down with it. A second caller just bails: the in-flight restart is
+# already producing a fresh shell.
+RESTART_LOCK="$LOCK_DIR/restart-shell.lock"
+exec 9>"$RESTART_LOCK"
+if ! flock -n 9; then
+	echo "omarchy-restart-shell: another restart already in progress — skipping" | tee -a "$LOG"
+	exit 0
+fi
+
 stop_picom() {
 	pgrep -u "$UID" -x picom >/dev/null 2>&1 || return 0
 	echo "omarchy-restart-shell: stopping picom (glx + qs teardown freezes X)" | tee -a "$LOG"

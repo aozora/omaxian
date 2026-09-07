@@ -26,6 +26,7 @@ flock -n 9 || exit 0
 
 last=$(display_state)
 lock_flag="${XDG_RUNTIME_DIR:-/tmp}/omaxian-screen-locked"
+changes=0
 
 while sleep 2; do
 	omarchy-session-is-i3 2>/dev/null || exit 0
@@ -34,15 +35,33 @@ while sleep 2; do
 	# (or the instant of unlock) has crashed Quickshell's I3 monitor refresh.
 	if [[ -e $lock_flag ]]; then
 		last=$(display_state)
+		changes=0
 		continue
 	fi
 
 	cur=$(display_state)
-	[[ "$cur" == "$last" ]] && continue
+	if [[ $cur == "$last" ]]; then
+		changes=0
+		continue
+	fi
+
+	# Topology changing cycle after cycle means hardware is flapping or the
+	# layout can't converge. Re-applying every 2s feeds a RandR event stream
+	# that crashes Quickshell 0.3.0's I3 monitor refresh — back off until it
+	# holds still.
+	if (( ++changes > 3 )); then
+		(( changes == 4 )) && echo "i3_display_watch: topology unstable — backing off" >&2
+		last=$cur
+		sleep 8
+		continue
+	fi
 
 	omarchy-monitor-apply
 	"$idir/scripts/i3_workspaces.sh"
 	"$idir/scripts/i3_bar"
 
-	last=$cur
+	# Re-sample after applying: omarchy-monitor-apply's own xrandr calls move
+	# `xrandr --query`, so sampling before it guarantees a redundant re-apply
+	# (and its RandR events) next cycle.
+	last=$(display_state)
 done

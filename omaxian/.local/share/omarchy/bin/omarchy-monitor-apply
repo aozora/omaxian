@@ -31,6 +31,15 @@ LOCK_FILE="$STATE_DIR/profiles.json.lock"
 names=()
 declare -A IS_LAPTOP=() PREFERRED=() CURRENT=() MODES=() ENABLED=() PRIMARY=() POSX=() POSY=()
 
+# First mode token of $1, or empty. Guards against a mode field that holds the
+# whole comma-joined mode list — an older buggy snapshot could persist that,
+# and `xrandr --mode 1920x1080,1680x1050,...` just fails. Accepts a trailing
+# interlace flag / refresh suffix (e.g. 1920x1080i, 1920x1080_60.00).
+first_mode() {
+  local m=${1%%,*}
+  [[ $m =~ ^[0-9]+x[0-9]+[a-z]?(_[0-9.]+)?$ ]] && printf '%s' "$m"
+}
+
 # (Re)populate the arrays above from a fresh `omarchy-monitor-list` read.
 # Called once up front, and again after apply_fallback() actually mutates the
 # display — a snapshot taken from the pre-mutation read would capture the old
@@ -47,8 +56,10 @@ load_live_state() {
     [[ -z $name ]] && continue
     names+=("$name")
     IS_LAPTOP[$name]=$is_laptop
-    PREFERRED[$name]=$preferred
-    CURRENT[$name]=$current
+    # Scalars must be a single WxH; only MODES is legitimately a CSV. Sanitising
+    # here keeps a corrupt value from being re-persisted by do_snapshot.
+    PREFERRED[$name]=$(first_mode "$preferred")
+    CURRENT[$name]=$(first_mode "$current")
     MODES[$name]=$modes_csv
     ENABLED[$name]=$enabled
     PRIMARY[$name]=$primary
@@ -99,6 +110,16 @@ pick_mode() {
   else
     echo "${MODES[$name]:-}" | cut -d, -f1
   fi
+}
+
+# A mode safe to hand to `xrandr --mode` for output $2: $1 if it is a real mode,
+# else the output's known preferred/current/first mode. May be empty, in which
+# case the caller should fall back to --auto.
+safe_mode() {
+  local m
+  m=$(first_mode "$1")
+  [[ -n $m ]] && { printf '%s' "$m"; return; }
+  first_mode "$(pick_mode "$2")"
 }
 
 turn_off() {
@@ -190,11 +211,12 @@ apply_fallback() {
   local last_idx=$((${#chain_names[@]} - 1))
   for i in "${!chain_names[@]}"; do
     local n="${chain_names[$i]}" mode
-    mode=$(pick_mode "$n")
-    local cmd=(xrandr --output "$n" --mode "$mode")
+    mode=$(safe_mode "$(pick_mode "$n")" "$n")
+    local cmd=(xrandr --output "$n")
+    if [[ -n $mode ]]; then cmd+=(--mode "$mode"); else cmd+=(--auto); fi
     [[ $i -gt 0 ]] && cmd+=(--right-of "${chain_names[$((i - 1))]}")
     [[ $i -eq $last_idx ]] && cmd+=(--primary)
-    "${cmd[@]}"
+    "${cmd[@]}" || true
   done
 }
 
@@ -217,18 +239,25 @@ replay_profile() {
     if [[ $en == "false" ]]; then
       turn_off "$n"
     else
-      local cmd=(xrandr --output "$n" --mode "$mode")
+      local safe
+      safe=$(safe_mode "$mode" "$n")
+      local cmd=(xrandr --output "$n")
+      if [[ -n $safe ]]; then cmd+=(--mode "$safe"); else cmd+=(--auto); fi
       [[ $primary == "true" ]] && cmd+=(--primary)
-      "${cmd[@]}"
+      "${cmd[@]}" || true
     fi
   done < <(jq -r '.[] | select(.relation == null) | [.name, .enabled, (.mode // ""), .primary] | @tsv' <<<"$profile_json")
 
   # Pass 2: relational entries, in stored (dependency-safe) order.
   while IFS=$'\t' read -r n mode primary reltype relof; do
     [[ -z $n ]] && continue
-    local cmd=(xrandr --output "$n" --mode "$mode" --"$reltype" "$relof")
+    local safe
+    safe=$(safe_mode "$mode" "$n")
+    local cmd=(xrandr --output "$n")
+    if [[ -n $safe ]]; then cmd+=(--mode "$safe"); else cmd+=(--auto); fi
+    cmd+=(--"$reltype" "$relof")
     [[ $primary == "true" ]] && cmd+=(--primary)
-    "${cmd[@]}"
+    "${cmd[@]}" || true
   done < <(jq -r '.[] | select(.relation != null) | [.name, .mode, .primary, .relation.type, .relation.of] | @tsv' <<<"$profile_json")
 }
 
@@ -276,6 +305,11 @@ main() {
       return 0
     fi
     replay_profile "$outputs"
+    # Re-persist from the live result so a profile written by an older, buggy
+    # version (mode set to the whole CSV mode list) heals itself instead of
+    # being replayed — and failing — on every topology poll.
+    load_live_state
+    do_snapshot
   else
     apply_fallback
     load_live_state
