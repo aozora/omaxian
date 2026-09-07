@@ -25,9 +25,17 @@ exec 9>"$watch_lock"
 flock -n 9 || exit 0
 
 last=$(display_state)
+lock_flag="${XDG_RUNTIME_DIR:-/tmp}/omaxian-screen-locked"
 
 while sleep 2; do
 	omarchy-session-is-i3 2>/dev/null || exit 0
+
+	# i3_lock holds this while the locker is up. Applying xrandr mid-lock
+	# (or the instant of unlock) has crashed Quickshell's I3 monitor refresh.
+	if [[ -e $lock_flag ]]; then
+		last=$(display_state)
+		continue
+	fi
 
 	cur=$(display_state)
 	[[ "$cur" == "$last" ]] && continue

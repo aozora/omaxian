@@ -2,6 +2,11 @@
 
 ## Screen lock for i3 / Devuan (elogind). Prefer a real locker; loginctl alone
 ## often no-ops unless xss-lock or a screensaver is registered.
+##
+## Under picom glx, locking with a live Quickshell bar has crashed QS on
+## unlock (I3 "Refreshing Monitors…" / dangling screen). Stop picom for the
+## duration of the lock — same rule as omarchy-restart-shell — and tell the
+## display watcher not to modeset until we are unlocked.
 
 notify_fail() {
 	command -v dunstify >/dev/null 2>&1 \
@@ -21,26 +26,84 @@ detect_wm() {
 	fi
 }
 
+LOCK_FLAG="${XDG_RUNTIME_DIR:-/tmp}/omaxian-screen-locked"
+COMP="${HOME}/.config/i3/scripts/i3_comp"
+BAR="${HOME}/.config/i3/scripts/i3_bar"
+_picom_was_running=0
+
+mark_locked() {
+	[[ -n ${XDG_RUNTIME_DIR:-} ]] || return 0
+	: >"$LOCK_FLAG" 2>/dev/null || true
+}
+
+clear_locked() {
+	rm -f "$LOCK_FLAG" 2>/dev/null || true
+}
+
+stop_picom() {
+	if pgrep -u "$UID" -x picom >/dev/null 2>&1; then
+		_picom_was_running=1
+		pkill -u "$UID" -x picom 2>/dev/null || true
+		local _
+		for _ in $(seq 1 40); do
+			pgrep -u "$UID" -x picom >/dev/null 2>&1 || return 0
+			sleep 0.05
+		done
+		pkill -9 -u "$UID" -x picom 2>/dev/null || true
+	fi
+}
+
+start_picom() {
+	(( _picom_was_running )) || return 0
+	_picom_was_running=0
+	[[ -x $COMP ]] || return 0
+	"$COMP" >/dev/null 2>&1 || true
+}
+
+ensure_bar() {
+	[[ -x $BAR ]] || return 0
+	"$BAR" >/dev/null 2>&1 || true
+}
+
+# Always restore compositor / clear the lock flag, even if the locker fails.
+cleanup() {
+	clear_locked
+	start_picom
+	ensure_bar
+}
+trap cleanup EXIT
+
 try_xfce_screensaver() {
 	command -v xfce4-screensaver-command >/dev/null 2>&1 \
 		|| return 1
+	# Leave picom alone for XFCE's own locker.
 	xfce4-screensaver-command -l 2>/dev/null
 }
 
 try_i3lock_fancy() {
-	if command -v i3lock-fancy >/dev/null 2>&1; then
-		if command -v maim >/dev/null 2>&1; then
-			exec i3lock-fancy -- maim
-		fi
-		exec i3lock-fancy
-	fi
+	command -v i3lock-fancy >/dev/null 2>&1 || return 1
 	command -v i3lock >/dev/null 2>&1 || return 1
-	exec i3lock -e -f -c 1e1e2e
+
+	mark_locked
+	stop_picom
+	# Debian's i3lock-fancy ignores trailing screenshot args and uses
+	# ImageMagick `import`; it already runs `i3lock -n` (blocks until unlock).
+	i3lock-fancy
+}
+
+try_i3lock() {
+	command -v i3lock >/dev/null 2>&1 || return 1
+	mark_locked
+	stop_picom
+	# -n: stay in foreground until unlock so cleanup runs afterward.
+	i3lock -n -e -f -c 1e1e2e
 }
 
 try_slock() {
 	command -v slock >/dev/null 2>&1 || return 1
-	exec slock
+	mark_locked
+	stop_picom
+	slock
 }
 
 try_loginctl() {
@@ -56,8 +119,9 @@ case "$(detect_wm)" in
 esac
 
 try_xfce_screensaver && exit 0
-try_i3lock_fancy
-try_slock
+try_i3lock_fancy && exit 0
+try_i3lock && exit 0
+try_slock && exit 0
 try_loginctl && exit 0
 
 notify_fail
