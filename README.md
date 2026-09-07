@@ -50,7 +50,7 @@ because a GUI was missing.
 | **Media widget**                                          | MPD shows up next to other MPRIS players via `mpDris2`. It's a modified version of the Omarchy Media Control (https://github.com/MrDemonc/Omarchy-media-control) by  @mrDemonc                                                       |
 | **Help on the bar**                                       | Super+K / the `?` widget — a cheat-sheet of this session’s i3 binds.                                                                                                                                                                 |
 | **`omarchy-plugin-check`**                                | Static check of a community plugin against this X11 port (Wayland/Hyprland/PipeWire/systemd couplings). Upstream only has schema validation.                                                                                         |
-| **Debian / Devuan session**                               | elogind (`loginctl`) instead of systemd; PulseAudio *or* PipeWire; `apt` instead of pacman; no `uwsm`. Reminders use `sleep`, not systemd timers; night light is **redshift**, not hyprsunset.                                       |
+| **Debian / Devuan session**                               | Init-agnostic: systemd Debian uses logind; Devuan / sysvinit get **elogind**. Power/session via `omarchy-host` (`systemctl` → `loginctl` → `shutdown`). PulseAudio *or* PipeWire; `apt` instead of pacman; no `uwsm`. Reminders use `sleep`, not systemd timers; night light is **redshift**, not hyprsunset. |
 
 The shared Omarchy surface is still there: themes, the command menu, weather,
 clock/calendar, tray, OSD, Wi-Fi QR, speed tests, and the `omarchy-*` CLI.
