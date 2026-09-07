@@ -14,11 +14,19 @@
 # *before* i3, so i3 and every keybind inherit $OMARCHY_PATH/bin on PATH.
 # A full logout/login is required after the first deploy (i3 restart keeps
 # the old environment).
+#
+# LIVE SESSION SAFETY: while i3 is up this script (1) raises a deploy lock so
+# Quickshell ignores FileView / plugin churn, (2) stops picom before any
+# copy — glx + live bar rebuild freezes X, (3) never runs i3-msg reload or
+# omarchy-restart-shell. QML applies on the next login.
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$REPO_DIR/omaxian"
+DEPLOY_LOCK="${XDG_RUNTIME_DIR:-/tmp}/omaxian-deploy.lock"
+COMP="$HOME/.config/i3/scripts/i3_comp"
+LIVE_SESSION=0
 
 if [ "$(id -u)" -eq 0 ]; then
 	echo "!! refuse to deploy as root — run:  ./deploy.sh" >&2
@@ -30,10 +38,17 @@ if [ ! -d "$SRC/.config" ] || [ ! -d "$SRC/.local/share" ]; then
 	exit 1
 fi
 
+if command -v i3-msg >/dev/null 2>&1 && i3-msg -t get_version >/dev/null 2>&1; then
+	LIVE_SESSION=1
+fi
+
 echo "========================================================================"
 echo "Deploying Omaxian"
 echo "  user: $(id -un) ($HOME)"
 echo "  from: $SRC"
+if (( LIVE_SESSION )); then
+	echo "  mode: LIVE i3 — picom paused; shell file-reload frozen; no reload/restart"
+fi
 echo "========================================================================"
 
 # Copy a tree without truncating files a live process still has open.
@@ -41,8 +56,7 @@ echo "========================================================================"
 # omarchy-launch-shell) then reads the next line from the new inode at a
 # stale offset and can run garbage (including xrandr --off). rsync writes a
 # temp file and renames, so those processes keep the old inode. It also
-# skips unchanged files — a full `cp -r` of themes/wallpapers (~180M) while
-# the session is up can look like a desktop freeze.
+# skips unchanged files.
 copy_tree() {
 	local src="$1" dst="$2"
 	mkdir -p "$dst"
@@ -74,6 +88,43 @@ for root, dirs, files in os.walk(src):
 PY
 }
 
+stop_picom() {
+	pgrep -u "$UID" -x picom >/dev/null 2>&1 || return 0
+	echo ":: stopping picom for safe copy (glx + live shell churn freezes X)"
+	pkill -u "$UID" -x picom 2>/dev/null || true
+	local _
+	for _ in $(seq 1 50); do
+		pgrep -u "$UID" -x picom >/dev/null 2>&1 || return 0
+		sleep 0.1
+	done
+	pkill -9 -u "$UID" -x picom 2>/dev/null || true
+}
+
+start_picom() {
+	[[ -x $COMP ]] || return 0
+	"$COMP" >/dev/null 2>&1 || true
+	if pgrep -u "$UID" -x picom >/dev/null 2>&1; then
+		echo ":: picom restarted"
+	fi
+}
+
+cleanup_live() {
+	rm -f "$DEPLOY_LOCK" 2>/dev/null || true
+	if (( LIVE_SESSION )); then
+		start_picom
+	fi
+}
+
+if (( LIVE_SESSION )); then
+	# Shell FileViews watch this path — create before any rsync so reload
+	# handlers see deployFrozen and no-op.
+	printf 'deploy\n' >"$DEPLOY_LOCK"
+	trap cleanup_live EXIT
+	# Give Quickshell's FileView a beat to notice the lock.
+	sleep 0.4
+	stop_picom
+fi
+
 echo
 echo "-- 1/4  ~/.config -------------------------------------------------------"
 copy_tree "$SRC/.config" "$HOME/.config"
@@ -90,7 +141,7 @@ else
 	exit 1
 fi
 # install.sh seeds upstream default/agents (Hyprland skill). Replace that
-# leftover once the port's omaxian skill is in place — cp -r does not delete.
+# leftover once the port's omaxian skill is in place — rsync does not delete.
 if [ -d "$HOME/.local/share/omarchy/default/agents/skills/omaxian" ]; then
 	rm -rf "$HOME/.local/share/omarchy/default/agents/skills/omarchy"
 	echo ":: dropped upstream default/agents/skills/omarchy"
@@ -115,10 +166,6 @@ fi
 
 echo
 echo "-- 3/4  ~/.xsessionrc (OMARCHY_PATH + PATH) -----------------------------"
-# Sourced by /etc/X11/Xsession before i3 starts — without it i3 (and every
-# keybind exec) runs with no OMARCHY_PATH and no ~/.local/share/omarchy/bin
-# on PATH. The Quickshell host also exports these itself, but terminals and
-# keybinds still need this file.
 cp "$SRC/.xsessionrc" "$HOME/.xsessionrc.tmp"
 mv -f "$HOME/.xsessionrc.tmp" "$HOME/.xsessionrc"
 echo ":: wrote $HOME/.xsessionrc"
@@ -129,32 +176,44 @@ echo
 echo "-- 4/4  ~/.icons --------------------------------------------------------"
 if [ -d "$SRC/.icons" ]; then
 	mkdir -p "$HOME/.icons"
-	cp -r "$SRC/.icons/"* "$HOME/.icons/" 2>/dev/null || cp -r "$SRC/.icons" "$HOME/"
+	if command -v rsync >/dev/null 2>&1; then
+		rsync -a -- "$SRC/.icons/" "$HOME/.icons/"
+	else
+		cp -a "$SRC/.icons/." "$HOME/.icons/"
+	fi
 	echo ":: copied icons -> $HOME/.icons"
 else
 	echo ":: no .icons/ in tree — skipped"
 fi
 
-# A live i3 session already ran autostart. Seed the once-lock so the next
-# `i3-msg reload` skips dunst/wallpaper/xrandr helpers (see i3_autostart).
-if [[ -n ${XDG_RUNTIME_DIR:-} ]] && command -v i3-msg >/dev/null \
-	&& i3-msg -t get_version >/dev/null 2>&1; then
+# A live i3 session already ran autostart. Seed the once-lock so a later
+# `i3-msg reload` (binds only) never re-runs session daemons.
+if (( LIVE_SESSION )) && [[ -n ${XDG_RUNTIME_DIR:-} ]]; then
 	mkdir -p "$XDG_RUNTIME_DIR/omaxian-i3-autostart" || true
+fi
+
+# Drop deploy freeze, then bring picom back (trap also does this on EXIT).
+if (( LIVE_SESSION )); then
+	rm -f "$DEPLOY_LOCK"
+	sleep 0.2
+	start_picom
+	trap - EXIT
 fi
 
 echo
 echo "========================================================================"
 echo "Deployment done."
 echo
-echo "  Verify (this shell may still lack PATH until re-login):"
+echo "  Verify:"
 echo "    test -f ~/.xsessionrc && grep OMARCHY_PATH ~/.xsessionrc"
 echo "    ls ~/.local/share/omarchy/bin/omarchy-launch-shell"
-echo "    ls ~/.config/omarchy/shell.json"
 echo
-echo "  After the first login (PATH already inherited):"
-echo "    i3-msg reload            # binds / i3 config only — no session scripts"
-echo "  QML/bar: next login, or omarchy-restart-shell later by itself"
-echo "  (kills Quickshell; can freeze glx picom — do not chain after reload)."
-echo "  Do not i3 restart, log out, or run omarchy-monitor-apply just to"
-echo "  pick up a redeploy."
+if (( LIVE_SESSION )); then
+	echo "  LIVE session: files are on disk. Do NOT run omarchy-restart-shell"
+	echo "  or i3-msg reload from an agent just to 'apply' — that used to"
+	echo "  freeze X. QML/bar: log out and back in. Binds only (optional):"
+	echo "    i3-msg reload"
+else
+	echo "  Log out/in so i3 inherits PATH (first install)."
+fi
 echo "========================================================================"

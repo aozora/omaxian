@@ -5,6 +5,10 @@
 #
 # Hard-stop supervisor + quickshell (including whoever holds the launch
 # lock), then start one fresh omarchy-launch-shell with a live I3SOCK.
+#
+# CRITICAL: under picom's glx backend, destroying Quickshell's ARGB windows
+# freezes or tears down the X session. Always stop picom first, restart it
+# after the new shell is up.
 
 set -euo pipefail
 
@@ -18,6 +22,7 @@ LOG="$HOME/.local/state/omarchy/shell.log"
 LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/omarchy-$UID"
 LOCK_FILE="$LOCK_DIR/launch-shell.lock"
 PID_FILE="$LOCK_DIR/launch-shell.pid"
+COMP="$HOME/.config/i3/scripts/i3_comp"
 
 [[ -f $CONFIG_DIR/shell.qml ]] || { echo "omarchy shell config not found: $CONFIG_DIR" >&2; exit 1; }
 mkdir -p "$(dirname "$LOG")" "$LOCK_DIR"
@@ -35,6 +40,23 @@ if [[ ${OMARCHY_RESTART_DETACHED:-} != 1 ]]; then
 	exit 0
 fi
 
+stop_picom() {
+	pgrep -u "$UID" -x picom >/dev/null 2>&1 || return 0
+	echo "omarchy-restart-shell: stopping picom (glx + qs teardown freezes X)" | tee -a "$LOG"
+	pkill -u "$UID" -x picom 2>/dev/null || true
+	local _
+	for _ in $(seq 1 50); do
+		pgrep -u "$UID" -x picom >/dev/null 2>&1 || return 0
+		sleep 0.1
+	done
+	pkill -9 -u "$UID" -x picom 2>/dev/null || true
+}
+
+start_picom() {
+	[[ -x $COMP ]] || return 0
+	"$COMP" >/dev/null 2>&1 || true
+}
+
 # Always tear down leftovers; only relaunch inside a live i3 session.
 allow_start=0
 if omarchy-session-is-i3; then
@@ -42,6 +64,9 @@ if omarchy-session-is-i3; then
 else
 	echo "omarchy-restart-shell: not an i3 session — stopping shell only (no relaunch)" | tee -a "$LOG"
 fi
+
+# Picom must be down before any Quickshell window is destroyed.
+stop_picom
 
 echo "omarchy-restart-shell: stopping old shell…" | tee -a "$LOG"
 
@@ -53,13 +78,12 @@ if [[ -f $PID_FILE ]]; then
 	fi
 fi
 
-# 2) SIGTERM lock holders. `fuser -k` defaults to SIGKILL and has taken
-# GLX/picom down with the Quickshell client.
+# 2) SIGTERM lock holders (never bare fuser -k / SIGKILL first).
 if [[ -f $LOCK_FILE ]]; then
 	fuser -k -TERM "$LOCK_FILE" >/dev/null 2>&1 || true
 fi
 
-# 3) Name-based cleanup (supervisor + qs). UID-scoped; no -9 on the first pass.
+# 3) Name-based cleanup (supervisor + qs). UID-scoped.
 pkill -u "$UID" -f 'omarchy-launch-shell' 2>/dev/null || true
 while timeout 5 quickshell kill -p "$CONFIG_DIR" >/dev/null 2>&1; do :; done
 pkill -u "$UID" -f "quickshell .*-p ${CONFIG_DIR}" 2>/dev/null || true
@@ -85,30 +109,35 @@ fi
 
 if (( ! allow_start )); then
 	echo "omarchy-restart-shell: stopped (i3-only shell; no relaunch outside i3)" | tee -a "$LOG"
+	start_picom
 	exit 0
 fi
 
 echo "omarchy-restart-shell: starting omarchy-launch-shell (I3SOCK=${I3SOCK:-<unset>})…" | tee -a "$LOG"
-# Inherit DISPLAY / I3SOCK / DBUS from this process; only pin QS_WIDGETS_ONLY
-# and OMARCHY_PATH explicitly.
 setsid nohup env \
 	QS_WIDGETS_ONLY="${QS_WIDGETS_ONLY:-1}" \
 	OMARCHY_PATH="$OMARCHY_PATH" \
 	${I3SOCK:+I3SOCK="$I3SOCK"} \
 	omarchy-launch-shell >>"$LOG" 2>&1 &
 
+ready=0
 for _ in $(seq 1 50); do
 	if omarchy-shell -q shell ping >/dev/null 2>&1; then
-		# Confirm a supervisor actually holds the lock — a stale qs can
-		# answer ping while the new launch-shell failed to start.
 		if [[ -f $PID_FILE ]] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
-			echo "omarchy-restart-shell: ready" | tee -a "$LOG"
-			exit 0
+			ready=1
+			break
 		fi
-		# Ping ok but no supervisor yet — keep waiting briefly.
 	fi
 	sleep 0.1
 done
+
+# Compositor back whether or not qs came up — never leave the session bare.
+start_picom
+
+if (( ready )); then
+	echo "omarchy-restart-shell: ready" | tee -a "$LOG"
+	exit 0
+fi
 
 echo "omarchy-restart-shell: shell did not become ready after restart." >&2
 echo "omarchy-restart-shell: FAILED — see $LOG" | tee -a "$LOG"

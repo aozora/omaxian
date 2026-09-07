@@ -69,11 +69,28 @@ ShellRoot {
   property var shellConfig: builtinShellConfig
   property bool pluginReloading: false
   property bool pluginReloadPending: false
+  // deploy.sh creates this while copying into a live session. FileViews and
+  // plugin hot-reload must no-op — rebuilding the bar under glx picom freezes X.
+  property bool deployFrozen: false
+  readonly property string deployLockPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omaxian-deploy.lock"
+
+  FileView {
+    id: deployLockFile
+    path: shell.deployLockPath
+    watchChanges: true
+    printErrors: false
+    onLoaded: shell.deployFrozen = true
+    onLoadFailed: shell.deployFrozen = false
+    onFileChanged: reload()
+  }
 
   Timer {
     id: localPluginReloadTimer
     interval: 150
-    onTriggered: shell.reloadPlugins()
+    onTriggered: {
+      if (shell.deployFrozen) return
+      shell.reloadPlugins()
+    }
   }
 
   onShellConfigChanged: {
@@ -152,7 +169,7 @@ ShellRoot {
       console.warn("default shell.json load failed: " + error + " path=" + shell.defaultsPath)
       shell.loadDefaults("")
     }
-    onFileChanged: reload()
+    onFileChanged: if (!shell.deployFrozen) reload()
   }
 
   FileView {
@@ -164,7 +181,7 @@ ShellRoot {
     printErrors: false
     onLoaded: shell.applyShellConfig()
     onLoadFailed: function(error) { shell.applyShellConfig(true) }
-    onFileChanged: reload()
+    onFileChanged: if (!shell.deployFrozen) reload()
   }
 
   Component.onCompleted: {
@@ -811,6 +828,7 @@ ShellRoot {
   }
 
   function reloadPlugins() {
+    if (shell.deployFrozen) return
     if (shell.pluginReloading || shell.pluginRegistry.scanning) {
       shell.pluginReloadPending = true
       return
@@ -835,6 +853,7 @@ ShellRoot {
   Connections {
     target: shell.pluginRegistry
     function onLocalPluginChanged(pluginId) {
+      if (shell.deployFrozen) return
       console.log("Local plugin changed, reloading:", pluginId)
       localPluginReloadTimer.restart()
     }

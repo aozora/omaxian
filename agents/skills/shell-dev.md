@@ -8,8 +8,12 @@ The Quickshell desktop runs as a single long-running process out of
 `omarchy-launch-shell` (`quickshell -n -p "$OMARCHY_PATH/shell"`). Do not
 start additional standalone Quickshell instances for individual components.
 
-Run `omarchy-restart-shell` after making changes to QML files. `shell.json`
-and `~/.config/omarchy/shell.toml` are file-watched and usually apply live.
+Run `omarchy-restart-shell` after making changes to QML files **only when
+you mean to** — it stops picom, kills Quickshell, relaunches, then starts
+picom. Prefer **log out / log in** after `./deploy.sh`. Never chain
+restart-shell with `i3-msg reload`. `shell.json` and
+`~/.config/omarchy/shell.toml` are file-watched and usually apply live
+(unless a deploy lock is held).
 
 ## Paths
 

@@ -92,14 +92,10 @@ omarchy-shell shell listPlugins | jq length   # → ~37
 pgrep -x quickshell                      # one process
 ```
 
-Re-run `./deploy.sh` after `git pull`. It uses `rsync` (skips unchanged
-files, replaces by rename) so a live i3 session is not taken down. It does
-not delete files you (or an older deploy) left behind.
-
-Keybinds: `i3-msg reload` (config only — no session scripts). QML applies
-on the next login. `omarchy-restart-shell` kills Quickshell and can freeze
-glx picom; do not chain it after reload.
-Do not run `omarchy-monitor-apply` just because you redeployed.
+Re-run `./deploy.sh` after `git pull`. On a live i3 session it pauses picom,
+freezes shell file-reload, and rsyncs (no truncate). It does **not** reload
+i3 or restart Quickshell. QML: log out and back in. Optional binds-only:
+`i3-msg reload`.
 
 ---
 

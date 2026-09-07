@@ -228,12 +228,15 @@ Item {
 
           Item {
             width: parent.width
-            implicitHeight: Math.max(sectionHeader.implicitHeight, offButton.implicitHeight)
+            implicitHeight: Math.max(sectionHeader.implicitHeight, powerRow.implicitHeight)
 
             PanelSectionHeader {
               id: sectionHeader
               anchors.left: parent.left
+              anchors.right: powerRow.visible ? powerRow.left : parent.right
+              anchors.rightMargin: powerRow.visible ? Style.space(10) : 0
               anchors.verticalCenter: parent.verticalCenter
+              elide: Text.ElideRight
               text: Util.plain(outputSection.output.name.toUpperCase()
                 + (outputSection.output.isLaptopPanel ? " (LAPTOP)" : ""))
                 + (outputSection.output.primary ? " · PRIMARY" : "")
@@ -241,19 +244,34 @@ Item {
               fontFamily: root.bar.fontFamily
             }
 
-            Button {
-              id: offButton
+            // State label + switch (not an action-word button — "Off" on a
+            // live display read as unclear). Same control as Audio/Bluetooth.
+            Row {
+              id: powerRow
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               visible: root.connectedOutputs.length >= 2
-              text: outputSection.output.enabled ? "Off" : "On"
-              fontSize: Style.font.bodySmall
-              foreground: root.bar.foreground
-              fontFamily: root.bar.fontFamily
-              horizontalPadding: Style.spacing.controlPaddingX
-              verticalPadding: Style.spacing.controlPaddingY
-              bordered: true
-              onClicked: root.toggleOutput(outputSection.output)
+              spacing: Style.space(8)
+
+              Text {
+                textFormat: Text.PlainText
+                text: outputSection.output.enabled ? "On" : "Off"
+                color: outputSection.output.enabled
+                  ? root.bar.foreground
+                  : Qt.darker(root.bar.foreground, 1.5)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              ToggleSwitch {
+                checked: !!outputSection.output.enabled
+                busy: setProc.running
+                foreground: root.bar.foreground
+                trackHeight: Math.max(18, Math.round(Style.spacing.controlHeight * 0.45))
+                anchors.verticalCenter: parent.verticalCenter
+                onToggled: root.toggleOutput(outputSection.output)
+              }
             }
           }
 

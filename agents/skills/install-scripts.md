@@ -43,10 +43,17 @@ not truncate long-running session scripts (`i3_display_watch.sh`,
 `omarchy-launch-shell`). A naive `cp -r` can make those scripts execute
 garbage (including `xrandr --off`) and look like a full desktop crash.
 
-`i3-msg reload` re-runs `exec_always` only. Session startup
-(`omarchy-monitor-apply`, `i3_autostart`, `i3flow`) is `exec` (login) so
-reload does not xrandr-modeset, respawn watchers, or kill picom. Putting
-those back on `exec_always` has taken the session down.
+On a live session `deploy.sh` also: writes `$XDG_RUNTIME_DIR/omaxian-deploy.lock`
+(Quickshell ignores FileView / plugin reloads), **stops picom** for the
+copy, then restarts picom. It never runs `i3-msg reload` or
+`omarchy-restart-shell`. QML applies on the next login.
+
+`omarchy-restart-shell` stops picom before tearing down Quickshell (glx +
+ARGB window destroy freezes X), then starts picom again. Still prefer
+logout for QML after a deploy.
+
+Session startup (`omarchy-monitor-apply`, `i3_autostart`, `i3flow`) is
+`exec` (login) so `i3-msg reload` is config-only.
 
 `install.sh` replaces `themes/`, `default/`, and `bin/` under the share dir
 on every run; dock settings and `~/.config/omarchy/shell.json` are written

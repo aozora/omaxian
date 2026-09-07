@@ -31,6 +31,19 @@ QtObject {
   signal pluginLoadFailed(string id, string error)
   signal localPluginChanged(string id)
 
+  // Raised by deploy.sh while copying into a live session (see shell.qml).
+  property bool deployFrozen: false
+  readonly property string deployLockPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omaxian-deploy.lock"
+
+  property FileView deployLockFile: FileView {
+    path: registry.deployLockPath
+    watchChanges: true
+    printErrors: false
+    onLoaded: registry.deployFrozen = true
+    onLoadFailed: registry.deployFrozen = false
+    onFileChanged: reload()
+  }
+
   // ---------------------------------------------------------------- helpers
 
   function isSafeEntryPoint(value) {
@@ -650,6 +663,9 @@ QtObject {
     ]
     stdout: SplitParser {
       onRead: function(path) {
+        // deploy.sh holds this lock while rsyncing a live session — do not
+        // tear down plugins mid-copy (glx picom freezes X).
+        if (registry.deployFrozen) return
         var pluginId = registry.localPluginIdForPath(path)
         if (pluginId) registry.localPluginChanged(pluginId)
       }
