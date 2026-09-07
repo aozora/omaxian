@@ -97,8 +97,8 @@ REQUIRED=(
 	feh hsetroot i3lock xss-lock
 	# launcher window-raise, clipboard, live GTK theme push
 	xdotool xclip xsettingsd
-	# python input-focus helper + third-party plugin live watch
-	python3 python3-xlib inotify-tools
+	# python input-focus helper + i3 IPC (alternating splits) + plugin live watch
+	python3 python3-xlib python3-i3ipc inotify-tools
 	# polkit agent for pkexec prompts
 	mate-polkit
 	# process/query tools the scripts shell out to

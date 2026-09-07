@@ -185,6 +185,7 @@ The full skip list is in [`docs/omarchy-port/deltas.md`](docs/omarchy-port/delta
   (or pipewire-pulse), a polkit agent (`mate-polkit`), lightdm, and the bundled
   fonts (otherwise the bar shows tofu).
 - **`python3-xlib`:** without it, typing in the Omarchy menu does nothing.
+- **`python3-i3ipc`:** alternating split layout (`alternating_layouts.py`).
 - **No systemd needed.** Session pieces are elogind (`loginctl`) and D-Bus.
   `setup.sh` turns on `use-session-dbus` in `/etc/X11/Xsession.options`.
 

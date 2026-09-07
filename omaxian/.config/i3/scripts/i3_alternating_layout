@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# alternating_layouts.py from https://github.com/olemartinorg/i3-alternating-layout
+# Login-only wrapper. Do not put this on exec_always — reload used to
+# respawn the layout helper every time.
+
+python3 -c "import i3ipc" >/dev/null 2>&1 || exit 0
+
+# Drop the old external helper if a previous session left it running.
+pkill -u "$UID" -x i3flow >/dev/null 2>&1 || true
+
+pid_file="${XDG_RUNTIME_DIR:-/tmp}/omaxian-alternating-layout.pid"
+if [[ -f $pid_file ]]; then
+	pid="$(<"$pid_file")"
+	if [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null; then
+		exit 0
+	fi
+	rm -f "$pid_file"
+fi
+
+script="$(cd "$(dirname "$0")" && pwd)/alternating_layouts.py"
+[[ -f $script ]] || exit 0
+exec python3 "$script" -p "$pid_file"

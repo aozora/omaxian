@@ -52,7 +52,7 @@ copy, then restarts picom. It never runs `i3-msg reload` or
 ARGB window destroy freezes X), then starts picom again. Still prefer
 logout for QML after a deploy.
 
-Session startup (`omarchy-monitor-apply`, `i3_autostart`, `i3flow`) is
+Session startup (`omarchy-monitor-apply`, `i3_autostart`, `i3_alternating_layout`) is
 `exec` (login) so `i3-msg reload` is config-only.
 
 `install.sh` replaces `themes/`, `default/`, and `bin/` under the share dir
