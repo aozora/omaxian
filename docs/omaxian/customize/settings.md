@@ -117,3 +117,6 @@ keyboard layout is `setxkbmap` in `i3_autostart` and that `idle.*` times in
 | Theme / user `dock.toml` | live |
 | `dock.toml` `full-width` | `omarchy-restart-shell` recommended |
 | `startup.json` | next login, or Launch now |
+
+See also [displays.md](displays.md) for multi-monitor layout, workspace
+clicks, and wallpaper-on-X11.

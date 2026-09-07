@@ -53,24 +53,26 @@ if [[ -f $PID_FILE ]]; then
 	fi
 fi
 
-# 2) Kill any lock holders (covers a wedged flock without a matching name).
+# 2) SIGTERM lock holders. `fuser -k` defaults to SIGKILL and has taken
+# GLX/picom down with the Quickshell client.
 if [[ -f $LOCK_FILE ]]; then
-	fuser -k "$LOCK_FILE" >/dev/null 2>&1 || true
+	fuser -k -TERM "$LOCK_FILE" >/dev/null 2>&1 || true
 fi
 
-# 3) Name-based cleanup (supervisor + qs).
-pkill -f 'omarchy-launch-shell' 2>/dev/null || true
+# 3) Name-based cleanup (supervisor + qs). UID-scoped; no -9 on the first pass.
+pkill -u "$UID" -f 'omarchy-launch-shell' 2>/dev/null || true
 while timeout 5 quickshell kill -p "$CONFIG_DIR" >/dev/null 2>&1; do :; done
-pkill -f "quickshell .*-p ${CONFIG_DIR}" 2>/dev/null || true
+pkill -u "$UID" -f "quickshell .*-p ${CONFIG_DIR}" 2>/dev/null || true
 
 for _ in $(seq 1 50); do
-	if ! pgrep -f 'omarchy-launch-shell' >/dev/null \
-		&& ! pgrep -f "quickshell .*-p ${CONFIG_DIR}" >/dev/null; then
+	if ! pgrep -u "$UID" -f 'omarchy-launch-shell' >/dev/null \
+		&& ! pgrep -u "$UID" -f "quickshell .*-p ${CONFIG_DIR}" >/dev/null; then
 		break
 	fi
-	# Escalate if something ignores TERM.
-	pkill -9 -f 'omarchy-launch-shell' 2>/dev/null || true
-	pkill -9 -f "quickshell .*-p ${CONFIG_DIR}" 2>/dev/null || true
+	if (( _ > 20 )); then
+		pkill -9 -u "$UID" -f 'omarchy-launch-shell' 2>/dev/null || true
+		pkill -9 -u "$UID" -f "quickshell .*-p ${CONFIG_DIR}" 2>/dev/null || true
+	fi
 	sleep 0.1
 done
 rm -f "$PID_FILE"

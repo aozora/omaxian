@@ -255,3 +255,5 @@ omaxian.powermenu  omaxian.wallpapers  omaxian.themes  omaxian.dock  omaxian.mon
 | Theme `colors.toml` / `shell.toml` | `omarchy-restart-shell` |
 | `Commons/Style.qml`, `Services/BarPalette.qml`, any `.qml` | `omarchy-restart-shell` |
 | System font (`omarchy-font-set`) | live (resolved via fontconfig at paint time) |
+
+Workspace pills on a multi-monitor bar: [displays.md](displays.md).

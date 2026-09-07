@@ -37,6 +37,17 @@ Keep these rules:
   are fine in `setup.sh`, where talking to the package manager is the point.
 - Do not add `pacman`, AUR, `uwsm`, or systemd unit installers.
 
-Idempotence: `setup.sh` and `deploy.sh` are safe to re-run. `install.sh`
-replaces `themes/`, `default/`, and `bin/` under the share dir on every run;
-dock settings and `~/.config/omarchy/shell.json` are written only when missing.
+Idempotence: `setup.sh` and `deploy.sh` are safe to re-run **while logged
+into i3**. `deploy.sh` copies with `rsync` (temp file + rename) so it does
+not truncate long-running session scripts (`i3_display_watch.sh`,
+`omarchy-launch-shell`). A naive `cp -r` can make those scripts execute
+garbage (including `xrandr --off`) and look like a full desktop crash.
+
+`i3-msg reload` re-runs `exec_always` only. Session startup
+(`omarchy-monitor-apply`, `i3_autostart`, `i3flow`) is `exec` (login) so
+reload does not xrandr-modeset, respawn watchers, or kill picom. Putting
+those back on `exec_always` has taken the session down.
+
+`install.sh` replaces `themes/`, `default/`, and `bin/` under the share dir
+on every run; dock settings and `~/.config/omarchy/shell.json` are written
+only when missing.

@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-## Focus workspace 1 on the primary output after display layout is applied.
-## Fixes polybar (pin-workspaces) showing workspace 2 first on multi-monitor setups.
+## Hook after display layout apply / i3 start.
+##
+## i3 already keeps exactly one visible workspace per output. Do not move
+## workspace 1 onto the primary — that steals it from the other monitor.
+## Optional number-to-output pins belong in a local
+## ~/.config/i3/config.d/90_outputs.conf (see docs/omaxian/customize/displays.md).
 
-sleep 0.3
-
-command -v i3-msg >/dev/null 2>&1 || exit 0
-command -v xrandr >/dev/null 2>&1 || exit 0
-
-primary=$(xrandr --query 2>/dev/null | awk '/ connected primary/{print $1; exit}')
-[[ -z "$primary" ]] && primary=$(xrandr --query 2>/dev/null | awk '/ connected/{print $1; exit}')
-
-if [[ -n "$primary" ]]; then
-	i3-msg "workspace number 1; move workspace to output $primary; workspace number 1" >/dev/null
-fi
+exit 0

@@ -127,7 +127,8 @@ Edit files under `omaxian/`, then:
 
 ```bash
 ./deploy.sh
-omarchy-restart-shell   # after QML, shell.json that failed to hot-reload, or theme templates
+# i3-msg reload          # binds only — do not chain restart-shell
+# QML: next login. omarchy-restart-shell kills Quickshell and can freeze glx picom.
 ```
 
 `deploy.sh` overwrites configs from this repo but does not delete files an older deploy left behind. Exception: `~/.config/omarchy/shell.json` is seeded from `$OMARCHY_PATH/shell.json` only when missing, so Settings / bar layout survive redeploy. `install.sh` refreshes themes, upstream `default/`, and `bin/` into `~/.local/share/omarchy/`.

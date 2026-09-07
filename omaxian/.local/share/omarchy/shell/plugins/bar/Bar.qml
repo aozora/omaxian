@@ -795,9 +795,14 @@ Item {
   }
 
   function moduleClickTargetAt(slot, localX, localY) {
+    // clickTargets is process-wide. Skip widgets on another BarPanel —
+    // mapToItem across X11 windows can false-hit the other monitor's bar.
+    var window = root.slotWindow(slot)
     for (var i = clickTargets.length - 1; i >= 0; i--) {
       var target = clickTargets[i]
       if (!moduleTargetClickable(target)) continue
+      var targetWindow = root.targetWindow(target)
+      if (window && targetWindow && !root.sameWindow(targetWindow, window)) continue
 
       var targetPoint = { x: localX, y: localY }
       try {
@@ -816,11 +821,11 @@ Item {
     return null
   }
 
-  function pressModuleClickTarget(slot, button, localX, localY) {
+  function pressModuleClickTarget(slot, button, localX, localY, modifiers) {
     var target = moduleClickTargetAt(slot, localX, localY)
     if (!target) return false
 
-    target.triggerPress(button)
+    target.triggerPress(button, modifiers)
     return true
   }
 
@@ -1691,7 +1696,7 @@ Item {
           return
         }
 
-        if (!root.pressModuleClickTarget(slot, mouse.button, mouse.x, mouse.y)) mouse.accepted = false
+        if (!root.pressModuleClickTarget(slot, mouse.button, mouse.x, mouse.y, mouse.modifiers)) mouse.accepted = false
       }
     }
 

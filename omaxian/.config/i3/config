@@ -323,15 +323,18 @@ tiling_drag modifier titlebar
 ## Syntax:
 #exec [--no-startup-id] <command>
 #exec_always [--no-startup-id] <command>
-exec_always --no-startup-id omarchy-monitor-apply
-exec_always --no-startup-id ~/.config/i3/scripts/i3_workspaces.sh
-exec_always --no-startup-id ~/.config/i3/scripts/i3_autostart
+# Login only. `i3-msg reload` re-runs every exec_always; that used to
+# xrandr-modeset, respawn display watchers, and restart i3flow — and looked
+# like a full desktop crash. Hotplug/lid is i3_display_watch.sh from autostart.
+# After a bind edit, reload is config-only. QML is a separate, optional
+# omarchy-restart-shell (kills Quickshell; can glitch glx picom).
+exec --no-startup-id omarchy-monitor-apply
+exec --no-startup-id ~/.config/i3/scripts/i3_workspaces.sh
+exec --no-startup-id ~/.config/i3/scripts/i3_autostart
+exec --no-startup-id ~/.config/i3/scripts/i3_i3flow
 
 ## The --no-startup-id parameter disables startup-notification support for this particular exec command.
 ## With startup-notification, i3 can make sure that a window appears on the workspace on which you used the exec command.
 
 # enable this when running inside vim
 # exec --no-startup-id spice-vdagent
-
-# i3flow from https://github.com/piadi-su/i3flow
-exec_always --no-startup-id i3flow

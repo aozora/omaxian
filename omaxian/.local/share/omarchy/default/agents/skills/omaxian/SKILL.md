@@ -43,6 +43,7 @@ Deeper instructions for common areas live next to this file. Read the
 matching guide before starting:
 
 - [`i3.md`](i3.md) - keybindings, monitors, window rules, and other i3 config
+  (multi-monitor workspace behaviour: checkout `docs/omaxian/customize/displays.md`)
 - [`plugins.md`](plugins.md) - the Omaxian shell: bar, dock, widgets, plugins, idle
 - [`theming.md`](theming.md) - themes, backgrounds, and fonts
 - [`capture.md`](capture.md) - screenshots and the color picker
@@ -176,8 +177,9 @@ cp ~/.config/i3/config.d/02_keybindings.conf ~/.config/i3/config.d/02_keybinding
 # 3. Make changes with Edit tool
 
 # 4. Apply
-# - i3: i3-msg reload
-# - Omarchy shell: shell.json hot-reloads; QML needs omarchy-restart-shell
+# - i3: i3-msg reload (config only; do not chain omarchy-restart-shell)
+# - Omarchy shell: shell.json hot-reloads; QML applies on next login
+#   (omarchy-restart-shell kills Quickshell and can freeze glx picom)
 # - Menus: the menu JSONC is under $OMARCHY_PATH/default/ — prefer a user
 #   extension if one exists; otherwise document that deploy.sh will overwrite
 ```
@@ -189,7 +191,7 @@ There is no `omarchy refresh`. Re-copy from the Omaxian git checkout:
 ```bash
 # From the clone the user installed from:
 ./deploy.sh
-omarchy-restart-shell
+# then i3-msg reload for binds; QML on next login
 ```
 
 That overwrites `~/.config/i3/` and the share tree from the repo. Confirm

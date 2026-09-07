@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# i3flow from https://github.com/piadi-su/i3flow
+# Login-only wrapper. Do not put `i3flow` on exec_always — reload used to
+# respawn it every time.
+
+command -v i3flow >/dev/null 2>&1 || exit 0
+pgrep -u "$UID" -x i3flow >/dev/null 2>&1 && exit 0
+exec i3flow

@@ -21,16 +21,18 @@ export XDG_CURRENT_DESKTOP='i3'
 export OMARCHY_PATH="${OMARCHY_PATH:-$HOME/.local/share/omarchy}"
 case ":$PATH:" in *":$OMARCHY_PATH/bin:"*) ;; *) export PATH="$OMARCHY_PATH/bin:$PATH" ;; esac
 
-# Kill already running process
-_ps=(xsettingsd)
-for _prs in "${_ps[@]}"; do
-	if [[ `pidof ${_prs}` ]]; then
-		killall -9 ${_prs}
-	fi
-done
+# This script is `exec` (login only). If it is ever put back on exec_always,
+# do not spawn watchers / dunst / wallpaper again — that blanks the session.
+autostart_once="${XDG_RUNTIME_DIR:-}/omaxian-i3-autostart"
+if [[ -n ${XDG_RUNTIME_DIR:-} ]] && ! mkdir "$autostart_once" 2>/dev/null; then
+	exit 0
+fi
 
-# Lauch xsettingsd daemon
-xsettingsd --config="$idir"/xsettingsd &
+# xsettingsd is started once per login. Do not kill it (or picom) just to
+# start it again.
+if ! pidof xsettingsd >/dev/null; then
+	xsettingsd --config="$idir"/xsettingsd &
+fi
 
 # polkit agent (pkexec / Synaptic / sudo GUI prompts)
 "$idir"/scripts/i3_polkit
@@ -50,8 +52,12 @@ setxkbmap -layout "it,ru" -variant ",phonetic" -option "" -option "grp:alt_shift
 # before xfce4-power-manager (below) can D-Bus-activate xfce4-notifyd into it.
 "$idir"/scripts/i3_dunst
 
-# Enable power management
-xfce4-power-manager &
+# Enable power management. comm is truncated to 15 chars (xfce4-power-man),
+# so `pgrep -x xfce4-power-manager` never matches and used to spawn extra
+# copies that fight over lid/DPMS and blank the screens.
+if ! pgrep -u "$UID" -f '/xfce4-power-manager' >/dev/null; then
+	xfce4-power-manager &
+fi
 
 # Fix cursor
 xsetroot -cursor_name left_ptr
@@ -105,8 +111,8 @@ is_virtual_machine() {
 
 # Extra user apps from Settings → Startup (~/.config/omarchy/startup.json).
 # Session daemons above stay hardcoded; this only launches opted-in .desktop ids.
-# i3_autostart is exec_always (runs on reload too); omarchy-startup-launch itself
-# takes a once-per-login lock under $XDG_RUNTIME_DIR so apps are not duplicated.
+# omarchy-startup-launch itself takes a once-per-login lock under
+# $XDG_RUNTIME_DIR so apps are not duplicated.
 if command -v omarchy-startup-launch >/dev/null 2>&1; then
 	omarchy-startup-launch &
 fi

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import Quickshell.I3
 import qs.Commons
 import qs.Services
@@ -9,7 +10,9 @@ import qs.Ui
 // `I3Workspace` (number/urgent/active/focused/monitor/activate()) is a
 // near-1:1 match for `HyprlandWorkspace`. i3's workspace list only holds
 // workspaces that exist, so "occupied" = present in the list. No `.id`
-// (match on `.number`); no `.toplevels`. Focus via `i3-msg workspace`.
+// (match on `.number`); no `.toplevels`. Left-click on a bar instance
+// pulls that workspace onto this output; Shift/middle-click only focuses
+// it (may jump to the other monitor). Keyboard Super+1…0 is still global.
 //
 // The pill styling (`BarPalette.workspace.*`) was ported over from eww's
 // `.ws-btn` states but never wired into this widget — the upstream T3
@@ -42,18 +45,40 @@ BarWidget {
     return nums
   }
 
-  function focusWorkspace(n) {
-    // In-process i3 IPC — do not go through `bar.run` / `bash -lc`.
-    // Login shells source ~/.profile → ~/.bashrc (nvm, etc.), which can stall
-    // the click→switch path for seconds. `I3.dispatch` uses Quickshell's
-    // already-open socket, so it also sidesteps the stale-$I3SOCK trap that
-    // forced the old `unset I3SOCK; i3-msg` dance.
-    var ws = root.workspaceByNumber(n)
-    if (ws) {
-      ws.activate()
+  function i3Ident(name) {
+    var s = String(name || "")
+    return /^[A-Za-z0-9._:-]+$/.test(s) ? s : ""
+  }
+
+  function outputName() {
+    var win = (root.QsWindow && root.QsWindow.window) ? root.QsWindow.window : null
+    var screen = win ? win.screen : null
+    var mon = I3.monitorFor(screen)
+    return mon && mon.name ? root.i3Ident(mon.name) : ""
+  }
+
+  function focusWorkspace(n, pullHere) {
+    var num = Number(n)
+    if (!isFinite(num) || num < 1) return
+    var here = root.outputName()
+    var ws = root.workspaceByNumber(num)
+    var pull = pullHere !== false
+    var onThisOutput = !!(ws && ws.monitor && root.i3Ident(ws.monitor.name) === here)
+
+    if (!pull || !here || onThisOutput) {
+      if (ws) {
+        ws.activate()
+        return
+      }
+      I3.dispatch("workspace number " + num)
       return
     }
-    I3.dispatch("workspace number " + n)
+
+    // Click on this bar: focus this output, pull workspace N here if it
+    // lives elsewhere (or create it here), then switch to it.
+    I3.dispatch("focus output " + here)
+    I3.dispatch("[workspace=\"" + num + "\"] move workspace to output " + here)
+    I3.dispatch("workspace number " + num)
   }
 
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)
@@ -121,7 +146,10 @@ BarWidget {
           opacity: cell.occupied || cell.focused || cell.active || cell.urgent ? 1 : 0.5
           horizontalMargin: 6
           verticalPadding: 6
-          onPressed: function() { root.focusWorkspace(cell.modelData) }
+          onPressed: function(button, modifiers) {
+            var jump = button === Qt.MiddleButton || ((modifiers || 0) & Qt.ShiftModifier)
+            root.focusWorkspace(cell.modelData, !jump)
+          }
         }
       }
     }

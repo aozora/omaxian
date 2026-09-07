@@ -84,8 +84,8 @@ echo "========================================================================"
 # Hard-required: without one of these something core (bar, session, input
 # focus, theming, audio/brightness keys, lock, notifications) does not work.
 REQUIRED=(
-	# bootstrap
-	git ca-certificates curl jq
+	# bootstrap (rsync: live deploy must replace files by rename, not truncate)
+	git rsync ca-certificates curl jq
 	# window manager, compositor, display manager, session bus
 	i3-wm picom lightdm dbus-x11
 	x11-utils x11-xserver-utils x11-xkb-utils

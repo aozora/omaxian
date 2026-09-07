@@ -45,7 +45,7 @@ because a GUI was missing.
 | **Control Panel** (`Super+Ctrl+O`)                        | One gear on the bar: audio, Bluetooth, wallpaper, theme, and monitors in a single tabbed popup. Omarchy keeps those as separate widgets (the separate widgets are still available).                                                  |
 | **Settings** (`Super+Ctrl+S`, or Menu → Setup → Settings) | A window to edit bar layout/position, dock chrome, widget options, plugin on/off, font/spacing, extra wallpaper folder, and **startup apps**. Omarchy edits the bar by drag gestures (not ported here) and has no equivalent editor. |
 | **Dock**                                                  | A persistent bottom dock (pinned apps, running-app dots, hover magnification). First-party here; upstream’s dock is a separate community plugin (https://github.com/rosakodu/omarchy-dock).                                          |
-| **Display profiles** (`Super+Ctrl+D`)                     | xrandr resolution / on / off / primary / position, with saved layouts per output topology and laptop-lid handling. Omarchy’s monitor panel is brightness + fractional scale (Hyprland), not this.                                    |
+| **Display profiles** (`Super+Ctrl+D`)                     | xrandr resolution / on / off / primary / position, with saved layouts per output topology and laptop-lid handling. Workspaces and wallpaper across outputs: [`docs/omaxian/customize/displays.md`](docs/omaxian/customize/displays.md). Omarchy’s monitor panel is brightness + fractional scale (Hyprland), not this. |
 | **SysStats, VPN, apt updates**                            | CPU / GPU / RAM on the bar; a VPN indicator; an apt-upgradable count. None of those are Omarchy bar widgets (upstream updates are Arch `checkupdates`).                                                                              |
 | **Media widget**                                          | MPD shows up next to other MPRIS players via `mpDris2`. It's a modified version of the Omarchy Media Control (https://github.com/MrDemonc/Omarchy-media-control) by  @mrDemonc                                                       |
 | **Help on the bar**                                       | Super+K / the `?` widget — a cheat-sheet of this session’s i3 binds.                                                                                                                                                                 |
@@ -92,8 +92,14 @@ omarchy-shell shell listPlugins | jq length   # → ~37
 pgrep -x quickshell                      # one process
 ```
 
-Re-run `./deploy.sh` after `git pull`. It overwrites configs from this repo
-but does not delete files you (or an older deploy) left behind.
+Re-run `./deploy.sh` after `git pull`. It uses `rsync` (skips unchanged
+files, replaces by rename) so a live i3 session is not taken down. It does
+not delete files you (or an older deploy) left behind.
+
+Keybinds: `i3-msg reload` (config only — no session scripts). QML applies
+on the next login. `omarchy-restart-shell` kills Quickshell and can freeze
+glx picom; do not chain it after reload.
+Do not run `omarchy-monitor-apply` just because you redeployed.
 
 ---
 
@@ -110,9 +116,11 @@ but does not delete files you (or an older deploy) left behind.
 | Alt+Ctrl+T                  | theme picker                        |
 | Super+Ctrl+A / B / W / P    | audio / bluetooth / network / power |
 | Super+Ctrl+O / Super+Ctrl+S | Control Panel / Settings            |
+| Super+1…0                   | workspaces (global; see [displays](docs/omaxian/customize/displays.md)) |
+| Super+Tab                   | next workspace on this monitor      |
+| Super+Alt+arrows            | move window to adjacent monitor     |
 | Super+Ctrl+D                | display settings                    |
 | Super+Ctrl+C / Super+Ctrl+L | screenshot (region) / lock          |
-| Super+1…0                   | workspaces                          |
 
 Themes (default on first login: **nebula-ridge**):
 

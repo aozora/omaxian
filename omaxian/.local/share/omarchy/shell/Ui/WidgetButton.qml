@@ -29,12 +29,12 @@ Item {
   property string tooltipText: ""
   property var registeredBar: null
 
-  signal pressed(int button)
+  signal pressed(int button, int modifiers)
   signal wheelMoved(int delta)
 
-  function triggerPress(button) {
+  function triggerPress(button, modifiers) {
     if (root.bar) root.bar.hideTooltip(root)
-    root.pressed(button)
+    root.pressed(button, modifiers === undefined || modifiers === null ? 0 : modifiers)
   }
 
   function hideOwnTooltip() {
@@ -113,7 +113,7 @@ Item {
       if (root.maintainIndicatorReveal && root.revealHost && root.revealHost.setIndicatorItemHovered)
         root.revealHost.setIndicatorItemHovered(false)
     }
-    onClicked: function(mouse) { if (root.pressable) root.triggerPress(mouse.button) }
+    onClicked: function(mouse) { if (root.pressable) root.triggerPress(mouse.button, mouse.modifiers) }
     onWheel: function(wheel) { root.wheelMoved(wheel.angleDelta.y) }
   }
 }

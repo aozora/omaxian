@@ -13,8 +13,11 @@ omarchy-theme-next              # Next installed theme
 ```
 
 That restyles the bar, i3, dunst, GTK icons, kitty, picom (where templated),
-and the wallpaper (`feh`). There is no `omarchy theme install` dispatcher;
-clone a theme repo into `~/.config/omarchy/themes/<slug>/` yourself if needed.
+and the wallpaper (`hsetroot -cover` / `feh`). One image is painted on the
+X root for the whole desktop, not per output (see the checkout file
+`docs/omaxian/customize/displays.md`). There is no `omarchy theme install`
+dispatcher; clone a theme repo into `~/.config/omarchy/themes/<slug>/`
+yourself if needed.
 
 ## Making a new theme
 

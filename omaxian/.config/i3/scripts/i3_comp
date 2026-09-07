@@ -5,11 +5,11 @@
 # i3 directory
 DIR="$HOME/.config/i3"
 
-# Terminate if picom is already running
-killall -q picom
-
-# Wait until the processes have been shut down
-while pgrep -u $UID -x picom >/dev/null; do sleep 1; done
+# Do not kill a running picom. First login still starts picom here; pick
+# up a new picom.conf with `killall picom` only when you mean it.
+if pgrep -u "$UID" -x picom >/dev/null; then
+	exit 0
+fi
 
 # picom's glx backend + software OpenGL fails to damage-redraw (invisible bar
 # until workspace switch; menus freeze; popups show borders only). That is

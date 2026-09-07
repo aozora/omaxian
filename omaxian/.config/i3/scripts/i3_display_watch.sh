@@ -19,10 +19,10 @@ display_state() {
 	} | md5sum | awk '{ print $1 }'
 }
 
-# Avoid duplicate watcher from i3 reload
-if [[ $(pgrep -fc 'i3_display_watch\.sh') -gt 1 ]]; then
-	exit 0
-fi
+# One watcher per login. pgrep -fc races on reload; flock does not.
+watch_lock="${XDG_RUNTIME_DIR:-/tmp}/omaxian-display-watch.lock"
+exec 9>"$watch_lock"
+flock -n 9 || exit 0
 
 last=$(display_state)
 

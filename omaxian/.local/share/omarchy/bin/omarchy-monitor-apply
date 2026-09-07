@@ -232,6 +232,27 @@ replay_profile() {
   done < <(jq -r '.[] | select(.relation != null) | [.name, .mode, .primary, .relation.type, .relation.of] | @tsv' <<<"$profile_json")
 }
 
+layout_already_applied() {
+  local profile_json="$1"
+  local n c in_chain
+  for n in "${names[@]}"; do
+    in_chain=0
+    for c in "${chain_names[@]}"; do
+      if [[ $c == "$n" ]]; then
+        in_chain=1
+        break
+      fi
+    done
+    if (( ! in_chain )) && [[ ${ENABLED[$n]} == "true" ]]; then
+      return 1
+    fi
+  done
+  local want live
+  want=$(jq -c '[.[] | {name, enabled, mode, primary, relation}] | sort_by(.name)' <<<"$profile_json")
+  live=$(snapshot_outputs_json | jq -c '[.[] | {name, enabled, mode, primary, relation}] | sort_by(.name)')
+  [[ $want == "$live" ]]
+}
+
 main() {
   if [[ ${#chain_names[@]} -eq 0 ]]; then
     xrandr --auto >/dev/null 2>&1 || true
@@ -249,7 +270,12 @@ main() {
   fi
 
   if [[ -n $stored ]]; then
-    replay_profile "$(jq '.outputs' <<<"$stored")"
+    local outputs
+    outputs=$(jq '.outputs' <<<"$stored")
+    if layout_already_applied "$outputs"; then
+      return 0
+    fi
+    replay_profile "$outputs"
   else
     apply_fallback
     load_live_state
