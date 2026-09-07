@@ -118,6 +118,7 @@ This port has no `./test/all`, CLI harness, or graphical acceptance VM. After a 
 - Run `omarchy-shell shell ping` (expect `ok`) and `omarchy-shell shell listPlugins` if the shell is involved
 - For a community plugin, run `omarchy-plugin-check <dir-or-url>`
 - Visual changes must be verified in the running UI; follow [`agents/skills/visual-verification.md`](agents/skills/visual-verification.md)
+- **Never** run `omarchy-restart-shell` (or kill picom / Quickshell) from an agent session to apply QML — that has crashed the desktop. Use `./deploy.sh` then **log out / log in**.
 
 Do not call `omarchy-iso` workflows — they are Arch/Hyprland ISO tests and do not apply here.
 
@@ -132,6 +133,6 @@ Edit files under `omaxian/`, then:
 # Binds only (optional, after deploy returns): i3-msg reload
 ```
 
-`deploy.sh` overwrites configs from this repo but does not delete files an older deploy left behind. Exception: `~/.config/omarchy/shell.json` is seeded from `$OMARCHY_PATH/shell.json` only when missing, so Settings / bar layout survive redeploy. `install.sh` refreshes themes, upstream `default/`, and `bin/` into `~/.local/share/omarchy/`.
+`deploy.sh` overwrites configs from this repo but does not delete files an older deploy left behind. Exception: `~/.config/omarchy/shell.json` is seeded from `$OMARCHY_PATH/shell.json` only when missing, so Settings / bar layout survive redeploy. **Never delete or overwrite that user file** (including from agents). `install.sh` refreshes themes, upstream `default/`, and `bin/` into `~/.local/share/omarchy/`.
 
 i3 config lives in `omaxian/.config/i3/` (`config` plus `config.d/*.conf`). After deploying i3 files, `i3-msg reload` is enough for binds and rules; a full logout is required when `PATH` / `OMARCHY_PATH` changed.

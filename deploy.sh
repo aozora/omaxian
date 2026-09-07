@@ -152,16 +152,20 @@ fi
 # once when missing so redeploy never wipes widget options or layout edits.
 USER_SHELL_JSON="$HOME/.config/omarchy/shell.json"
 DEFAULT_SHELL_JSON="$HOME/.local/share/omarchy/shell.json"
-mkdir -p "$HOME/.config/omarchy"
-if [[ ! -f $USER_SHELL_JSON ]]; then
-	if [[ ! -f $DEFAULT_SHELL_JSON ]]; then
-		echo "!! missing stock defaults: $DEFAULT_SHELL_JSON" >&2
-		exit 1
-	fi
+mkdir -p "$HOME/.config/omarchy" "$HOME/.local/state/omarchy"
+if [[ -f $USER_SHELL_JSON ]]; then
+	# Preserve a copy before any later tooling touches Settings — never
+	# overwrite the live file here, only refresh the backup.
+	cp -a "$USER_SHELL_JSON" "$HOME/.local/state/omarchy/shell.json.bak"
+	echo ":: kept existing $USER_SHELL_JSON (Settings / user layout)"
+	echo ":: backup -> $HOME/.local/state/omarchy/shell.json.bak"
+elif [[ -f $DEFAULT_SHELL_JSON ]]; then
 	cp -a "$DEFAULT_SHELL_JSON" "$USER_SHELL_JSON"
+	cp -a "$USER_SHELL_JSON" "$HOME/.local/state/omarchy/shell.json.bak"
 	echo ":: seeded $USER_SHELL_JSON from defaults"
 else
-	echo ":: kept existing $USER_SHELL_JSON (Settings / user layout)"
+	echo "!! missing stock defaults: $DEFAULT_SHELL_JSON" >&2
+	exit 1
 fi
 
 echo

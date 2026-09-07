@@ -50,9 +50,14 @@ if ! resolve_i3sock; then
 	echo "omarchy-launch-shell: warning: could not resolve I3SOCK — bar may fail" >&2
 fi
 
-# Single-instance via flock. Restart uses flock -u / fuser -k on this file
-# before relaunching so we never sit behind a dead holder for 10s and then
-# exit "healthy" while the UI is gone.
+# Single-instance via flock. Restart uses fuser -k on this file before
+# relaunching so we never sit behind a dead holder and exit "healthy"
+# while the UI is gone. Keep LOCK_DIR in lockstep with omarchy-restart-shell
+# (prefer /run/user/$UID — never diverge onto /tmp when the session runtime
+# dir exists, or restart and launch take different flock paths).
+if [[ -z ${XDG_RUNTIME_DIR:-} && -d /run/user/$UID ]]; then
+	export XDG_RUNTIME_DIR=/run/user/$UID
+fi
 LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/omarchy-$UID"
 LOCK_FILE="$LOCK_DIR/launch-shell.lock"
 mkdir -p "$LOCK_DIR"

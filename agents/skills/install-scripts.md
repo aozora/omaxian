@@ -48,6 +48,11 @@ On a live session `deploy.sh` also: writes `$XDG_RUNTIME_DIR/omaxian-deploy.lock
 copy, then restarts picom. It never runs `i3-msg reload` or
 `omarchy-restart-shell`. QML applies on the next login.
 
+**Agent hard rule:** do not run `omarchy-restart-shell`, and do not stop
+picom / kill Quickshell outside of `deploy.sh`'s own live-session path.
+Overlapping restarts have crashed the X session. Prefer telling the user to
+log out after deploy.
+
 `omarchy-restart-shell` stops picom before tearing down Quickshell (glx +
 ARGB window destroy freezes X), then starts picom again. Still prefer
 logout for QML after a deploy.

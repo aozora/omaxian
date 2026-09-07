@@ -15,8 +15,52 @@ BarWidget {
 
   property bool menuOpen: false
   property var rows: []
+  property var filteredRows: []
+  property string filterText: ""
 
   function refresh() { proc.running = true }
+
+  function rowMatches(row, query) {
+    if (!row || !query) return false
+    var keys = String(row.keys || "").toLowerCase()
+    var action = String(row.action || "").toLowerCase()
+    var text = String(row.text || "").toLowerCase()
+    return keys.indexOf(query) >= 0 || action.indexOf(query) >= 0 || text.indexOf(query) >= 0
+  }
+
+  function recomputeFiltered() {
+    var source = root.rows || []
+    var query = String(root.filterText || "").trim().toLowerCase()
+    if (!query) {
+      root.filteredRows = source
+      return
+    }
+
+    var out = []
+    var pendingHeader = null
+    var headerEmitted = false
+    for (var i = 0; i < source.length; i++) {
+      var row = source[i]
+      if (!row) continue
+      if (row.type === "header") {
+        pendingHeader = row
+        headerEmitted = false
+        continue
+      }
+      var headerMatch = pendingHeader && root.rowMatches(pendingHeader, query)
+      if (headerMatch || root.rowMatches(row, query)) {
+        if (pendingHeader && !headerEmitted) {
+          out.push(pendingHeader)
+          headerEmitted = true
+        }
+        out.push(row)
+      }
+    }
+    root.filteredRows = out
+  }
+
+  onRowsChanged: root.recomputeFiltered()
+  onFilterTextChanged: root.recomputeFiltered()
 
   IpcHandler {
     target: "help"
@@ -82,6 +126,16 @@ BarWidget {
     onPressed: root.menuOpen = !root.menuOpen
   }
 
+  // Must live outside PopupCard: its default property aliases to contentItem
+  // (QQuickItem children only). A Timer there fails the whole widget load.
+  Timer {
+    id: focusSearch
+    interval: 80
+    onTriggered: {
+      if (root.menuOpen) searchField.forceActiveFocus()
+    }
+  }
+
   PopupCard {
     id: popup
     anchorItem: button
@@ -91,7 +145,17 @@ BarWidget {
     contentWidth: Style.space(520)
     contentHeight: Style.space(480)
 
-    onOpenChanged: if (open) root.refresh()
+    onOpenChanged: {
+      if (open) {
+        root.filterText = ""
+        searchField.text = ""
+        root.refresh()
+        focusSearch.restart()
+      } else {
+        root.filterText = ""
+        searchField.text = ""
+      }
+    }
 
     ColumnLayout {
       anchors.fill: parent
@@ -106,49 +170,83 @@ BarWidget {
         font.bold: true
       }
 
-      ListView {
+      TextField {
+        id: searchField
+        Layout.fillWidth: true
+        placeholderText: "Search keybindings…"
+        font.pixelSize: Style.font.caption
+        verticalPadding: Style.spacing.xs
+        onTextChanged: root.filterText = text
+        Keys.onEscapePressed: function(event) {
+          if (text.length > 0) {
+            text = ""
+            event.accepted = true
+          } else {
+            root.menuOpen = false
+            event.accepted = true
+          }
+        }
+      }
+
+      Item {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        clip: true
-        model: root.rows
-        delegate: Item {
-          required property var modelData
-          width: ListView.view.width
-          height: modelData.type === "header" ? Style.space(26) : Style.space(24)
 
-          Text {
-            textFormat: Text.PlainText
-            visible: parent.modelData.type === "header"
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            text: parent.modelData.text
-            color: BarPalette.popupHeaderAccent
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-            font.bold: true
-          }
+        Text {
+          textFormat: Text.PlainText
+          anchors.centerIn: parent
+          visible: helpList.count === 0
+          text: root.filterText.trim() ? ("No matches for “" + root.filterText.trim() + "”") : "No keybindings"
+          color: BarPalette.popupSubtext
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
 
-          RowLayout {
-            visible: parent.modelData.type === "bind"
-            anchors.fill: parent
-            anchors.leftMargin: Style.spacing.sm
+        ListView {
+          id: helpList
+          anchors.fill: parent
+          clip: true
+          visible: count > 0
+          model: root.filteredRows
+          delegate: Item {
+            required property var modelData
+            width: ListView.view.width
+            height: modelData.type === "header" ? Style.space(26) : Style.space(24)
 
             Text {
               textFormat: Text.PlainText
-              Layout.preferredWidth: Style.space(220)
-              text: parent.parent.modelData.keys
-              color: BarPalette.popupHelpKeys
+              visible: parent.modelData.type === "header"
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: parent.modelData.text
+              color: BarPalette.popupHeaderAccent
               font.family: Style.font.family
-              font.pixelSize: Style.font.caption
+              font.pixelSize: Style.font.body
+              font.bold: true
             }
-            Text {
-              textFormat: Text.PlainText
-              Layout.fillWidth: true
-              text: parent.parent.modelData.action
-              color: BarPalette.popupSubtext
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-              elide: Text.ElideRight
+
+            RowLayout {
+              visible: parent.modelData.type === "bind"
+              anchors.fill: parent
+              anchors.leftMargin: Style.spacing.sm
+
+              Text {
+                textFormat: Text.PlainText
+                Layout.preferredWidth: Style.space(220)
+                text: parent.parent.modelData.keys
+                color: BarPalette.popupHelpKeys
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+              Text {
+                textFormat: Text.PlainText
+                Layout.fillWidth: true
+                text: parent.parent.modelData.action
+                color: BarPalette.popupSubtext
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
+              }
             }
           }
         }

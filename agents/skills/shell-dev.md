@@ -15,6 +15,13 @@ restart-shell with `i3-msg reload`. `shell.json` and
 `~/.config/omarchy/shell.toml` are file-watched and usually apply live
 (unless a deploy lock is held).
 
+**Agent hard rule:** never run `omarchy-restart-shell`, never `pkill` /
+`kill` Quickshell or picom, and never stop picom for verification. Concurrent
+restarts and glx + ARGB teardown have taken down the whole X session. Apply
+QML by editing the repo, then tell the user to `./deploy.sh` and **log out /
+log in**. Do not hot-reload plugins on a live session (rebuilds the bar under
+picom and freezes X).
+
 ## Paths
 
 | Repo | Deployed |

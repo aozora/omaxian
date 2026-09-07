@@ -121,7 +121,8 @@ ShellRoot {
     // FileView's first read (and atomicWrites during persist) can briefly
     // look empty. Do not throw away a user config we already applied — that
     // is what drops Settings → Widgets values across restart / reboot.
-    if (!forceDefaults && shellHasUserConfig(shellConfig)) return
+    // forceDefaults is ignored when in-memory user config is already good.
+    if (shellHasUserConfig(shellConfig)) return
     shellConfig = defaults
   }
 
@@ -180,7 +181,13 @@ ShellRoot {
     blockLoading: true
     printErrors: false
     onLoaded: shell.applyShellConfig()
-    onLoadFailed: function(error) { shell.applyShellConfig(true) }
+    // Never force defaults on a transient read failure — that is what resets
+    // Settings → Widgets (and other shell.json edits) to stock in the UI, and
+    // a later persist then writes the wipe to disk.
+    onLoadFailed: function(error) {
+      console.warn("user shell.json load failed:", error, "path=" + shell.userConfigPath)
+      shell.applyShellConfig(false)
+    }
     onFileChanged: if (!shell.deployFrozen) reload()
   }
 

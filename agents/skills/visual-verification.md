@@ -12,6 +12,24 @@ regressions before finishing.
 There is no `omarchy capture` / `omarchy screenshot` / `omarchy screenrecord`
 in this port.
 
+## Do not crash the session
+
+**Never** run `omarchy-restart-shell`, stop/kill picom, or kill Quickshell
+to “pick up” a QML edit for verification. Under glx picom that sequence has
+frozen or torn down the whole X session (including when two restarts overlap).
+Plugin hot-reload rebuilds the bar the same way — also forbidden on a live
+desktop.
+
+Safe apply path only:
+
+1. Edit under `omaxian/`
+2. User runs `./deploy.sh` (or agent copies with the deploy lock held and
+   **without** stopping picom)
+3. **Log out and back in** so QML loads fresh
+
+If you cannot log out, leave the fix in the repo and say so. Do not gamble
+on a live shell restart.
+
 Take a full-screen screenshot without opening the editor:
 
 ```bash
