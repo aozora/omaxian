@@ -130,6 +130,8 @@ RECOMMENDED=(
 	i3lock-fancy xbacklight light
 	# bar keyboard-layout click-to-cycle (falls back to xdotool / setxkbmap)
 	xkb-switch
+	# themed system fetch (omarchy-theme-set → ~/.config/fastfetch/config.jsonc)
+	fastfetch
 )
 
 # Optional: hardware- or host-specific; nothing breaks without them.

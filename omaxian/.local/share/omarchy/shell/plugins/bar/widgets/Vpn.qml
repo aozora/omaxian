@@ -9,8 +9,10 @@ import qs.Ui
 // bespoke to this profile). Ported unchanged: `scripts/vpn.sh` checks a raw
 // WireGuard link, then an NM WireGuard active connection, then NymVPN
 // (process + tun interface), polled on the same 5s interval eww used.
-// Glyphs copied exactly from the i3/polybar vpn.sh script (shield+check
-// U+F0565 on, shield+slash U+F512 off) rather than the earlier lock icons.
+// Glyphs: md-shield-check U+F0565 when up; md-shield-off U+F099E when
+// down. Avoid U+F512 (oct-shield-slash): an older JetBrainsMono Nerd Font
+// Complete.ttf on this system maps that BMP PUA slot to a user silhouette,
+// so Qt font-fallback shows the wrong inactive icon.
 BarWidget {
   id: root
   moduleName: "omaxian.vpn"
@@ -72,7 +74,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     fontSize: Style.font.body + 1
-    text: root.on ? "󰕥" : ""
+    text: root.on ? "󰕥" : "󰦞"
     foreground: root.on ? BarPalette.vpnOn : BarPalette.vpnOff
     horizontalMargin: 8.5
     verticalPadding: 6

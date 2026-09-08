@@ -142,6 +142,19 @@ reload_terminals() {
   command -v omarchy-restart-terminal >/dev/null 2>&1 && omarchy-restart-terminal || true
 }
 
+# ---- fastfetch: XDG config has no include, so point it at the rendered tpl
+# (~/.config/omarchy/themed/fastfetch.jsonc.tpl → current/theme/fastfetch.jsonc).
+# Leave a user-owned regular file alone; deploy ships a symlink we can refresh.
+reload_fastfetch() {
+  local src="$CURRENT_THEME_PATH/fastfetch.jsonc"
+  local dst="$HOME/.config/fastfetch/config.jsonc"
+  [[ -f $src ]] || return 0
+  mkdir -p "$HOME/.config/fastfetch"
+  if [[ -L $dst || ! -e $dst ]]; then
+    ln -sfn "$src" "$dst"
+  fi
+}
+
 # ---- yazi: install generated palette as the "omarchy" flavor -------------
 # Yazi has no include — theme-set-templates writes current/theme/yazi.toml
 # from ~/.config/omarchy/themed/yazi.toml.tpl; we expose it as a flavor and
@@ -187,6 +200,7 @@ reload_i3
 reload_dunst
 reload_gtk
 reload_terminals
+reload_fastfetch
 reload_yazi
 set_background
 

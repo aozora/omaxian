@@ -20,5 +20,5 @@ nymvpn_up() {
 if wireguard_up || nm_wireguard_up || nymvpn_up; then
 	echo "󰕥"
 else
-	echo ""
+	echo "󰦞"
 fi
