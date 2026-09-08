@@ -15,6 +15,8 @@ Item {
 
   property bool active: false
   property var themes: []
+  // Injected by Control Panel — suppresses grab-dismiss during theme-set fan-out.
+  property var requestHoldOpen: null
 
   implicitWidth: Style.space(1000)
   implicitHeight: Style.space(680)
@@ -177,6 +179,7 @@ Item {
         HoverHandler { id: hoverHandler }
         TapHandler {
           onTapped: {
+            if (typeof root.requestHoldOpen === "function") root.requestHoldOpen()
             Quickshell.execDetached(["omarchy-theme-set", cell.modelData.slug])
             // Stay open so the user can compare themes; refresh marks the new current.
             refreshAfterPick.restart()

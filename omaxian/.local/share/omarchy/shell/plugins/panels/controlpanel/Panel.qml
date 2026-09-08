@@ -39,12 +39,21 @@ Panel {
 
   property string activeTab: "audio"
 
-  // Grow-only pane size while the popup is open. Wallpaper/Theme are ~1000px
-  // wide; Monitor/Bluetooth are ~380. Shrinking + recentering mid-click puts
-  // the pointer outside the Qt::Popup grab (KeyboardPanel grabFocus), which
-  // dismisses the panel as if the user clicked outside.
-  property int stickyPaneWidth: 0
-  property int stickyPaneHeight: 0
+  // Grow-only outer popup size while open. Wallpaper/Theme are ~1000px wide;
+  // Monitor/Bluetooth are ~380. Mid-click shrink+recenter puts the pointer
+  // outside the Qt::Popup grab and dismisses as if clicked outside.
+  //
+  // Also freeze against Style.space / bar-size changes from applyTheme while
+  // a theme is being applied — those grow/recenter the same way. Sticky is
+  // only bumped on open / tab change (settle window), not on every Style tick.
+  property int stickyPopupWidth: 0
+  property int stickyPopupHeight: 0
+  property bool stickySettling: false
+
+  // theme-set / bg-set: applyTheme + i3 reload can steal the popup grab.
+  // Hold dismiss long enough for that fan-out, and re-arm visibility if grab
+  // already cleared the window.
+  property bool holdDismiss: false
 
   readonly property var tabs: [
     { value: "audio", label: "Audio", icon: "󰕾" },
@@ -54,24 +63,65 @@ Panel {
     { value: "monitor", label: "Monitor", icon: "󰍹" }
   ]
 
-  function bumpStickyPane() {
+  function livePopupWidth() {
+    return Math.ceil(panel.fittedContentWidth(layoutRow.implicitWidth + panel.verticalContentInset))
+  }
+
+  function livePopupHeight() {
+    return Math.ceil(panel.fittedContentHeight(layoutRow.implicitHeight))
+  }
+
+  function bumpStickyPopup() {
     if (!root.opened) return
-    var item = contentArea.activeItem
-    if (!item) return
-    var w = Math.ceil(item.implicitWidth || 0)
-    var h = Math.ceil(item.implicitHeight || 0)
-    if (w > root.stickyPaneWidth) root.stickyPaneWidth = w
-    if (h > root.stickyPaneHeight) root.stickyPaneHeight = h
+    var w = livePopupWidth()
+    var h = livePopupHeight()
+    if (w > root.stickyPopupWidth) root.stickyPopupWidth = w
+    if (h > root.stickyPopupHeight) root.stickyPopupHeight = h
+  }
+
+  function beginStickySettle() {
+    if (!root.opened) return
+    stickySettling = true
+    stickySettleTimer.restart()
+    Qt.callLater(bumpStickyPopup)
+  }
+
+  function beginHoldDismiss() {
+    holdDismiss = true
+    holdDismissTimer.restart()
+  }
+
+  Timer {
+    id: stickySettleTimer
+    interval: 80
+    repeat: false
+    onTriggered: {
+      root.bumpStickyPopup()
+      root.stickySettling = false
+    }
+  }
+
+  Timer {
+    id: holdDismissTimer
+    interval: 2000
+    repeat: false
+    onTriggered: root.holdDismiss = false
   }
 
   onOpenedChanged: {
     if (!opened) {
-      stickyPaneWidth = 0
-      stickyPaneHeight = 0
+      stickyPopupWidth = 0
+      stickyPopupHeight = 0
+      stickySettling = false
+      stickySettleTimer.stop()
+      holdDismiss = false
+      holdDismissTimer.stop()
     } else {
-      Qt.callLater(bumpStickyPane)
+      beginStickySettle()
     }
   }
+
+  onActiveTabChanged: if (opened) beginStickySettle()
 
   function showTab(name) {
     var tab = String(name || "")
@@ -134,8 +184,20 @@ Panel {
     // *outer* size (content + insets) or the interior clips it. Same
     // reasoning fittedContentHeight already bakes in for height; there's no
     // fittedContentWidth equivalent, so it's added here explicitly.
-    contentWidth: panel.fittedContentWidth(layoutRow.implicitWidth + panel.verticalContentInset)
-    contentHeight: panel.fittedContentHeight(layoutRow.implicitHeight)
+    contentWidth: {
+      var live = root.livePopupWidth()
+      // During tab/open settle, allow growth to the new tab. Afterwards freeze
+      // so applyTheme Style.space changes cannot recenter/dismiss the grab.
+      if (root.stickySettling || root.stickyPopupWidth <= 0)
+        return Math.max(root.stickyPopupWidth, live)
+      return root.stickyPopupWidth
+    }
+    contentHeight: {
+      var live = root.livePopupHeight()
+      if (root.stickySettling || root.stickyPopupHeight <= 0)
+        return Math.max(root.stickyPopupHeight, live)
+      return root.stickyPopupHeight
+    }
 
     focusTarget: keyCatcher
     // Wallpaper folder picker owns Escape while open; otherwise ESC dismisses.
@@ -232,25 +294,17 @@ Panel {
           }
           implicitWidth: {
             var current = activeItem ? activeItem.implicitWidth : 0
-            // Prefer sticky over the narrow fallback while a wide tab has
-            // already been shown this open — avoids mid-click shrink-dismiss.
-            return Math.max(Style.space(380), root.stickyPaneWidth, current)
+            // Floor only — outer popup sticky (contentWidth) owns grow/freeze.
+            return Math.max(Style.space(380), current)
           }
           implicitHeight: {
             var current = activeItem ? activeItem.implicitHeight : 0
-            return Math.max(Style.space(200), root.stickyPaneHeight, current)
+            return Math.max(Style.space(200), current)
           }
           width: implicitWidth
           height: implicitHeight
 
-          onActiveItemChanged: root.bumpStickyPane()
-
-          Connections {
-            target: contentArea.activeItem
-            ignoreUnknownSignals: true
-            function onImplicitWidthChanged() { root.bumpStickyPane() }
-            function onImplicitHeightChanged() { root.bumpStickyPane() }
-          }
+          onActiveItemChanged: if (root.opened) root.beginStickySettle()
 
           // Shared wiring for every tab Loader: defer compilation until the
           // tab is selected, inject bar/active via setSource (so first-frame
@@ -273,7 +327,10 @@ Panel {
 
             onActiveChanged: {
               if (active) {
-                var props = { active: true }
+                var props = {
+                  active: true,
+                  requestHoldOpen: root.beginHoldDismiss
+                }
                 if (needsBar) props.bar = root.bar
                 setSource(Qt.resolvedUrl(tabUrl), props)
               } else if (!root.opened) {
@@ -303,6 +360,12 @@ Panel {
               property: "bar"
               value: root.bar
               when: tabLoader.needsBar && tabLoader.item !== null
+            }
+            Binding {
+              target: tabLoader.item
+              property: "requestHoldOpen"
+              value: root.beginHoldDismiss
+              when: tabLoader.item !== null && tabLoader.item.requestHoldOpen !== undefined
             }
           }
 

@@ -73,6 +73,17 @@ PopupWindow {
     else root.open = false
   }
 
+  // grabFocus dismissal assigns `visible = false` and breaks the declarative
+  // binding. Call this to restore it without toggling `open` (e.g. after a
+  // theme-set fan-out stole the Qt::Popup grab while holdDismiss is set).
+  function rearmVisible() {
+    visible = Qt.binding(function() { return root.open || card.opacity > 0 || root.popoutSwitching })
+    if (root.open) {
+      if (root.focusTarget) root.focusTarget.forceActiveFocus()
+      else contentHolder.forceActiveFocus()
+    }
+  }
+
   // --- geometry --------------------------------------------------------
 
   visible: open || card.opacity > 0 || popoutSwitching
@@ -153,8 +164,19 @@ PopupWindow {
 
   onVisibleChanged: {
     // grabFocus dismissal writes `visible = false` directly; propagate that
-    // to the logical close so the owner's state follows.
-    if (!visible && root.open) root.close()
+    // to the logical close so the owner's state follows — unless the owner is
+    // holding open across a theme-set fan-out (Style/i3 reload steals the grab).
+    if (!visible && root.open) {
+      if (root.owner && root.owner.holdDismiss === true) {
+        Qt.callLater(function() {
+          if (!root.open) return
+          if (!(root.owner && root.owner.holdDismiss === true)) return
+          root.rearmVisible()
+        })
+        return
+      }
+      root.close()
+    }
   }
 
   // --- popout coordination (same-bar single-popout model) ---------------

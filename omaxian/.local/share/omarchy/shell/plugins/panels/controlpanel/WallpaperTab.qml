@@ -18,6 +18,8 @@ Item {
   id: root
 
   property bool active: false
+  // Injected by Control Panel — keeps the popup up across bg-set / theme fan-out.
+  property var requestHoldOpen: null
 
   property string subTab: "theme"
   property string localFolder: ""
@@ -343,6 +345,7 @@ Item {
         HoverHandler { id: hoverHandler }
         TapHandler {
           onTapped: {
+            if (typeof root.requestHoldOpen === "function") root.requestHoldOpen()
             Quickshell.execDetached(["omarchy-theme-bg-set", cell.filePath])
             // Keep Control Panel open so the user can try several wallpapers.
           }
