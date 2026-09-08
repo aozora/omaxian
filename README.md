@@ -44,6 +44,7 @@ because a GUI was missing.
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Control Panel** (`Super+Ctrl+O`)                        | One gear on the bar: audio, Bluetooth, wallpaper, theme, and monitors in a single tabbed popup. Omarchy keeps those as separate widgets (the separate widgets are still available).                                                  |
 | **Settings** (`Super+Ctrl+S`, or Menu → Setup → Settings) | A window to edit bar layout/position, dock chrome, widget options, plugin on/off, font/spacing, extra wallpaper folder, and **startup apps**. Omarchy edits the bar by drag gestures (not ported here) and has no equivalent editor. |
+| **Floating island bar**                                   | Optional inset rounded bar chrome (`island` / `islandMargin` / `islandRadius` in Settings → Bar). Same idea as the dock’s non-fullWidth pill; see [`docs/omaxian/customize/bar.md`](docs/omaxian/customize/bar.md). |
 | **Dock**                                                  | A persistent bottom dock (pinned apps, running-app dots, hover magnification). First-party here; upstream’s dock is a separate community plugin (https://github.com/rosakodu/omarchy-dock).                                          |
 | **Display profiles** (`Super+Ctrl+D`)                     | xrandr resolution / on / off / primary / position, with saved layouts per output topology and laptop-lid handling. Workspaces and wallpaper across outputs: [`docs/omaxian/customize/displays.md`](docs/omaxian/customize/displays.md). Omarchy’s monitor panel is brightness + fractional scale (Hyprland), not this. |
 | **SysStats, VPN, apt updates**                            | CPU / GPU / RAM on the bar; a VPN indicator; an apt-upgradable count. None of those are Omarchy bar widgets (upstream updates are Arch `checkupdates`).                                                                              |
@@ -126,13 +127,17 @@ omarchy-theme-set nebula-ridge
 omarchy-theme-next
 ```
 
-That restyles the bar, i3, dunst, GTK icons, kitty, and the wallpaper.
+That restyles the bar, i3, dunst, GTK icons, kitty/alacritty, yazi, fastfetch,
+and the wallpaper. Fastfetch reads a generated config (template:
+`~/.config/omarchy/themed/fastfetch.jsonc.tpl`); run `fastfetch` in a terminal
+after a theme switch.
+
 Click bar widgets for their panels; the clock opens a calendar.
 
-Bar layout, dock, plugins, appearance, and extra startup apps are edited from
-**Settings** (`Super+Ctrl+S`). The same data still lives in
-`~/.config/omarchy/shell.json` (and friends) if you prefer a text editor.
-Restart the shell after QML or theme-file edits:
+Bar layout (including the optional floating island), dock, plugins, appearance,
+and extra startup apps are edited from **Settings** (`Super+Ctrl+S`). The same
+data still lives in `~/.config/omarchy/shell.json` (and friends) if you prefer
+a text editor. Restart the shell after QML or theme-file edits:
 
 ```sh
 omarchy-restart-shell
@@ -184,6 +189,8 @@ The full skip list is in [`docs/omarchy-port/deltas.md`](docs/omarchy-port/delta
 - **Must have:** i3, Quickshell, picom, dunst, kitty, NetworkManager, PulseAudio
   (or pipewire-pulse), a polkit agent (`mate-polkit`), lightdm, and the bundled
   fonts (otherwise the bar shows tofu).
+- **Recommended (default `setup.sh`):** `fastfetch` (themed system fetch), plus
+  the screenshot / media / Bluetooth tools listed in that script.
 - **`python3-xlib`:** without it, typing in the Omarchy menu does nothing.
 - **`python3-i3ipc`:** alternating split layout (`alternating_layouts.py`).
 - **No systemd needed.** Session pieces are elogind (`loginctl`) and D-Bus.
@@ -196,7 +203,7 @@ The full skip list is in [`docs/omarchy-port/deltas.md`](docs/omarchy-port/delta
 Since in Ubuntu 26.04 shipped with X11 completely removed, you cannot install Omaxian normally.
 The best workaround is to use Xubuntu, or install it on a Ubuntu system using `sudo apt install xubuntu-desktop`.
 
-To install Quichshell follow the instructions on the [docs](https://quickshell.org/docs/v0.3.0/guide/install-setup/#ubuntu).
+To install Quickshell follow the instructions on the [docs](https://quickshell.org/docs/v0.3.0/guide/install-setup/#ubuntu).
 
 
 
@@ -336,6 +343,7 @@ and put the omarchy `bin` on `PATH` wherever the session starts.
 
 | Want to…                            | See                                                                                                                                                   |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Customize bar / dock / displays     | [`docs/omaxian/customize/`](docs/omaxian/customize/) — [bar](docs/omaxian/customize/bar.md) (incl. floating island), [dock](docs/omaxian/customize/dock.md), [displays](docs/omaxian/customize/displays.md), [settings](docs/omaxian/customize/settings.md) |
 | Understand the port / bump upstream | [`docs/omarchy-port/`](docs/omarchy-port/) — start with [migration](docs/omarchy-port/omarchy-migration.md) and [deltas](docs/omarchy-port/deltas.md) |
 | Tinker with the Quickshell tree     | [`docs/quickshell/`](docs/quickshell/)                                                                                                                |
 | Install extra packages by hand      | `setup.sh` (required / recommended / optional sets)                                                                                                   |

@@ -46,35 +46,35 @@
     },
     {
       "type": "cpu",
-      "key": "│ ├",
+      "key": "  ├",
       "showPeCoreCount": true,
       "keyColor": "{{ green }}"
     },
     {
       "type": "gpu",
-      "key": "│ ├",
+      "key": "  ├",
       "detectionMethod": "pci",
       "keyColor": "{{ green }}"
     },
     {
       "type": "display",
-      "key": "│ ├󱄄",
+      "key": "  ├󱄄",
       "keyColor": "{{ green }}"
     },
     {
       "type": "disk",
-      "key": "│ ├󰋊",
+      "key": "  ├󰋊",
       "folders": "/",
       "keyColor": "{{ green }}"
     },
     {
       "type": "memory",
-      "key": "│ ├",
+      "key": "  ├",
       "keyColor": "{{ green }}"
     },
     {
       "type": "swap",
-      "key": "└ └󰓡",
+      "key": "  └󰓡",
       "keyColor": "{{ green }}"
     },
     {
@@ -95,39 +95,39 @@
     },
     {
       "type": "kernel",
-      "key": "│ ├",
+      "key": "  ├",
       "keyColor": "{{ blue }}"
     },
     {
       "type": "wm",
-      "key": "│ ├",
+      "key": "  ├",
       "keyColor": "{{ blue }}"
     },
     {
       "type": "terminal",
-      "key": "│ ├",
+      "key": "  ├",
       "keyColor": "{{ blue }}"
     },
     {
       "type": "shell",
-      "key": "│ ├",
+      "key": "  ├",
       "keyColor": "{{ blue }}"
     },
     {
       "type": "packages",
-      "key": "│ ├󰏖",
+      "key": "  ├󰏖",
       "keyColor": "{{ blue }}"
     },
     {
       "type": "command",
-      "key": "│ ├󰸌",
+      "key": "  ├󰸌",
       "keyColor": "{{ blue }}",
       "text": "omarchy-theme-current",
       "format": "{result}  {#{{ red }}}●{#{{ yellow }}}●{#{{ green }}}●{#{{ cyan }}}●{#{{ blue }}}●{#{{ magenta }}}●{#{{ accent }}}●{#}"
     },
     {
       "type": "terminalfont",
-      "key": "└ └",
+      "key": "  └",
       "keyColor": "{{ blue }}"
     },
     {
