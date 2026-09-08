@@ -10,7 +10,7 @@
 #   omaxian/.xsessionrc            → ~/.xsessionrc    (OMARCHY_PATH + PATH)
 #   omaxian/.icons                 → ~/.icons/
 #
-# ~/.xsessionrc is load-bearing: lightdm → /etc/X11/Xsession sources it
+# ~/.xsessionrc is load-bearing: the display manager → /etc/X11/Xsession sources it
 # *before* i3, so i3 and every keybind inherit $OMARCHY_PATH/bin on PATH.
 # A full logout/login is required after the first deploy (i3 restart keeps
 # the old environment).

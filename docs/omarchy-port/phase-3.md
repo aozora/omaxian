@@ -210,7 +210,7 @@ restart path.
 
 A. **Deploy**:
    - **`cp marcello/.xsessionrc ~/.xsessionrc`** then re-login. This is the
-     real PATH fix: lightdm sources `~/.xsessionrc` *before* i3, so `omarchy-*`
+     real PATH fix: `/etc/X11/Xsession` sources `~/.xsessionrc` *before* i3, so `omarchy-*`
      land on the PATH i3 keybinds / polybar clicks inherit. An `export` in
      `i3_autostart` never did (it only reaches that script's own children) —
      which is why the volume OSD fell back to dunst and `omarchy-shell` was

@@ -59,7 +59,7 @@ Keep `# omarchy:group=` / `# omarchy:summary=` metadata on new commands consiste
 
 # Runtime Environment
 
-- `$OMARCHY_PATH` is `$HOME/.local/share/omarchy`. `~/.xsessionrc` (installed by `deploy.sh`) exports it and prepends `$OMARCHY_PATH/bin` to `PATH` before i3 starts. LightDM must run `/etc/X11/Xsession` for that to take effect.
+- `$OMARCHY_PATH` is `$HOME/.local/share/omarchy`. `~/.xsessionrc` (installed by `deploy.sh`) exports it and prepends `$OMARCHY_PATH/bin` to `PATH` before i3 starts. The display manager / login path must run `/etc/X11/Xsession` for that to take effect.
 - There is no `uwsm`. Commands and QML may use `${OMARCHY_PATH:=$HOME/.local/share/omarchy}` when the session env might be missing (terminals started outside the X session, `i3 restart` without a re-login).
 - Quickshell QML should read `Quickshell.env("OMARCHY_PATH")` when the host has already exported it; `omarchy-launch-shell` / `omarchy-restart-shell` set it before starting the process.
 - After the first deploy, **log out and back in** (not `i3 restart`) so i3 inherits `PATH`. Afterwards, QML edits need `omarchy-restart-shell`.

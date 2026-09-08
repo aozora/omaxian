@@ -60,8 +60,9 @@ clock/calendar, tray, OSD, Wi-Fi QR, speed tests, and the `omarchy-*` CLI.
 
 ## Install
 
-You need an X11 session with **i3** and a display manager that runs
-`/etc/X11/Xsession` (**lightdm** does). Then, from this repo:
+You need an X11 session with **i3** and a login path that runs
+`/etc/X11/Xsession` (most display managers do; `startx` with a proper
+`.xsession` also works). Then, from this repo:
 
 ```sh
 git clone <this-repo> ~/projects/omaxian
@@ -76,7 +77,7 @@ sudo ./setup.sh          # packages, fonts, session D-Bus
 `--deploy` (runs `install.sh` + `deploy.sh` for you after packages).
 
 **Then log out and back in** (not `i3 restart`) so i3 picks up `PATH`.
-Pick the i3 / Omaxian session in the greeter.
+Pick the i3 / Omaxian session in your greeter (or start X however you usually do).
 
 ### Quickshell
 
@@ -187,8 +188,9 @@ The full skip list is in [`docs/omarchy-port/deltas.md`](docs/omarchy-port/delta
 `setup.sh` installs these. The important ones:
 
 - **Must have:** i3, Quickshell, picom, dunst, kitty, NetworkManager, PulseAudio
-  (or pipewire-pulse), a polkit agent (`mate-polkit`), lightdm, and the bundled
-  fonts (otherwise the bar shows tofu).
+  (or pipewire-pulse), a polkit agent (`mate-polkit`), and the bundled
+  fonts (otherwise the bar shows tofu). A display manager is **not** packaged;
+  use whatever already starts your X session.
 - **Recommended (default `setup.sh`):** `fastfetch` (themed system fetch), plus
   the screenshot / media / Bluetooth tools listed in that script.
 - **`python3-xlib`:** without it, typing in the Omarchy menu does nothing.

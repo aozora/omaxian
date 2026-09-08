@@ -86,8 +86,8 @@ echo "========================================================================"
 REQUIRED=(
 	# bootstrap (rsync: live deploy must replace files by rename, not truncate)
 	git rsync ca-certificates curl jq
-	# window manager, compositor, display manager, session bus
-	i3-wm picom lightdm dbus-x11
+	# window manager, compositor, session bus
+	i3-wm picom dbus-x11
 	x11-utils x11-xserver-utils x11-xkb-utils
 	# terminal + notifications
 	kitty dunst libnotify-bin
@@ -271,6 +271,6 @@ echo
 if (( ! RUN_DEPLOY )); then
 	echo "  Next:  cd $REPO_DIR && ./install.sh && ./deploy.sh"
 fi
-echo "  Then:  pick the Omaxian/i3 session in lightdm and log in fresh"
-echo "         (a full login, not 'i3 restart' — see README §4)."
+echo "  Then:  start an i3 / Omaxian X session and log in fresh"
+echo "         (a full login, not 'i3 restart' — see README)."
 echo "========================================================================"

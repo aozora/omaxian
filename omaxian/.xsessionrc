@@ -1,5 +1,6 @@
-# Sourced by /etc/X11/Xsession.d/40x11-common_xsessionrc (lightdm runs sessions
-# through /etc/X11/Xsession) *before* the window manager starts, so anything
+# Sourced by /etc/X11/Xsession.d/40x11-common_xsessionrc when the session
+# goes through /etc/X11/Xsession (typical display managers; also startx with
+# a proper .xsession) *before* the window manager starts, so anything
 # exported here reaches i3 itself and therefore every keybind exec and
 # autostart child it spawns.
 #
