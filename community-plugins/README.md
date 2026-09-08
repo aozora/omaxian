@@ -47,6 +47,7 @@ community-plugins/
 | Directory | Plugin id | Upstream / notes | Status |
 | --------- | --------- | ---------------- | ------ |
 | [`jankeesvw.nag`](jankeesvw.nag/) | `jankeesvw.nag` | [omarchy-nag](https://github.com/jankeesvw/omarchy-nag) — disposable alarms; calendar user timers → wall-clock sleeper, `paplay`/`pw-play` | Ported |
+| [`jmaeder.swissweather`](jmaeder.swissweather/) | `jmaeder.swissweather` | [omarchy-swissweather](https://github.com/jmaeder/omarchy-swissweather) — MeteoSwiss bar weather; QML compatible as-is | Ported |
 
 ## Install (opt-in)
 

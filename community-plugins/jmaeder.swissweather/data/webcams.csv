@@ -1,0 +1,38 @@
+# MeteoSwiss weather cams. Source: MeteoSwiss. Generated 2026-08-20.
+# from ch.meteoschweiz.messnetz-webcams_en.csv sha256=171c2c7462bfb72d105a3701d18dc6ff1248933467ba521f742e57c75290eab9
+abbr;name;lat;lon;alt
+BIV;Bivio;46.4599;9.6565;1910
+BRS;Brugnasco;46.5230;8.6504;1396
+CAS;Casaccia;46.3914;9.6645;1481
+CHD;Château-d'Oex;46.4798;7.1396;1032
+COV;Piz Corvatsch;46.4174;9.8206;3307
+DIS;Disentis;46.7066;8.8534;1203
+DOL;La Dôle;46.4248;6.0991;1677
+EIC;Eich;47.1667;8.1605;696
+ETZ;Etziken;47.1819;7.6482;566
+EVO;Evolène / Villa;46.1132;7.5048;1828
+FBG;Frienisberg;47.0233;7.3305;731
+FLP;Flüela;46.7441;9.9821;2190
+FRF;Frauenfeld;47.5496;8.9103;517
+GOD;Goldau;47.0485;8.5520;535
+GRH;Grimsel Hospiz;46.5631;8.3303;2221
+GUE;Gütsch, Andermatt;46.6530;8.6161;2298
+HLS;Heiligenschwendi;46.7479;7.6678;1010
+KSL;Kaiserstuhl;46.8173;8.1778;732
+LAN;Landquart;46.9621;9.5674;548
+LEI;Leibstadt;47.5820;8.1797;483
+MRT;Murtel;46.4322;9.8235;2708
+MTG;Montagnola;45.9817;8.9166;495
+MTP;Mont-Pèlerin;46.4970;6.8191;1152
+MUG;Murg;47.1150;9.1931;432
+NOV;Novazzano;45.8415;8.9700;421
+OLI;Olivone;46.5175;8.9537;1183
+RAV;Ravoire;46.1055;7.0540;1171
+RDO;Roche d'Or;47.3640;6.9590;948
+ROW;Rosswald;46.3034;8.0412;1849
+SHA;Schaffhausen;47.6923;8.6131;573
+SMA;Zürich / Fluntern;47.3782;8.5657;574
+SPS;Splügenpass;46.5306;9.3139;2147
+STC;St. Chrischona;47.5717;7.6871;641
+TOR;Torrent;46.3690;7.6486;2333
+YVN;Yverdon-les-Bains;46.7857;6.6498;453

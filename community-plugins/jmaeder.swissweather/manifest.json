@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "jmaeder.swissweather",
+  "name": "Swiss Weather",
+  "version": "1.0.2",
+  "author": "Jerome Maeder",
+  "license": "MIT",
+  "homepage": "https://github.com/jmaeder/omarchy-swissweather",
+  "description": "Swiss weather from MeteoSwiss: station measurements, forecasts with their 10-90 % uncertainty bands, and day/week/wind charts. Favourite towns searchable offline, warnings with optional notifications, in English, French or German. (Omaxian catalog port — QML unchanged.)",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Swiss Weather",
+    "description": "MeteoSwiss measurements, forecast and warnings for your Swiss towns",
+    "category": "Info",
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "language": "",
+      "showTemperature": false,
+      "refreshMinutes": 15,
+      "detectLocation": true,
+      "swissCross": true
+    },
+    "schema": [
+      {
+        "key": "language",
+        "type": "string",
+        "label": "Language",
+        "description": "en, fr or de. Empty follows the system locale; the panel's own selector writes here."
+      },
+      {
+        "key": "swissCross",
+        "type": "boolean",
+        "label": "Swiss cross badge",
+        "description": "Marks the bar icon with a small Swiss flag, which also tells it apart from the built-in weather widget."
+      },
+      {
+        "key": "showTemperature",
+        "type": "boolean",
+        "label": "Show temperature in the bar",
+        "description": "Adds the current temperature next to the weather symbol."
+      },
+      {
+        "key": "refreshMinutes",
+        "type": "number",
+        "label": "Refresh interval (minutes)",
+        "description": "How often to poll MeteoSwiss. Clamped to 5-180 minutes."
+      },
+      {
+        "key": "detectLocation",
+        "type": "boolean",
+        "label": "Detect region on first run",
+        "description": "Makes one geolocation request the first time the plugin runs, to pick a starting town. Turn off to keep every request on MeteoSwiss hosts."
+      }
+    ]
+  }
+}

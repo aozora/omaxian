@@ -1,0 +1,12 @@
+# Nothing generated is ignored: data/*.csv is committed on purpose so the
+# plugin works offline, and tools/build-data.sh regenerates it reproducibly.
+*.swp
+.DS_Store
+
+# Personal notes. The published repo is cloned verbatim into every user's
+# ~/.config/omarchy/plugins/, so a private idea list does not belong in it.
+IDCO.md
+
+# Screen recordings dropped in the checkout while making the README media.
+# The published animation lives in docs/ as a converted, size-bounded webp.
+*.mp4
