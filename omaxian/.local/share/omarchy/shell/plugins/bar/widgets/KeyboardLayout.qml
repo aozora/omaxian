@@ -5,69 +5,45 @@ import qs.Commons
 import qs.Ui
 
 // X11 stand-in for upstream's Hyprland `activelayout` IPC +
-// `switchxkblayout current next`. No i3 event source, so the label is a 2s
-// poll of `scripts/keyboard.sh` (xprop + XkbGetState). Click cycles via
-// that script: xkb-switch, else ISO_Next_Group (same keysym as grp:*_toggle),
-// else a setxkbmap layout-list rotate.
+// `switchxkblayout current next`. Subscribes to XkbStateNotify via
+// `scripts/keyboard.sh watch` so Alt+Shift / Shift+Alt updates the label
+// immediately (a 2s poll often missed the change or felt stuck). Click
+// cycles with `keyboard.sh next` (XkbLockGroup, then xkb-switch / setxkbmap).
 BarWidget {
   id: root
   moduleName: "omarchy.keyboard-layout"
 
   property string display: ""
 
-  function refresh() {
-    if (!proc.running) proc.running = true
-  }
-
   function cycle() {
     if (!cycleProc.running) cycleProc.running = true
   }
 
-  Timer {
-    interval: 2000
-    running: true
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: root.refresh()
-  }
-
+  // Long-lived watcher: one line per layout / Caps change.
   Process {
-    id: proc
-    property string stdoutBuf: ""
-    property int maxStdout: 1024
-    property bool overflowed: false
-    command: ["bash", Quickshell.shellDir + "/scripts/keyboard.sh"]
+    id: watchProc
+    running: true
+    command: ["bash", Quickshell.shellDir + "/scripts/keyboard.sh", "watch"]
     stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (proc.overflowed) return
-        proc.stdoutBuf += chunk
-        if (proc.stdoutBuf.length > proc.maxStdout) {
-          proc.overflowed = true
-          proc.stdoutBuf = ""
-          proc.signal(15)
-          keyboardKillTimer.start()
-        }
+      splitMarker: "\n"
+      onRead: function(line) {
+        var t = String(line || "").trim()
+        if (t.length > 0) root.display = t
       }
     }
-    onStarted: {
-      keyboardKillTimer.stop()
-      stdoutBuf = ""
-      overflowed = false
-    }
+    // If the helper exits (display lost, crash), retry shortly.
     onExited: function() {
-      keyboardKillTimer.stop()
-      var t = overflowed ? "" : String(stdoutBuf || "").trim()
-      stdoutBuf = ""
-      overflowed = false
-      if (t.length > 0) root.display = t
+      watchRestart.restart()
     }
   }
 
   Timer {
-    id: keyboardKillTimer
-    interval: 2000
-    onTriggered: proc.signal(9)
+    id: watchRestart
+    interval: 1000
+    repeat: false
+    onTriggered: {
+      if (!watchProc.running) watchProc.running = true
+    }
   }
 
   Process {
@@ -99,6 +75,7 @@ BarWidget {
       var t = overflowed ? "" : String(stdoutBuf || "").trim()
       stdoutBuf = ""
       overflowed = false
+      // Watcher will also refresh; apply immediately so the click feels instant.
       if (t.length > 0) root.display = t
     }
   }
@@ -107,6 +84,11 @@ BarWidget {
     id: cycleKillTimer
     interval: 2000
     onTriggered: cycleProc.signal(9)
+  }
+
+  Component.onDestruction: {
+    watchProc.signal(15)
+    cycleProc.signal(15)
   }
 
   implicitWidth: button.implicitWidth

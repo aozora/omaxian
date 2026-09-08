@@ -80,6 +80,7 @@ There is no `/usr/share/omarchy/` in this port.
 - `~/.config/omarchy/themes/<custom-name>/` — custom themes
 - `~/.config/omarchy/themed/` — template overrides
 - `~/.config/omarchy/plugins/` — cloned / third-party shell plugins
+- `~/.config/omarchy/keyboard.json` — XKB layouts (Settings → Keyboard)
 
 If the request is to develop Omaxian itself, this skill is out of scope.
 

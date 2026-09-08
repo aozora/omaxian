@@ -12,6 +12,7 @@ Notifications are **dunst**, not an Omarchy notification daemon.
 ~/.config/omarchy/dock-settings.json     # Dock chrome
 ~/.config/omarchy/dock-pinned.json       # Pinned dock apps
 ~/.config/omarchy/plugins/<plugin-id>/   # User-owned shell plugins
+~/.config/omarchy/keyboard.json          # XKB layouts (Settings → Keyboard)
 ~/.config/omarchy/shell.toml             # Appearance overrides (survives theme switch)
 ```
 
@@ -19,9 +20,9 @@ The shell hot-reloads `shell.json` on save — no restart needed for layout
 changes. QML edits need `omarchy-restart-shell`.
 
 Prefer the **Settings** window (Super+Ctrl+S) for bar layout, dock chrome,
-widget options, plugin on/off, font/spacing, and extra startup apps. Prefer
-**Control Panel** (Super+Ctrl+O) for audio, Bluetooth, wallpaper, theme, and
-monitors.
+widget options, plugin on/off, font/spacing, keyboard layouts, and extra
+startup apps. Prefer **Control Panel** (Super+Ctrl+O) for audio, Bluetooth,
+wallpaper, theme, and monitors.
 
 **Commands:** `omarchy-restart-shell`, `omarchy-toggle-bar`
 

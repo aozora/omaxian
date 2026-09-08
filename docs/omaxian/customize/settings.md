@@ -2,7 +2,7 @@
 
 The Settings panel (`omaxian.settings`) is a tabbed editor for shell
 configuration: bar layout, dock chrome, appearance tokens, widget options,
-plugin enable/disable, and extra startup apps.
+plugin enable/disable, keyboard layouts, and extra startup apps.
 
 It is a first-party **panel** plugin (not a bar icon). Control Panel remains
 the runtime picker for audio, Bluetooth, wallpaper gallery, theme, and
@@ -26,7 +26,7 @@ manager close binding. Settings is a real i3 floating window (title
 `Omaxian Settings`), so it can be dragged from the title strip and resized.
 
 Valid `tab` payload values: `bar`, `dock`, `appearance`, `widgets`, `plugins`,
-`startup`, `advanced`.
+`startup`, `keyboard`, `advanced`.
 
 ## Tabs
 
@@ -103,12 +103,31 @@ Add from the app catalog, enable / disable, reorder, remove, or **Launch now**.
 `omarchy-startup-launch` runs at the end of `i3_autostart`. Session daemons
 (dunst, picom, mpd, …) stay hardcoded and are not in this list.
 
+### Keyboard
+
+XKB layouts in `~/.config/omarchy/keyboard.json` (not overwritten by deploy):
+
+```json
+{
+  "layouts": [
+    { "layout": "it", "variant": "" },
+    { "layout": "ru", "variant": "phonetic" }
+  ],
+  "toggle": "grp:alt_shift_toggle"
+}
+```
+
+Add / remove / reorder layout rows, pick a toggle shortcut (Alt+Shift by
+default so Super+Space stays free for the menu), and **Apply now**.
+`omarchy-keyboard-apply` runs at login from `i3_autostart`. If the file is
+missing, the same defaults as above are used.
+
 ### Advanced
 
 Opens config files in the user’s editor (`omarchy-launch-config-editor`):
 i3 keybindings, i3 theme/gaps, picom, dunst, menu extensions. Notes that
-keyboard layout is `setxkbmap` in `i3_autostart` and that `idle.*` times in
-`shell.json` are not enforced on X11.
+keyboard layouts live under Settings → Keyboard / `keyboard.json`, and that
+`idle.*` times in `shell.json` are not enforced on X11.
 
 ## Reload
 
@@ -119,6 +138,7 @@ keyboard layout is `setxkbmap` in `i3_autostart` and that `idle.*` times in
 | Theme / user `dock.toml` | live |
 | `dock.toml` `full-width` | `omarchy-restart-shell` recommended |
 | `startup.json` | next login, or Launch now |
+| `keyboard.json` | next login, or Apply now |
 
 See also [displays.md](displays.md) for multi-monitor layout, workspace
 clicks, and wallpaper-on-X11.

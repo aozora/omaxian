@@ -95,7 +95,7 @@ Item {
         textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
-        text: "Keyboard layout is set in ~/.config/i3/scripts/i3_autostart (setxkbmap) — not a live setting."
+        text: "Keyboard layouts: Settings → Keyboard (or ~/.config/omarchy/keyboard.json). Applied at login and via Apply now."
         color: Qt.darker(root.foreground, 1.4)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption

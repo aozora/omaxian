@@ -307,6 +307,96 @@ function serializeStartup(apps) {
   return JSON.stringify({ apps: out }, null, 2) + "\n"
 }
 
+// ---- keyboard.json
+
+var KEYBOARD_TOGGLES = [
+  { value: "grp:alt_shift_toggle", label: "Alt+Shift" },
+  { value: "grp:win_space_toggle", label: "Super+Space" },
+  { value: "grp:caps_toggle", label: "Caps Lock" },
+  { value: "grp:shifts_toggle", label: "Both Shifts" },
+  { value: "", label: "None" }
+]
+
+var KEYBOARD_DEFAULT = {
+  layouts: [
+    { layout: "it", variant: "" },
+    { layout: "ru", variant: "phonetic" }
+  ],
+  toggle: "grp:alt_shift_toggle"
+}
+
+function keyboardToggleOptions() {
+  return KEYBOARD_TOGGLES.slice()
+}
+
+function defaultKeyboard() {
+  return {
+    layouts: KEYBOARD_DEFAULT.layouts.map(function(row) {
+      return { layout: row.layout, variant: row.variant }
+    }),
+    toggle: KEYBOARD_DEFAULT.toggle
+  }
+}
+
+function normalizeLayoutId(value) {
+  var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
+  if (!/^[a-z0-9_]+$/.test(s)) return ""
+  return s
+}
+
+function normalizeVariantId(value) {
+  var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
+  if (s === "") return ""
+  if (!/^[a-z0-9_-]+$/.test(s)) return ""
+  return s
+}
+
+function normalizeToggle(value) {
+  var t = String(value === undefined || value === null ? KEYBOARD_DEFAULT.toggle : value)
+  for (var i = 0; i < KEYBOARD_TOGGLES.length; i++) {
+    if (KEYBOARD_TOGGLES[i].value === t) return t
+  }
+  return KEYBOARD_DEFAULT.toggle
+}
+
+function parseKeyboard(raw) {
+  var text = String(raw === undefined || raw === null ? "" : raw).trim()
+  if (!text) return defaultKeyboard()
+  var parsed = null
+  try { parsed = JSON.parse(text) } catch (e) { return defaultKeyboard() }
+  if (!isPlainObject(parsed)) return defaultKeyboard()
+
+  var arr = arrayFrom(parsed.layouts)
+  var out = []
+  for (var i = 0; i < arr.length && out.length < 8; i++) {
+    var item = arr[i]
+    if (!isPlainObject(item)) continue
+    var layout = normalizeLayoutId(item.layout)
+    if (!layout) continue
+    out.push({ layout: layout, variant: normalizeVariantId(item.variant) })
+  }
+  if (!out.length) return defaultKeyboard()
+  return { layouts: out, toggle: normalizeToggle(parsed.toggle) }
+}
+
+function serializeKeyboard(config) {
+  var src = isPlainObject(config) ? config : defaultKeyboard()
+  var arr = arrayFrom(src.layouts)
+  var out = []
+  for (var i = 0; i < arr.length && out.length < 8; i++) {
+    var item = arr[i]
+    if (!isPlainObject(item)) continue
+    var layout = normalizeLayoutId(item.layout)
+    if (!layout) continue
+    out.push({ layout: layout, variant: normalizeVariantId(item.variant) })
+  }
+  if (!out.length) out = defaultKeyboard().layouts
+  return JSON.stringify({
+    layouts: out,
+    toggle: normalizeToggle(src.toggle)
+  }, null, 2) + "\n"
+}
+
 // ---- user shell.toml
 
 function parseShell(raw) {

@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# omarchy:summary=Apply XKB layouts from ~/.config/omarchy/keyboard.json
+# omarchy:group=system
+# omarchy:args=[]
+# omarchy:examples=omarchy-keyboard-apply
+
+set -euo pipefail
+
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/keyboard.json"
+MAX_LAYOUTS=8
+MAX_BYTES=8192
+
+# Defaults match the previous hard-coded i3_autostart map.
+DEFAULT_LAYOUT="it,ru"
+DEFAULT_VARIANT=",phonetic"
+DEFAULT_TOGGLE="grp:alt_shift_toggle"
+
+ALLOWED_TOGGLES='["","grp:alt_shift_toggle","grp:win_space_toggle","grp:caps_toggle","grp:shifts_toggle"]'
+
+fail() {
+  echo "omarchy-keyboard-apply: $*" >&2
+  exit 1
+}
+
+command -v setxkbmap >/dev/null || fail "setxkbmap not found"
+command -v jq >/dev/null || fail "jq not found"
+
+# Bounded, nofollow read — same threat model as other omarchy helpers.
+read_config() {
+  local file="$1"
+  [[ -f $file && ! -L $file ]] || return 1
+  dd if="$file" iflag=nofollow,nonblock,count_bytes,fullblock \
+    bs=4096 count=$((MAX_BYTES + 1)) status=none 2>/dev/null || return 1
+}
+
+layout_csv=""
+variant_csv=""
+toggle=""
+
+if raw=$(read_config "$CONFIG"); then
+  ((${#raw} <= MAX_BYTES)) || fail "config too large: $CONFIG"
+
+  if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$raw"; then
+    echo "omarchy-keyboard-apply: invalid JSON in $CONFIG — using defaults" >&2
+    layout_csv=$DEFAULT_LAYOUT
+    variant_csv=$DEFAULT_VARIANT
+    toggle=$DEFAULT_TOGGLE
+  else
+    parsed=$(jq -c --argjson allowed "$ALLOWED_TOGGLES" --argjson max "$MAX_LAYOUTS" '
+      def layout_ok: type == "string" and test("^[a-z0-9_]+$");
+      def variant_ok: type == "string" and (test("^[a-z0-9_-]*$") or . == "");
+      (.layouts // []) as $raw
+      | ($raw
+          | map(select(type == "object"))
+          | map({
+              layout: ((.layout // "") | ascii_downcase),
+              variant: ((.variant // "") | ascii_downcase)
+            })
+          | map(select(.layout | layout_ok))
+          | map(select(.variant | variant_ok))
+          | .[0:$max]
+        ) as $layouts
+      | if ($layouts | length) == 0 then empty else
+          {
+            layout: ($layouts | map(.layout) | join(",")),
+            variant: ($layouts | map(.variant) | join(",")),
+            toggle: (
+              (.toggle // "grp:alt_shift_toggle") as $t
+              | if ($allowed | index($t)) != null then $t else "grp:alt_shift_toggle" end
+            )
+          }
+        end
+    ' <<<"$raw" 2>/dev/null) || parsed=""
+
+    if [[ -z $parsed ]]; then
+      echo "omarchy-keyboard-apply: no valid layouts in $CONFIG — using defaults" >&2
+      layout_csv=$DEFAULT_LAYOUT
+      variant_csv=$DEFAULT_VARIANT
+      toggle=$DEFAULT_TOGGLE
+    else
+      layout_csv=$(jq -r '.layout' <<<"$parsed")
+      variant_csv=$(jq -r '.variant' <<<"$parsed")
+      toggle=$(jq -r '.toggle' <<<"$parsed")
+    fi
+  fi
+else
+  layout_csv=$DEFAULT_LAYOUT
+  variant_csv=$DEFAULT_VARIANT
+  toggle=$DEFAULT_TOGGLE
+fi
+
+[[ -n $layout_csv ]] || fail "empty layout list"
+
+cmd=(setxkbmap -layout "$layout_csv")
+# Always pass -variant so a previous phonetic map cannot stick on a single layout.
+cmd+=(-variant "$variant_csv")
+# Clear then set toggle so leftover grp:* options do not accumulate.
+cmd+=(-option "")
+if [[ -n $toggle ]]; then
+  cmd+=(-option "$toggle")
+fi
+
+"${cmd[@]}"
