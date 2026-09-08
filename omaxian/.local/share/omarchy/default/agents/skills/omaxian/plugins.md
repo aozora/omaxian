@@ -57,6 +57,13 @@ omarchy-plugin-check <plugin-dir-or-git-url>
 omarchy-plugin-add <git-url> --enable
 ```
 
+Omaxian-compatible **optional** ports (not deployed by default) live in this
+repo under `community-plugins/<plugin-id>/` — see that directory’s README.
+They install into `~/.config/omarchy/plugins/` like any third-party plugin.
+Do not copy them into `$OMARCHY_PATH/shell/plugins/` (first-party, on by
+default). `omarchy-plugin-add` only accepts git URLs today; for a local port
+use the copy/rsync steps in `community-plugins/README.md`.
+
 ## Dock
 
 Plugin id `omaxian.dock`. Disable by adding it to `disabledPlugins` in

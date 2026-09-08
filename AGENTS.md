@@ -105,7 +105,9 @@ Commands that `setup.sh` installs as required are runtime invariants on a deploy
 | `omaxian/.local/share/omarchy/shell/` | Quickshell desktop |
 | `omaxian/.local/share/omarchy/shell.json` | Stock bar/plugins defaults (`$OMARCHY_PATH/shell.json`) |
 | `omaxian/.local/share/omarchy/default/` | Port overlays (menu JSONC, agent skills) on top of upstream `default/` |
+| `community-plugins/` | Optional third-party plugin ports (not deployed; install into `~/.config/omarchy/plugins/`) |
 | `~/.config/omarchy/shell.json` | User shell layout (Settings); seeded once by `deploy.sh` |
+| `~/.config/omarchy/plugins/` | User-installed / community shell plugins |
 | `~/.local/share/omarchy/themes/` | Stock themes, seeded from upstream by `install.sh` |
 | `~/.config/omarchy/themes/` | User theme overlays only |
 | `~/.config/omarchy/themed/*.tpl` | User template overrides (`{{ variable }}` placeholders) |

@@ -41,6 +41,10 @@ only to `~/.config/omarchy/shell.json` and are not overwritten by redeploy.
   level deeper, such as `shell/plugins/panels/weather/`. First-party bar-only
   widgets may use adjacent `*.manifest.json` files. Third-party plugins live
   at `~/.config/omarchy/plugins/<id>/` with a `manifest.json` at the root.
+- Optional community ports for this project live in repo-root
+  `community-plugins/<id>/` (outside `omaxian/`, not deployed). Port them as
+  third-party trees; never merge them into `shell/plugins/` or stock
+  `shell.json`. See [`community-plugins/README.md`](../../community-plugins/README.md).
 - Every plugin manifest declares `schemaVersion`, `id`, `name`, `version`,
   `kinds`, and `entryPoints`. See `shell/services/PluginRegistry.qml` for the
   current contract; fields such as `activation` are optional.

@@ -81,7 +81,9 @@ on the bar for changes to persist. Like Bar edits, these survive `./deploy.sh`.
 
 Enable / disable first-party panels and services, plus third-party plugins
 under `~/.config/omarchy/plugins/`. Add / clone / remove still lives under
-Menu → Setup → Plugins.
+Menu → Setup → Plugins. Optional Omaxian-compatible ports (not deployed by
+default) are catalogued in the repo under
+[`community-plugins/`](../../../community-plugins/README.md).
 
 Settings itself cannot be disabled from this list.
 
