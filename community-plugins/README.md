@@ -46,7 +46,7 @@ community-plugins/
 
 | Directory | Plugin id | Upstream / notes | Status |
 | --------- | --------- | ---------------- | ------ |
-| *(none yet)* | | Add a row when a port lands | |
+| [`jankeesvw.nag`](jankeesvw.nag/) | `jankeesvw.nag` | [omarchy-nag](https://github.com/jankeesvw/omarchy-nag) — disposable alarms; calendar user timers → wall-clock sleeper, `paplay`/`pw-play` | Ported |
 
 ## Install (opt-in)
 
