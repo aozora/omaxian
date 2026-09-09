@@ -15,6 +15,7 @@ Item {
   readonly property string fontFamily: Style.font.family
   readonly property int revision: pluginRegistry ? pluginRegistry.registryRevision : 0
   readonly property bool barHidden: !!(shell && shell.bar && shell.bar.barHidden)
+  readonly property int rowSpacing: Style.space(4)
 
   // Clone through JSON so layout arrays are real JS arrays in this engine
   // (QML `property var` lists fail Array.isArray and confuse Repeaters).
@@ -42,10 +43,139 @@ Item {
     var n = Number(bar.islandRadius)
     return (isFinite(n) && n >= 0) ? Math.min(48, Math.round(n)) : Style.radiusPopup
   }
+
   ListModel { id: leftModel }
   ListModel { id: centerModel }
   ListModel { id: rightModel }
   ListModel { id: availableModel }
+
+  // --- drag state ----------------------------------------------------------
+  property bool dragging: false
+  property var dragPayload: null
+  property string dropTargetKind: ""
+  property int dropInsertIndex: -1
+  property real dragGhostX: 0
+  property real dragGhostY: 0
+  property string sectionChooserWid: ""
+  property var dropZones: []
+
+  function registerDropZone(zone) {
+    if (!zone) return
+    var next = []
+    var i
+    for (i = 0; i < dropZones.length; i++) {
+      if (dropZones[i] && dropZones[i] !== zone)
+        next.push(dropZones[i])
+    }
+    next.push(zone)
+    dropZones = next
+  }
+
+  function unregisterDropZone(zone) {
+    var next = []
+    var i
+    for (i = 0; i < dropZones.length; i++) {
+      if (dropZones[i] && dropZones[i] !== zone)
+        next.push(dropZones[i])
+    }
+    dropZones = next
+  }
+
+  function clearDropHighlight() {
+    dropTargetKind = ""
+    dropInsertIndex = -1
+  }
+
+  function endDrag() {
+    dragging = false
+    dragPayload = null
+    clearDropHighlight()
+    if (flick) flick.interactive = true
+  }
+
+  function beginDrag(payload) {
+    sectionChooserWid = ""
+    dragPayload = payload
+    dragging = true
+    if (flick) flick.interactive = false
+  }
+
+  function insertIndexAtY(listColumn, y) {
+    if (!listColumn) return 0
+    var children = listColumn.children
+    var idx = 0
+    var i
+    for (i = 0; i < children.length; i++) {
+      var row = children[i]
+      if (!row || !row.visible || row.wid === undefined) continue
+      var mid = row.y + row.height / 2
+      if (y >= mid) idx++
+      else break
+    }
+    return idx
+  }
+
+  // MouseArea keeps the grab while dragging, so drop zones never see hover.
+  // Hit-test from the handle's pointer position instead.
+  function trackDragPoint(rootX, rootY) {
+    dragGhostX = rootX
+    dragGhostY = rootY
+    var i
+    for (i = 0; i < dropZones.length; i++) {
+      var zone = dropZones[i]
+      if (!zone || !zone.width) continue
+      var local = zone.mapFromItem(root, rootX, rootY)
+      if (local.x < 0 || local.y < 0 || local.x > zone.width || local.y > zone.height)
+        continue
+      dropTargetKind = zone.kind
+      var flickY = zone.contentYOffset ? zone.contentYOffset() : 0
+      var listY = local.y - Style.space(6) + flickY
+      dropInsertIndex = insertIndexAtY(zone.listColumn, listY)
+      return
+    }
+    clearDropHighlight()
+  }
+
+  function applyDrop(toKind, insertIndex) {
+    var payload = root.dragPayload
+    if (!payload || !payload.id) {
+      endDrag()
+      return
+    }
+    if (!toKind) {
+      endDrag()
+      return
+    }
+    var id = String(payload.id)
+    var fromKind = String(payload.fromKind || "")
+    var fromIndex = Math.floor(Number(payload.fromIndex))
+    var targetIndex = Math.max(0, Math.floor(Number(insertIndex) || 0))
+
+    if (fromKind === "available") {
+      if (toKind === "available") {
+        endDrag()
+        return
+      }
+      addWidget(id, toKind, targetIndex)
+      endDrag()
+      return
+    }
+
+    if (toKind === "available") {
+      removeWidget(id)
+      endDrag()
+      return
+    }
+
+    if (fromKind === toKind && fromIndex < targetIndex)
+      targetIndex = targetIndex - 1
+    if (fromKind === toKind && targetIndex === fromIndex) {
+      endDrag()
+      return
+    }
+    placeWidget(id, fromKind, fromIndex, toKind, targetIndex)
+    endDrag()
+  }
 
   function entryId(entry) {
     if (typeof entry === "string") return String(entry).trim()
@@ -195,91 +325,432 @@ Item {
     pluginRegistry.setEnabled(id, false)
   }
 
-  function addWidget(id, section) {
+  function addWidget(id, section, index) {
     if (!pluginRegistry) return
-    pluginRegistry.putBarWidget(id, { section: section || "right" })
+    var placement = { section: section || "right" }
+    if (index !== undefined && index !== null && isFinite(Number(index)))
+      placement.index = Math.max(0, Math.floor(Number(index)))
+    pluginRegistry.putBarWidget(id, placement)
+  }
+
+  function placeWidget(id, fromSection, fromIndex, toSection, toIndex) {
+    if (!pluginRegistry) return
+    pluginRegistry.moveBarWidget(id, {
+      fromSection: fromSection,
+      fromIndex: fromIndex,
+      section: toSection,
+      index: toIndex
+    })
   }
 
   function moveWidget(id, section, index, delta) {
     if (!pluginRegistry) return
     var next = index + delta
     if (next < 0) return
-    pluginRegistry.moveBarWidget(id, {
-      fromSection: section,
-      fromIndex: index,
-      section: section,
-      index: next
-    })
+    placeWidget(id, section, index, section, next)
   }
 
-  component WidgetRow: Row {
+  component GrabHandle: Item {
+    id: handle
+    property string dragId: ""
+    property string fromKind: ""
+    property int fromIndex: 0
+    property string dragLabel: ""
+    width: handleText.implicitWidth + Style.space(8)
+    height: Math.max(handleText.implicitHeight + Style.space(8), Style.space(28))
+
+    Text {
+      id: handleText
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: "⠿"
+      color: Qt.darker(root.foreground, 1.35)
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+    }
+
+    MouseArea {
+      id: handleMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.OpenHandCursor
+      preventStealing: true
+      property real pressX: 0
+      property real pressY: 0
+      property bool armed: false
+
+      onPressed: function(mouse) {
+        pressX = mouse.x
+        pressY = mouse.y
+        armed = false
+        cursorShape = Qt.ClosedHandCursor
+      }
+      onReleased: function(mouse) {
+        cursorShape = Qt.OpenHandCursor
+        if (root.dragging) {
+          var p = mapToItem(root, mouse.x, mouse.y)
+          root.trackDragPoint(p.x, p.y)
+          root.applyDrop(root.dropTargetKind, root.dropInsertIndex >= 0 ? root.dropInsertIndex : 0)
+        } else {
+          root.endDrag()
+        }
+        armed = false
+      }
+      onCanceled: {
+        cursorShape = Qt.OpenHandCursor
+        root.endDrag()
+        armed = false
+      }
+      onPositionChanged: function(mouse) {
+        if (!pressed) return
+        var dx = mouse.x - pressX
+        var dy = mouse.y - pressY
+        if (!armed && (dx * dx + dy * dy) < 64) return
+        if (!armed) {
+          armed = true
+          root.beginDrag({
+            id: handle.dragId,
+            fromKind: handle.fromKind,
+            fromIndex: handle.fromIndex,
+            name: handle.dragLabel
+          })
+        }
+        var p = mapToItem(root, mouse.x, mouse.y)
+        root.trackDragPoint(p.x, p.y)
+      }
+    }
+  }
+
+  component InsertMarker: Rectangle {
+    property bool active: false
+    width: parent ? parent.width : 0
+    height: 2
+    radius: 1
+    visible: active
+    color: Color.accent
+    z: 10
+  }
+
+  component WidgetRow: Item {
     id: row
     required property string wid
     required property string sectionName
     required property int idx
     property int sectionCount: 0
-    width: parent.width
-    spacing: Style.space(6)
+    property bool showInsertBefore: root.dragging
+      && root.dropTargetKind === row.sectionName
+      && root.dropInsertIndex === row.idx
+      && !(root.dragPayload && root.dragPayload.fromKind === row.sectionName && root.dragPayload.fromIndex === row.idx)
 
-    Text {
-      textFormat: Text.PlainText
-      width: parent.width - upBtn.width - downBtn.width - removeBtn.width - parent.spacing * 3
-      anchors.verticalCenter: parent.verticalCenter
-      elide: Text.ElideRight
-      text: root.widgetName(row.wid)
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.body
+    width: parent ? parent.width : 0
+    height: rowCol.implicitHeight
+    opacity: root.dragging && root.dragPayload && root.dragPayload.id === row.wid
+      && root.dragPayload.fromKind === row.sectionName ? 0.35 : 1
+
+    Column {
+      id: rowCol
+      width: parent.width
+      spacing: 0
+
+      InsertMarker {
+        width: parent.width
+        active: row.showInsertBefore
+      }
+
+      Row {
+        id: controls
+        width: parent.width
+        spacing: Style.space(6)
+
+        GrabHandle {
+          id: grab
+          anchors.verticalCenter: parent.verticalCenter
+          dragId: row.wid
+          fromKind: row.sectionName
+          fromIndex: row.idx
+          dragLabel: root.widgetName(row.wid)
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: Math.max(40, parent.width - grab.width - upBtn.width - downBtn.width - removeBtn.width - parent.spacing * 4)
+          anchors.verticalCenter: parent.verticalCenter
+          elide: Text.ElideRight
+          text: root.widgetName(row.wid)
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
+
+        Button {
+          id: upBtn
+          text: "▲"
+          tooltipText: "Move up"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.caption
+          horizontalPadding: Style.space(8)
+          verticalPadding: Style.space(4)
+          enabled: row.idx > 0
+          onClicked: root.moveWidget(row.wid, row.sectionName, row.idx, -1)
+        }
+
+        Button {
+          id: downBtn
+          text: "▼"
+          tooltipText: "Move down"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.caption
+          horizontalPadding: Style.space(8)
+          verticalPadding: Style.space(4)
+          enabled: row.idx < row.sectionCount - 1
+          onClicked: root.moveWidget(row.wid, row.sectionName, row.idx, 1)
+        }
+
+        Button {
+          id: removeBtn
+          text: "×"
+          tooltipText: "Remove from bar"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.caption
+          horizontalPadding: Style.space(8)
+          verticalPadding: Style.space(4)
+          onClicked: root.removeWidget(row.wid)
+        }
+      }
+    }
+  }
+
+  component AvailableRow: Item {
+    id: availRow
+    required property int index
+    required property string wid
+    required property string displayName
+    required property string sectionName
+    property bool choosing: root.sectionChooserWid === availRow.wid
+    property bool showInsertBefore: root.dragging
+      && root.dropTargetKind === "available"
+      && root.dropInsertIndex === availRow.index
+
+    width: parent ? parent.width : 0
+    height: availCol.implicitHeight
+    opacity: root.dragging && root.dragPayload && root.dragPayload.id === availRow.wid
+      && root.dragPayload.fromKind === "available" ? 0.35 : 1
+
+    Column {
+      id: availCol
+      width: parent.width
+      spacing: 0
+
+      InsertMarker {
+        width: parent.width
+        active: availRow.showInsertBefore
+      }
+
+      Row {
+        width: parent.width
+        spacing: Style.space(6)
+
+        GrabHandle {
+          id: availGrab
+          anchors.verticalCenter: parent.verticalCenter
+          dragId: availRow.wid
+          fromKind: "available"
+          fromIndex: availRow.index
+          dragLabel: availRow.displayName
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: Math.max(40, parent.width - availGrab.width - addArea.width - parent.spacing * 2)
+          anchors.verticalCenter: parent.verticalCenter
+          elide: Text.ElideRight
+          text: displayName
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
+
+        Item {
+          id: addArea
+          anchors.verticalCenter: parent.verticalCenter
+          width: Math.max(addIdle.implicitWidth, addPick.implicitWidth)
+          height: Math.max(addIdle.implicitHeight, addPick.implicitHeight)
+
+          Row {
+            id: addIdle
+            spacing: Style.space(4)
+            visible: !availRow.choosing
+
+            Button {
+              text: "Add"
+              tooltipText: "Choose section (default " + availRow.sectionName + ")"
+              bordered: true
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              horizontalPadding: Style.space(10)
+              verticalPadding: Style.space(4)
+              onClicked: root.sectionChooserWid = availRow.wid
+            }
+          }
+
+          Row {
+            id: addPick
+            spacing: Style.space(4)
+            visible: availRow.choosing
+
+            Button {
+              text: "L"
+              tooltipText: "Add to Left"
+              bordered: true
+              selected: availRow.sectionName === "left"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              horizontalPadding: Style.space(8)
+              verticalPadding: Style.space(4)
+              onClicked: {
+                root.addWidget(availRow.wid, "left")
+                root.sectionChooserWid = ""
+              }
+            }
+            Button {
+              text: "C"
+              tooltipText: "Add to Center"
+              bordered: true
+              selected: availRow.sectionName === "center"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              horizontalPadding: Style.space(8)
+              verticalPadding: Style.space(4)
+              onClicked: {
+                root.addWidget(availRow.wid, "center")
+                root.sectionChooserWid = ""
+              }
+            }
+            Button {
+              text: "R"
+              tooltipText: "Add to Right"
+              bordered: true
+              selected: availRow.sectionName === "right"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              horizontalPadding: Style.space(8)
+              verticalPadding: Style.space(4)
+              onClicked: {
+                root.addWidget(availRow.wid, "right")
+                root.sectionChooserWid = ""
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  component DropListBody: Item {
+    id: dropBody
+    property string kind: ""
+    property var listModel: null
+    property int bodyMaxHeight: Style.space(140)
+    property string emptyText: ""
+    property bool availableMode: false
+    property alias listColumn: bodyCol
+
+    width: parent ? parent.width : 0
+    height: Math.min(bodyMaxHeight, Math.max(Style.space(48), innerFlick.contentHeight + Style.space(16)))
+
+    readonly property bool showEndMarker: root.dragging
+      && root.dropTargetKind === dropBody.kind
+      && listModel
+      && root.dropInsertIndex >= listModel.count
+
+    readonly property bool dropHover: root.dragging && root.dropTargetKind === dropBody.kind
+
+    function contentYOffset() {
+      return innerFlick.contentY
     }
 
-    Button {
-      id: upBtn
-      text: "▲"
-      tooltipText: "Move up"
-      bordered: true
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      fontSize: Style.font.caption
-      horizontalPadding: Style.space(8)
-      verticalPadding: Style.space(4)
-      enabled: row.idx > 0
-      onClicked: root.moveWidget(row.wid, row.sectionName, row.idx, -1)
+    Component.onCompleted: root.registerDropZone(dropBody)
+    Component.onDestruction: root.unregisterDropZone(dropBody)
+
+    Rectangle {
+      anchors.fill: parent
+      visible: dropBody.dropHover
+      color: "transparent"
+      border.width: Math.max(1, Style.normalBorderWidth)
+      border.color: Color.accent
+      radius: Style.cornerRadius
+      opacity: 0.85
     }
 
-    Button {
-      id: downBtn
-      text: "▼"
-      tooltipText: "Move down"
-      bordered: true
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      fontSize: Style.font.caption
-      horizontalPadding: Style.space(8)
-      verticalPadding: Style.space(4)
-      enabled: row.idx < row.sectionCount - 1
-      onClicked: root.moveWidget(row.wid, row.sectionName, row.idx, 1)
-    }
+    Flickable {
+      id: innerFlick
+      anchors.fill: parent
+      anchors.margins: Style.space(2)
+      clip: true
+      contentWidth: width
+      contentHeight: bodyCol.implicitHeight + Style.space(8)
+      boundsBehavior: Flickable.StopAtBounds
+      interactive: !root.dragging && contentHeight > height
 
-    Button {
-      id: removeBtn
-      text: "×"
-      tooltipText: "Remove from bar"
-      bordered: true
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      fontSize: Style.font.caption
-      horizontalPadding: Style.space(8)
-      verticalPadding: Style.space(4)
-      onClicked: root.removeWidget(row.wid)
+      Column {
+        id: bodyCol
+        width: innerFlick.width - Style.space(16)
+        x: Style.space(8)
+        y: Style.space(6)
+        spacing: root.rowSpacing
+
+        Repeater {
+          model: dropBody.availableMode ? null : dropBody.listModel
+          delegate: WidgetRow {
+            width: bodyCol.width
+            sectionCount: dropBody.listModel ? dropBody.listModel.count : 0
+          }
+        }
+
+        Repeater {
+          model: dropBody.availableMode ? dropBody.listModel : null
+          delegate: AvailableRow {
+            width: bodyCol.width
+          }
+        }
+
+        InsertMarker {
+          width: parent.width
+          active: dropBody.showEndMarker
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          visible: !dropBody.listModel || dropBody.listModel.count === 0
+          width: parent.width
+          wrapMode: Text.Wrap
+          text: dropBody.emptyText
+          color: Qt.darker(root.foreground, 1.5)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
     }
   }
 
   component SectionBlock: BorderSurface {
     id: card
     property string title: ""
+    property string kind: ""
     property var sectionModel: null
     property string emptyText: "No widgets in this section"
-    width: col.width
+    property int bodyMaxHeight: Style.space(120)
+    width: parent ? parent.width : 0
     radius: Style.cornerRadius
     clip: true
     color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.04)
@@ -312,78 +783,20 @@ Item {
         }
       }
 
-      Item {
-        width: parent.width
-        height: bodyCol.implicitHeight + Style.space(16)
-
-        Column {
-          id: bodyCol
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.top: parent.top
-          anchors.leftMargin: Style.space(10)
-          anchors.rightMargin: Style.space(10)
-          anchors.topMargin: Style.space(8)
-          spacing: Style.space(4)
-
-          Repeater {
-            model: sectionModel
-            delegate: WidgetRow {
-              sectionCount: sectionModel ? sectionModel.count : 0
-            }
-          }
-
-          Text {
-            textFormat: Text.PlainText
-            visible: !sectionModel || sectionModel.count === 0
-            width: parent.width
-            wrapMode: Text.Wrap
-            text: emptyText
-            color: Qt.darker(root.foreground, 1.5)
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-        }
+      DropListBody {
+        kind: card.kind
+        listModel: card.sectionModel
+        bodyMaxHeight: card.bodyMaxHeight
+        emptyText: card.emptyText
+        availableMode: false
       }
-    }
-  }
-
-  component AvailableRow: Row {
-    id: availRow
-    required property string wid
-    required property string displayName
-    required property string sectionName
-    width: parent.width
-    spacing: Style.space(6)
-
-    Text {
-      textFormat: Text.PlainText
-      width: parent.width - addBtn.width - parent.spacing
-      anchors.verticalCenter: parent.verticalCenter
-      elide: Text.ElideRight
-      text: displayName
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.body
-    }
-
-    Button {
-      id: addBtn
-      text: "Add"
-      tooltipText: "Add to " + availRow.sectionName
-      bordered: true
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      fontSize: Style.font.caption
-      horizontalPadding: Style.space(10)
-      verticalPadding: Style.space(4)
-      onClicked: root.addWidget(availRow.wid, availRow.sectionName)
     }
   }
 
   component AvailableBlock: BorderSurface {
     id: availCard
-    width: col.width
+    property int bodyMaxHeight: Style.space(280)
+    width: parent ? parent.width : 0
     radius: Style.cornerRadius
     clip: true
     color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.04)
@@ -408,7 +821,7 @@ Item {
           anchors.verticalCenter: parent.verticalCenter
           anchors.leftMargin: Style.space(10)
           anchors.rightMargin: Style.space(10)
-          text: "Available widgets"
+          text: "Available"
           color: Color.accent
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
@@ -416,40 +829,23 @@ Item {
         }
       }
 
-      Item {
-        width: parent.width
-        height: availBody.implicitHeight + Style.space(16)
-
-        Column {
-          id: availBody
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.top: parent.top
-          anchors.leftMargin: Style.space(10)
-          anchors.rightMargin: Style.space(10)
-          anchors.topMargin: Style.space(8)
-          spacing: Style.space(4)
-
-          Repeater {
-            model: availableModel
-            delegate: AvailableRow {}
-          }
-
-          Text {
-            textFormat: Text.PlainText
-            visible: availableModel.count === 0
-            width: parent.width
-            wrapMode: Text.Wrap
-            text: (leftModel.count + centerModel.count + rightModel.count) === 0
-              ? "No bar widgets found. If the bar itself is populated, the Settings plugin needs a shell restart after deploy."
-              : "Every installed bar widget is already on the bar."
-            color: Qt.darker(root.foreground, 1.5)
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-        }
+      DropListBody {
+        kind: "available"
+        listModel: availableModel
+        bodyMaxHeight: availCard.bodyMaxHeight
+        availableMode: true
+        emptyText: (leftModel.count + centerModel.count + rightModel.count) === 0
+          ? "No bar widgets found. If the bar itself is populated, the Settings plugin needs a shell restart after deploy."
+          : "Every installed bar widget is already on the bar. Drag a placed widget here to remove it."
       }
     }
+  }
+
+  MouseArea {
+    anchors.fill: parent
+    enabled: root.sectionChooserWid !== "" && !root.dragging
+    z: -1
+    onClicked: root.sectionChooserWid = ""
   }
 
   Flickable {
@@ -536,10 +932,76 @@ Item {
         onModified: function(v) { root.setIslandRadius(v) }
       }
 
-      SectionBlock { title: "Left"; sectionModel: leftModel }
-      SectionBlock { title: "Center"; sectionModel: centerModel }
-      SectionBlock { title: "Right"; sectionModel: rightModel }
-      AvailableBlock {}
+      Text {
+        textFormat: Text.PlainText
+        width: parent.width
+        wrapMode: Text.Wrap
+        text: "Drag ⠿ to rearrange. Drop onto Available to remove. Add opens a section picker."
+        color: Qt.darker(root.foreground, 1.45)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
+      Row {
+        id: arrangeRow
+        width: parent.width
+        spacing: Style.space(12)
+
+        AvailableBlock {
+          width: (parent.width - parent.spacing) / 2
+          bodyMaxHeight: Math.max(Style.space(200), rightColumn.implicitHeight - Style.space(36))
+        }
+
+        Column {
+          id: rightColumn
+          width: (parent.width - parent.spacing) / 2
+          spacing: Style.space(8)
+
+          SectionBlock {
+            title: "Left"
+            kind: "left"
+            sectionModel: leftModel
+            bodyMaxHeight: Style.space(120)
+          }
+          SectionBlock {
+            title: "Center"
+            kind: "center"
+            sectionModel: centerModel
+            bodyMaxHeight: Style.space(120)
+          }
+          SectionBlock {
+            title: "Right"
+            kind: "right"
+            sectionModel: rightModel
+            bodyMaxHeight: Style.space(120)
+          }
+        }
+      }
+    }
+  }
+
+  Rectangle {
+    id: ghost
+    visible: root.dragging && root.dragPayload
+    x: root.dragGhostX + Style.space(8)
+    y: root.dragGhostY + Style.space(8)
+    z: 100
+    width: ghostLabel.implicitWidth + Style.space(16)
+    height: ghostLabel.implicitHeight + Style.space(10)
+    radius: Style.cornerRadius
+    color: Color.popups.background
+    border.width: Math.max(1, Style.normalBorderWidth)
+    border.color: Color.accent
+    opacity: 0.95
+
+    Text {
+      id: ghostLabel
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: root.dragPayload ? String(root.dragPayload.name || root.dragPayload.id || "") : ""
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
     }
   }
 }

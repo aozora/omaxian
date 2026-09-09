@@ -42,8 +42,11 @@ redeploy, so layout edits survive.
 - Floating island (`island`, `islandMargin`, `islandRadius`) — inset rounded
   chrome; see [bar.md](bar.md). Toggling island may need a shell reload
   (prefer log out / log in; avoid `omarchy-restart-shell` on glx picom)
-- Left / Center / Right widget lists with up / down / remove
-- Available widgets that are not on the bar yet, with Add
+- Dual-pane arrange UI: **Available** (left) and **Left / Center / Right**
+  lists (right). Drag the ⠿ handle to reorder within a section, move across
+  sections, add from Available, or drop onto Available to remove. ▲ / ▼ / ×
+  remain as click fallbacks. **Add** opens a Left / Center / Right picker
+  (default section from the widget manifest is highlighted)
 
 ### Dock
 
