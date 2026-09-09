@@ -327,9 +327,12 @@ Panel {
 
             onActiveChanged: {
               if (active) {
+                // Wrap the hold-open callback in a JS function value — Binding
+                // cannot take a QML method reference (warns: assign function
+                // only to var), and setSource initial props need a real var.
                 var props = {
                   active: true,
-                  requestHoldOpen: root.beginHoldDismiss
+                  requestHoldOpen: function() { root.beginHoldDismiss() }
                 }
                 if (needsBar) props.bar = root.bar
                 setSource(Qt.resolvedUrl(tabUrl), props)
@@ -347,6 +350,8 @@ Panel {
               if (!item) return
               if (needsBar) item.bar = root.bar
               item.active = root.opened && visible
+              if ("requestHoldOpen" in item)
+                item.requestHoldOpen = function() { root.beginHoldDismiss() }
             }
 
             Binding {
@@ -360,12 +365,6 @@ Panel {
               property: "bar"
               value: root.bar
               when: tabLoader.needsBar && tabLoader.item !== null
-            }
-            Binding {
-              target: tabLoader.item
-              property: "requestHoldOpen"
-              value: root.beginHoldDismiss
-              when: tabLoader.item !== null && tabLoader.item.requestHoldOpen !== undefined
             }
           }
 
