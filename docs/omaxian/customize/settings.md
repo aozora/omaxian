@@ -101,8 +101,10 @@ Extra login apps in `~/.config/omarchy/startup.json`:
 ```
 
 Add from the app catalog, enable / disable, reorder, remove, or **Launch now**.
-`omarchy-startup-launch` runs at the end of `i3_autostart`. Session daemons
-(dunst, picom, mpd, …) stay hardcoded and are not in this list.
+`omarchy-startup-launch` runs at the end of `i3_autostart` and waits until the
+bar's StatusNotifier host is up so Qt tray apps (Flameshot, MEGAsync, …) can
+register a systray icon. Session daemons (dunst, picom, mpd, …) stay hardcoded
+and are not in this list.
 
 ### Keyboard
 

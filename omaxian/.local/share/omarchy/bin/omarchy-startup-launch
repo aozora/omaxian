@@ -4,9 +4,9 @@
 
 """Launch extra session apps listed in ~/.config/omarchy/startup.json.
 
-Called at the end of i3_autostart (which is exec_always — reload + restart).
-A per-login lock under $XDG_RUNTIME_DIR ensures apps launch only once per
-X session, not on every i3 reload/restart. Pass --force to bypass.
+Called at the end of i3_autostart (login `exec`, not reload). A per-login
+lock under $XDG_RUNTIME_DIR ensures apps launch only once per X session.
+Pass --force to bypass.
 
 Session daemons (dunst, picom, mpd, …) stay hardcoded in i3_autostart; this
 only starts user-selected desktop apps.
@@ -14,6 +14,11 @@ only starts user-selected desktop apps.
 Each apps[] entry is { "desktopId": "brave", "enabled": true }. Order is
 launch order. enabled:false is skipped. Missing .desktop files are skipped
 with a log line, not a fatal error.
+
+Qt tray apps (Flameshot, MEGAsync, …) ask StatusNotifierHostRegistered once
+and cache the answer for the process lifetime. i3_bar backgrounds Quickshell
+and returns immediately, so a launch here used to win that race, skip SNI,
+find no XEmbed tray, and run with no icon. Wait for the host before gtk-launch.
 """
 
 from __future__ import annotations
@@ -22,8 +27,11 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 STARTUP_PATH = os.path.expanduser("~/.config/omarchy/startup.json")
+TRAY_HOST_WAIT_S = 20.0
+TRAY_HOST_POLL_S = 0.15
 
 
 def log(msg: str) -> None:
@@ -92,6 +100,36 @@ def load_apps(path: str) -> list[dict]:
     return out
 
 
+def sni_host_registered() -> bool:
+    try:
+        result = subprocess.run(
+            [
+                "busctl",
+                "--user",
+                "get-property",
+                "org.kde.StatusNotifierWatcher",
+                "/StatusNotifierWatcher",
+                "org.kde.StatusNotifierWatcher",
+                "IsStatusNotifierHostRegistered",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and "true" in result.stdout.lower()
+
+
+def wait_for_sni_host(timeout_s: float = TRAY_HOST_WAIT_S) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if sni_host_registered():
+            return
+        time.sleep(TRAY_HOST_POLL_S)
+    log(f"StatusNotifier host not ready after {timeout_s:.0f}s — launching anyway")
+
+
 def launch(ident: str) -> None:
     desktop = ident if ident.endswith(".desktop") else f"{ident}.desktop"
     try:
@@ -110,9 +148,10 @@ def main(argv: list[str] | None = None) -> int:
     force = "--force" in args
     if not claim_session_once(force):
         return 0
-    for app in load_apps(STARTUP_PATH):
-        if not app["enabled"]:
-            continue
+    apps = [app for app in load_apps(STARTUP_PATH) if app["enabled"]]
+    if apps:
+        wait_for_sni_host()
+    for app in apps:
         launch(app["desktopId"])
     return 0
 
