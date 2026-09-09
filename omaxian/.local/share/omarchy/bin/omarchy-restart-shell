@@ -40,18 +40,22 @@ COMP="$HOME/.config/i3/scripts/i3_comp"
 [[ -f $CONFIG_DIR/shell.qml ]] || { echo "omarchy shell config not found: $CONFIG_DIR" >&2; exit 1; }
 mkdir -p "$(dirname "$LOG")" "$LOCK_DIR"
 
+log_ts() { date '+%Y-%m-%d %H:%M:%S'; }
+
 log() {
   # Child has stdout already appended to $LOG — do not tee (that doubles lines).
-  echo "omarchy-restart-shell: $*"
+  local line
+  line="$(log_ts) omarchy-restart-shell: $*"
+  echo "$line"
   if [[ -t 1 ]]; then
-    echo "omarchy-restart-shell: $*" >>"$LOG"
+    echo "$line" >>"$LOG"
   fi
 }
 
 # QS 0.3.0's execDetached (menu → this script) does not fully detach: killing
 # quickshell can SIGHUP this process before relaunch. Re-enter under setsid.
 if [[ ${OMARCHY_RESTART_DETACHED:-} != 1 ]]; then
-  echo "omarchy-restart-shell: detaching before stop/relaunch…" | tee -a "$LOG"
+  echo "$(log_ts) omarchy-restart-shell: detaching before stop/relaunch…" | tee -a "$LOG"
   setsid -f env OMARCHY_RESTART_DETACHED=1 OMARCHY_PATH="$OMARCHY_PATH" PATH="$PATH" \
     ${DISPLAY:+DISPLAY="$DISPLAY"} ${I3SOCK:+I3SOCK="$I3SOCK"} \
     ${DBUS_SESSION_BUS_ADDRESS:+DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"} \
