@@ -11,7 +11,8 @@ wlroots, no PipeWire, no systemd).
 decisions below were later reversed (polybar and rofi retired; the QS bar is
 the bar). Paths written as `marcello/` mean today's `omaxian/`.
 
-Upstream reference: `omarchy-quattro/` — Omarchy **v4.0.2** (`omarchy-quattro/version`).
+Upstream reference: `omarchy-quattro/` — Omarchy **v4.0.3** (tag `v4.0.3`;
+`omarchy-quattro/version` may still read `4.0.0.alpha` — trust the git tag).
 Treat that tree as read-only vendored upstream; never edit it. Pin is
 `OMARCHY_UPSTREAM_REF` in `setup.sh` / `install.sh` (see
 [upstream-tracking.md](upstream-tracking.md)).
@@ -34,11 +35,11 @@ Treat that tree as read-only vendored upstream; never edit it. Pin is
 
 ---
 
-## 1. What upstream ships (v4.0.2 inventory)
+## 1. What upstream ships (v4.0.3 inventory)
 
 ```
 omarchy-quattro/
-  version                       4.0.2
+  version                       4.0.0.alpha (tag v4.0.3 — trust git tag)
   bin/            ~260 omarchy-* CLI scripts (theme, bar, audio, bluetooth, wifi, capture, menu, agent…)
   default/themed/ 17 *.tpl color templates (alacritty, kitty, foot, ghostty, btop, chromium,
                   claude, helix, neovim, vscode, obsidian, hyprland, keyboard.rgb, shell.toml, …)

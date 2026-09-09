@@ -13,6 +13,9 @@ Item {
 
   property var shell: null
 
+  readonly property var idleConfig: shell && shell.shellConfig && shell.shellConfig.idle
+    ? shell.shellConfig.idle : (shell && shell.idleConfig ? shell.idleConfig : ({}))
+
   readonly property string home: Quickshell.env("HOME")
   readonly property string stayAwakeStateDir: home + "/.local/state/omarchy/indicators"
   readonly property string stayAwakeStatePath: stayAwakeStateDir + "/stay-awake"

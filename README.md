@@ -357,7 +357,7 @@ edit it. To move to a newer tag:
 
 ```sh
 rm -rf omarchy-quattro
-OMARCHY_UPSTREAM_REF=v4.0.2 ./install.sh
+OMARCHY_UPSTREAM_REF=v4.0.3 ./install.sh
 ```
 
 ---

@@ -19,7 +19,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Upstream Omarchy is cloned into omarchy-quattro/ (pinned), not vendored.
 # Override with: OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=…
 UPSTREAM_URL="${OMARCHY_UPSTREAM_URL:-https://github.com/omacom/omarchy.git}"
-UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.0.2}"
+UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.0.3}"
 
 WITH_RECOMMENDED=1
 WITH_OPTIONAL=0

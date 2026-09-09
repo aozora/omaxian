@@ -111,6 +111,30 @@ notifications-plugin / unported plugins skipped.
 | `Ui/*` PlainText, ported panels/osd/polkit/reminders/tray | `textFormat: Text.PlainText` on `Text {}` | already present (Phase 2 catch-up). `Button`/`ConfirmDialog`/`Dropdown`/`MultiSelect`/`NumberField`/`OpticalGlyph`/`PanelActionButton`/`PanelHero`/`PanelSectionHeader`/`PanelToolTip`/`SearchableDropdown`/`Toggle`/`WidgetButton` are **byte-identical** to 4.0.2. | — | **converged** | Known T1/T2 rows (`KeyboardPanel`/`PopupCard`/`SpeedTestOverlay`/`qmldir`) unchanged. |
 | `plugins/notifications/NotificationLogic.js` | strip `<img src>` before StyledText | **not ported** (dunst). | — | — | Recorded so a silent omission is not mistaken for drift. |
 
+## 4.0.3 (2026-09-09)
+
+Upstream tag **v4.0.3** (`OMARCHY_UPSTREAM_REF`). Quirk: `omarchy-quattro/version`
+still reads `4.0.0.alpha` — trust the git tag / `describe`. Shell change is the
+plugin **authentication / host-API boundary** (third-party plugins no longer
+retain live `ShellRoot` / registry / lock-polkit services). Hermes / OpenClaw /
+T3 / Cursor-CLI Arch installers and their menu rows are **not ported**. Impact
+note: [v4_0_3.md](v4_0_3.md).
+
+| File | Upstream | omaxian | Transform | Status | Notes |
+|---|---|---|---|---|---|
+| `Ui/PluginBarApi.qml` + `services/AuthServiceStore.js` + `services/Plugin{Shell,Registry,BarWidgetRegistry,AppLibrary,BarState,FirstPartyService}Api.qml` | Detached facades + per-importer auth store so plugins cannot reach lock/polkit or the host shell | **copied verbatim 2026-09-09.** | — | **converged** | X11-safe; `PluginAppLibraryApi` sits in front of the port's AppLibrary deltas. |
+| `Ui/qmldir` | registers `PluginBarApi` | **done.** Added the line; kept local `CenteredModal` / `FolderPicker`. | `local` | **keep** | |
+| `services/PluginRegistry.qml` | `trustedCapabilities` / `stampHostCapabilities` / `__hostCapabilities` on clones | **done.** Hunks applied; **kept** `deployFrozen` / `omaxian-deploy.lock`. | `local` | **keep** | |
+| `shell.qml` | AuthServiceStore + Plugin*Api factories; `configureBar` / panels / `ensureService` inject proxies; `serviceKeepLoaded` unload path; `publicPluginManifest` | **merged onto port** (not raw upstream). **Kept** S1–S5, `defaultsPath`→`shell.json`, deploy freeze, empty-read/remount, no `Style.scheduleRefresh()`. | multiple | **keep** (S1–S5 + local) + auth hunks **converged** | |
+| `plugins/bar/Bar.qml` | `PluginBarApi` for non-first-party widgets; `setCenterHoverRevealSuppressed` | **done** on T1/T3 bar. First-party still gets live bar. | `T1`/`T3` | **keep** | |
+| `plugins/panels/{weather,clock}/Panel.qml` | prefer `bar.setCenterHoverRevealSuppressed()` when present | **done** (weather keeps local safe-read). Clock panel tree retained. | — | **converged** (setter) | |
+| `plugins/services/idle/Service.qml` | `idleConfig` also reads `shell.idleConfig` (facade path) | **expression only** on the X11 stay-awake stub. | `T1` | **keep** | Do not restore Hyprland IdleMonitor. |
+| `plugins/polkit/manifest.json` | `omarchy.capabilities: ["authentication"]` | **done.** Still disabled by default in `shell.json`. | — | **converged** | |
+| `plugins/lock/` | same capability + lock hardening upstream | **not ported** (`i3lock`). AuthServiceStore still ships for polkit. | — | — | |
+| `bin/omarchy-theme-set` | calls `omarchy-theme-set-hermes` / `-t3code` | **skipped** — port script is the X11 rewrite; those helpers are Arch/app-skin only. | `local` | **keep** | |
+| Hermes / OpenClaw / T3 / Perplexity / Muse / Cursor-CLI installers + menu AI rows | Arch `omarchy-install-ai-*` / `omarchy-pkg-*` | **not ported.** Port menu overlay stays stripped of Install/Remove AI trees. | — | — | |
+| `config/kitty` / `etc/xdg/kitty` | `allow_remote_control socket-only` | **done** in `omaxian/.config/kitty/kitty.conf` and `omaxian/.config/i3/kitty/kitty.conf`. | — | **converged** | Upstream moved system defaults to `/etc/xdg/kitty`; Omaxian keeps a full user conf. |
+
 ## 2026-09-03 follow-up (post 4.0.2)
 
 | File | Upstream | omaxian | Transform | Status | Notes |
