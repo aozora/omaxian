@@ -110,7 +110,7 @@ Omaxian is built on:
 | **dunst** | Notifications | `~/.config/i3/dunstrc` |
 | **Omaxian shell** | Status bar + panels (Quickshell) | `~/.config/omarchy/shell.json` |
 | **Launcher / menus** | Quickshell menu | `$OMARCHY_PATH/default/omarchy/omarchy-menu.jsonc` |
-| **kitty** | Terminal | `~/.config/i3/kitty/` or `~/.config/kitty/` |
+| **kitty** | Terminal | `~/.config/kitty/` |
 | **Omaxian OSD** | On-screen display | Quickshell plugin |
 
 `$OMARCHY_PATH` is `$HOME/.local/share/omarchy`.
@@ -161,7 +161,7 @@ and the Settings panel (Super+Ctrl+S) — see [`plugins.md`](plugins.md).
 |-----|----------|
 | picom | `~/.config/i3/picom.conf` |
 | dunst | `~/.config/i3/dunstrc` |
-| kitty | `~/.config/i3/kitty/` |
+| kitty | `~/.config/kitty/` |
 | xsettingsd | `~/.config/i3/xsettingsd` |
 
 ## Safe Customization Patterns

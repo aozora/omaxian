@@ -133,7 +133,7 @@ note: [v4_0_3.md](v4_0_3.md).
 | `plugins/lock/` | same capability + lock hardening upstream | **not ported** (`i3lock`). AuthServiceStore still ships for polkit. | — | — | |
 | `bin/omarchy-theme-set` | calls `omarchy-theme-set-hermes` / `-t3code` | **skipped** — port script is the X11 rewrite; those helpers are Arch/app-skin only. | `local` | **keep** | |
 | Hermes / OpenClaw / T3 / Perplexity / Muse / Cursor-CLI installers + menu AI rows | Arch `omarchy-install-ai-*` / `omarchy-pkg-*` | **not ported.** Port menu overlay stays stripped of Install/Remove AI trees. | — | — | |
-| `config/kitty` / `etc/xdg/kitty` | `allow_remote_control socket-only` | **done** in `omaxian/.config/kitty/kitty.conf` and `omaxian/.config/i3/kitty/kitty.conf`. | — | **converged** | Upstream moved system defaults to `/etc/xdg/kitty`; Omaxian keeps a full user conf. |
+| `config/kitty` / `etc/xdg/kitty` | `allow_remote_control socket-only` | **done** in `omaxian/.config/kitty/kitty.conf`. Archcraft `i3/kitty/` dropped; `i3_term` / `i3_music` use that path. | — | **converged** | Upstream moved system defaults to `/etc/xdg/kitty`; Omaxian keeps a full user conf. |
 
 ## 2026-09-03 follow-up (post 4.0.2)
 

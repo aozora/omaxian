@@ -2,10 +2,9 @@
 
 ## Copyright (C) 2020-2026 Aditya Shakya <adi1090x@gmail.com>
 ##
-## Default terminal launcher (kitty + i3 config)
+## Default terminal launcher (kitty)
 
-DIR="$HOME/.config/i3"
-CONFIG="$DIR/kitty/kitty.conf"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/kitty/kitty.conf"
 
 if [[ "$1" == "--float" ]]; then
 	shift
