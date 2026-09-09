@@ -92,7 +92,7 @@ fi
 # Lauch compositor
 "$idir"/scripts/i3_comp
 
-# Screen lock: manual only (Alt+Control+l → scripts/i3_lock). No xss-lock / screensaver.
+# Screen lock: manual only (Super+Ctrl+L → scripts/i3_lock). No xss-lock / screensaver.
 
 # Host-only apps (skip in VM)
 is_virtual_machine() {

@@ -39,18 +39,20 @@ Panel {
 
   property string activeTab: "audio"
 
-  // Animated outer size. Targets update only on open / tab settle (not on every
-  // Style tick) so applyTheme cannot recenter the Qt::Popup grab mid-session.
-  // Tab switches animate; first open snaps. holdDismiss covers shrink/grow so
-  // the pointer is not treated as an outside click during the tween.
-  property int displayPopupWidth: 0
-  property int displayPopupHeight: 0
-  property bool sizeAnimEnabled: false
-  readonly property int sizeAnimMs: 220
+  // Grow-only outer popup size while open. Wallpaper/Theme are ~1000px wide;
+  // Monitor/Bluetooth are ~380. Mid-click shrink+recenter puts the pointer
+  // outside the Qt::Popup grab and dismisses as if clicked outside.
+  //
+  // Also freeze against Style.space / bar-size changes from applyTheme while
+  // a theme is being applied — those grow/recenter the same way. Sticky is
+  // only bumped on open / tab change (settle window), not on every Style tick.
+  property int stickyPopupWidth: 0
+  property int stickyPopupHeight: 0
+  property bool stickySettling: false
 
   // theme-set / bg-set: applyTheme + i3 reload can steal the popup grab.
   // Hold dismiss long enough for that fan-out, and re-arm visibility if grab
-  // already cleared the window. Also used across tab size animation.
+  // already cleared the window.
   property bool holdDismiss: false
 
   readonly property var tabs: [
@@ -69,56 +71,33 @@ Panel {
     return Math.ceil(panel.fittedContentHeight(layoutRow.implicitHeight))
   }
 
-  function applyLivePopupSize(animate) {
+  function bumpStickyPopup() {
     if (!root.opened) return
     var w = livePopupWidth()
     var h = livePopupHeight()
-    if (w < 1 && h < 1) return
-    var changed = (w !== root.displayPopupWidth) || (h !== root.displayPopupHeight)
-    var useAnim = !!animate && root.sizeAnimEnabled
-    if (useAnim && changed)
-      root.beginHoldDismiss(root.sizeAnimMs + 80)
-    if (!useAnim) {
-      // Snap without running the Behavior (open / first measure).
-      root.sizeAnimEnabled = false
-      root.displayPopupWidth = w
-      root.displayPopupHeight = h
-    } else {
-      root.displayPopupWidth = w
-      root.displayPopupHeight = h
-    }
+    if (w > root.stickyPopupWidth) root.stickyPopupWidth = w
+    if (h > root.stickyPopupHeight) root.stickyPopupHeight = h
   }
 
-  function beginSizeSettle(animate) {
+  function beginStickySettle() {
     if (!root.opened) return
-    sizeSettleTimer.animate = !!animate
-    sizeSettleTimer.restart()
-    Qt.callLater(function() { root.applyLivePopupSize(!!animate) })
+    stickySettling = true
+    stickySettleTimer.restart()
+    Qt.callLater(bumpStickyPopup)
   }
 
-  function beginHoldDismiss(ms) {
+  function beginHoldDismiss() {
     holdDismiss = true
-    holdDismissTimer.interval = Math.max(200, Number(ms) || 2000)
     holdDismissTimer.restart()
   }
 
-  Behavior on displayPopupWidth {
-    enabled: root.opened && root.sizeAnimEnabled
-    NumberAnimation { duration: root.sizeAnimMs; easing.type: Easing.OutCubic }
-  }
-  Behavior on displayPopupHeight {
-    enabled: root.opened && root.sizeAnimEnabled
-    NumberAnimation { duration: root.sizeAnimMs; easing.type: Easing.OutCubic }
-  }
-
   Timer {
-    id: sizeSettleTimer
-    property bool animate: false
+    id: stickySettleTimer
     interval: 80
     repeat: false
     onTriggered: {
-      root.applyLivePopupSize(animate)
-      root.sizeAnimEnabled = true
+      root.bumpStickyPopup()
+      root.stickySettling = false
     }
   }
 
@@ -131,19 +110,18 @@ Panel {
 
   onOpenedChanged: {
     if (!opened) {
-      sizeAnimEnabled = false
-      displayPopupWidth = 0
-      displayPopupHeight = 0
-      sizeSettleTimer.stop()
+      stickyPopupWidth = 0
+      stickyPopupHeight = 0
+      stickySettling = false
+      stickySettleTimer.stop()
       holdDismiss = false
       holdDismissTimer.stop()
     } else {
-      sizeAnimEnabled = false
-      beginSizeSettle(false)
+      beginStickySettle()
     }
   }
 
-  onActiveTabChanged: if (opened) beginSizeSettle(true)
+  onActiveTabChanged: if (opened) beginStickySettle()
 
   function showTab(name) {
     var tab = String(name || "")
@@ -199,10 +177,27 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    // Driven by displayPopup* so tab switches tween; targets are set only on
-    // open / tab settle (see applyLivePopupSize) to ignore applyTheme Style ticks.
-    contentWidth: Math.max(1, root.displayPopupWidth > 0 ? root.displayPopupWidth : root.livePopupWidth())
-    contentHeight: Math.max(1, root.displayPopupHeight > 0 ? root.displayPopupHeight : root.livePopupHeight())
+    // + verticalContentInset (misleadingly named — it's padding*2 + a
+    // uniform border width, the same on every side): layoutRow is anchored
+    // left/right to the padded interior, not sized off its own
+    // implicitWidth, so contentWidth has to request the full desired
+    // *outer* size (content + insets) or the interior clips it. Same
+    // reasoning fittedContentHeight already bakes in for height; there's no
+    // fittedContentWidth equivalent, so it's added here explicitly.
+    contentWidth: {
+      var live = root.livePopupWidth()
+      // During tab/open settle, allow growth to the new tab. Afterwards freeze
+      // so applyTheme Style.space changes cannot recenter/dismiss the grab.
+      if (root.stickySettling || root.stickyPopupWidth <= 0)
+        return Math.max(root.stickyPopupWidth, live)
+      return root.stickyPopupWidth
+    }
+    contentHeight: {
+      var live = root.livePopupHeight()
+      if (root.stickySettling || root.stickyPopupHeight <= 0)
+        return Math.max(root.stickyPopupHeight, live)
+      return root.stickyPopupHeight
+    }
 
     focusTarget: keyCatcher
     // Wallpaper folder picker owns Escape while open; otherwise ESC dismisses.
@@ -236,12 +231,13 @@ Panel {
       // content is short.
       Row {
         id: layoutRow
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
         spacing: Style.space(14)
 
         Column {
           id: tabStripColumn
-          anchors.top: parent.top
           spacing: Style.space(4)
 
           Repeater {
@@ -296,22 +292,19 @@ Panel {
             var loader = activeLoader
             return loader && loader.status === Loader.Ready ? loader.item : null
           }
-          // Preferred size for livePopup* measurement; assigned size fills the
-          // animated outer window so the pane tracks the tween instead of
-          // leaving a gap or clipping harshly.
           implicitWidth: {
             var current = activeItem ? activeItem.implicitWidth : 0
+            // Floor only — outer popup sticky (contentWidth) owns grow/freeze.
             return Math.max(Style.space(380), current)
           }
           implicitHeight: {
             var current = activeItem ? activeItem.implicitHeight : 0
             return Math.max(Style.space(200), current)
           }
-          width: Math.max(1, parent.width - tabStripColumn.width - parent.spacing)
-          height: parent.height
-          clip: true
+          width: implicitWidth
+          height: implicitHeight
 
-          onActiveItemChanged: if (root.opened) root.beginSizeSettle(true)
+          onActiveItemChanged: if (root.opened) root.beginStickySettle()
 
           // Shared wiring for every tab Loader: defer compilation until the
           // tab is selected, inject bar/active via setSource (so first-frame
