@@ -19,6 +19,22 @@
 
 set -euo pipefail
 
+readonly JQ=/usr/bin/jq
+readonly FIND=/usr/bin/find
+readonly MKDIR=/usr/bin/mkdir
+readonly CHMOD=/usr/bin/chmod
+readonly RM=/usr/bin/rm
+readonly PKILL=/usr/bin/pkill
+readonly DATE=/usr/bin/date
+readonly WC=/usr/bin/wc
+readonly SETSID=/usr/bin/setsid
+readonly SLEEP=/usr/bin/sleep
+readonly PAPLAY=/usr/bin/paplay
+readonly PWPLAY=/usr/bin/pw-play
+readonly PGREP=/usr/bin/pgrep
+readonly BASH=/bin/bash
+readonly MV=/usr/bin/mv
+
 readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/nag"
 readonly ALARM_DIR="$STATE_DIR/alarms"
 readonly RING_DIR="$STATE_DIR/ringing"
@@ -42,11 +58,11 @@ readonly GLYPH=$'󰔟'
 # ---------------------------------------------------------------------------
 
 die() {
-  jq -cn --arg error "$1" '{ok: false, error: $error}'
+  "$JQ" -cn --arg error "$1" '{ok: false, error: $error}'
   exit 0
 }
 
-ok_json() { jq -cn "$@"; }
+ok_json() { "$JQ" -cn "$@"; }
 
 # One alarm document is a handful of fields, so anything approaching this is
 # either corruption or somebody else's file.
@@ -65,12 +81,12 @@ harden_dir() {
     return 1
   fi
 
-  mkdir -p -m 700 -- "$dir" 2>/dev/null || true
+  "$MKDIR" -p -m 700 -- "$dir" 2>/dev/null || true
 
   [[ -d $dir && ! -L $dir ]] || { echo "nag: $dir is not a directory" >&2; return 1; }
   [[ -O $dir ]] || { echo "nag: $dir is not ours" >&2; return 1; }
 
-  chmod 700 -- "$dir" 2>/dev/null || true
+  "$CHMOD" 700 -- "$dir" 2>/dev/null || true
 }
 
 # The two leaf directories hold nothing but alarm documents, so anything in
@@ -80,8 +96,8 @@ harden_dir() {
 # today can still hold 0644 files written by an earlier version.
 clean_leaf_dir() {
   local dir="$1"
-  find "$dir" -mindepth 1 -maxdepth 1 ! -type f -exec rm -rf -- {} + 2>/dev/null || true
-  find "$dir" -mindepth 1 -maxdepth 1 -type f -exec chmod 600 -- {} + 2>/dev/null || true
+  "$FIND" "$dir" -mindepth 1 -maxdepth 1 ! -type f -exec "$RM" -rf -- {} + 2>/dev/null || true
+  "$FIND" "$dir" -mindepth 1 -maxdepth 1 -type f -exec "$CHMOD" 600 -- {} + 2>/dev/null || true
 }
 
 ensure_dirs() {
@@ -115,8 +131,8 @@ write_state() {
   dir=$(dirname -- "$dest")
 
   tmp=$(umask 077; mktemp -p "$dir" .nag.XXXXXXXXXX) || return 1
-  printf '%s\n' "$payload" >"$tmp" || { rm -f -- "$tmp"; return 1; }
-  mv -f -T -- "$tmp" "$dest" || { rm -f -- "$tmp"; return 1; }
+  printf '%s\n' "$payload" >"$tmp" || { "$RM" -f -- "$tmp"; return 1; }
+  "$MV" -f -T -- "$tmp" "$dest" || { "$RM" -f -- "$tmp"; return 1; }
 }
 
 # Strip what a markup-capable sink would act on, plus control characters, and
@@ -144,18 +160,18 @@ demo_on() { [[ -f $DEMO_FILE ]]; }
 # always sensible and the same shot can be retaken in a year.
 demo_list() {
   local now
-  now=$(date +%s)
+  now=$("$DATE" +%s)
   local rows='[]' item at
   add_demo() {
     at=$((now + $1))
-    item=$(jq -cn --arg id "0000000000-$2" --argjson at "$at" --arg message "$3" \
+    item=$("$JQ" -cn --arg id "0000000000-$2" --argjson at "$at" --arg message "$3" \
       --arg atLabel "$(format_at "$at")" \
       --arg atPhrase "$(format_at_phrase "$at")" \
       --arg remaining "$(format_remaining $1)" \
       --argjson remainingSeconds "$1" \
       '{id: $id, at: $at, message: $message, atLabel: $atLabel, atPhrase: $atPhrase,
         remaining: $remaining, remainingSeconds: $remainingSeconds, ringing: false}')
-    rows=$(jq -c --argjson item "$item" '. + [$item]' <<<"$rows")
+    rows=$("$JQ" -c --argjson item "$item" '. + [$item]' <<<"$rows")
   }
   add_demo 18420 1 "pick up the kids"
   add_demo 205200 2 "hockey practice"
@@ -163,7 +179,7 @@ demo_list() {
 
   # Sorted by time, exactly like the real list, so the demo cannot look
   # different from what the plugin actually does.
-  jq -cn --argjson rows "$rows" '
+  "$JQ" -cn --argjson rows "$rows" '
     ($rows | sort_by(.at)) as $alarms |
     {ok: true, count: ($alarms | length), ringingCount: 0,
      next: $alarms[0], alarms: $alarms}'
@@ -190,7 +206,7 @@ sleeper_pattern() {
 }
 
 new_id() {
-  printf '%s-%s' "$(date +%s)" "$RANDOM"
+  printf '%s-%s' "$("$DATE" +%s)" "$RANDOM"
 }
 
 # Trim, collapse whitespace, drop control characters, and cap the length. The
@@ -227,18 +243,18 @@ format_remaining() {
 format_at() {
   local at=$1
   local today tomorrow day
-  today=$(date +%Y%m%d)
-  tomorrow=$(date -d "tomorrow" +%Y%m%d)
-  day=$(date -d "@$at" +%Y%m%d)
+  today=$("$DATE" +%Y%m%d)
+  tomorrow=$("$DATE" -d "tomorrow" +%Y%m%d)
+  day=$("$DATE" -d "@$at" +%Y%m%d)
 
   if [[ $day == "$today" ]]; then
-    date -d "@$at" '+%H:%M'
+    "$DATE" -d "@$at" '+%H:%M'
   elif [[ $day == "$tomorrow" ]]; then
-    date -d "@$at" '+tomorrow %H:%M'
-  elif ((at - $(date +%s) < 604800)); then
-    date -d "@$at" '+%a %H:%M'
+    "$DATE" -d "@$at" '+tomorrow %H:%M'
+  elif ((at - $("$DATE" +%s) < 604800)); then
+    "$DATE" -d "@$at" '+%a %H:%M'
   else
-    date -d "@$at" '+%-d %b %H:%M'
+    "$DATE" -d "@$at" '+%-d %b %H:%M'
   fi
 }
 
@@ -249,18 +265,18 @@ format_at() {
 format_at_phrase() {
   local at=$1
   local today tomorrow day
-  today=$(date +%Y%m%d)
-  tomorrow=$(date -d "tomorrow" +%Y%m%d)
-  day=$(date -d "@$at" +%Y%m%d)
+  today=$("$DATE" +%Y%m%d)
+  tomorrow=$("$DATE" -d "tomorrow" +%Y%m%d)
+  day=$("$DATE" -d "@$at" +%Y%m%d)
 
   if [[ $day == "$today" ]]; then
-    date -d "@$at" '+at %H:%M'
+    "$DATE" -d "@$at" '+at %H:%M'
   elif [[ $day == "$tomorrow" ]]; then
-    date -d "@$at" '+tomorrow at %H:%M'
-  elif ((at - $(date +%s) < 604800)); then
-    date -d "@$at" '+%A at %H:%M'
+    "$DATE" -d "@$at" '+tomorrow at %H:%M'
+  elif ((at - $("$DATE" +%s) < 604800)); then
+    "$DATE" -d "@$at" '+%A at %H:%M'
   else
-    date -d "@$at" '+on %-d %B at %H:%M'
+    "$DATE" -d "@$at" '+on %-d %B at %H:%M'
   fi
 }
 
@@ -307,7 +323,7 @@ resolve_spec() {
   local spec="$1"
   local now seconds at
 
-  now=$(date +%s)
+  now=$("$DATE" +%s)
 
   if seconds=$(parse_duration "$spec"); then
     printf '%d' $((now + seconds))
@@ -317,13 +333,13 @@ resolve_spec() {
   # GNU date handles the absolute half: "15:15", "9pm", "tomorrow 9:00",
   # "wed 18:15", "next monday 8:00", "dec 25 9:00". It parses text, it does not
   # evaluate it, so an untrusted spec here is a string and nothing more.
-  at=$(date -d "$spec" +%s 2>/dev/null) || return 1
+  at=$("$DATE" -d "$spec" +%s 2>/dev/null) || return 1
   [[ $at =~ ^-?[0-9]+$ ]] || return 1
 
   # A clock time that has already gone today means the next one, tomorrow. Only
   # when the spec landed on today: "yesterday 9:00" is a mistake, not a wish.
   if ((at <= now)); then
-    if [[ $(date -d "@$at" +%Y%m%d) == "$(date +%Y%m%d)" ]]; then
+    if [[ $("$DATE" -d "@$at" +%Y%m%d) == "$("$DATE" +%Y%m%d)" ]]; then
       at=$((at + 86400))
     else
       return 1
@@ -370,8 +386,8 @@ parse_input() {
 write_alarm() {
   local id=$1 at=$2 message=$3
   local payload
-  payload=$(jq -cn --arg id "$id" --argjson at "$at" --arg message "$message" \
-    --argjson created "$(date +%s)" \
+  payload=$("$JQ" -cn --arg id "$id" --argjson at "$at" --arg message "$message" \
+    --argjson created "$("$DATE" +%s)" \
     '{id: $id, at: $at, message: $message, created: $created}')
   write_state "$ALARM_DIR/$id.json" "$payload"
 }
@@ -385,21 +401,21 @@ arm_timer() {
   marker=$(sleeper_pattern "$id")
 
   # Replace any leftover sleeper for this id (re-arm after reboot / crash).
-  pkill -f -- "$marker" >/dev/null 2>&1 || true
+  "$PKILL" -f -- "$marker" >/dev/null 2>&1 || true
 
   # argv0 = marker so cancel/clear can find this process. SELF is resolved
   # before the case dispatch; fire re-enters this script.
-  setsid bash -c '
+  "$SETSID" "$BASH" -c '
     target=$1
     id=$2
     self=$3
     while true; do
-      now=$(date +%s)
+      now=$(/usr/bin/date +%s)
       (( now >= target )) && break
       rem=$((target - now))
       chunk=$rem
       (( chunk > 30 )) && chunk=30
-      sleep "$chunk" || exit 0
+      /usr/bin/sleep "$chunk" || exit 0
     done
     exec "$self" fire "$id"
   ' "$marker" "$at" "$id" "$SELF" >/dev/null 2>&1 &
@@ -407,7 +423,7 @@ arm_timer() {
 }
 
 timer_exists() {
-  pgrep -f -- "$(sleeper_pattern "$1")" >/dev/null 2>&1
+  "$PGREP" -f -- "$(sleeper_pattern "$1")" >/dev/null 2>&1
 }
 
 # Read every alarm on disk, drop the ones whose time has passed without firing,
@@ -415,7 +431,7 @@ timer_exists() {
 # the files, so this is what makes an alarm for tomorrow morning real.
 load_alarms() {
   local now file id at message
-  now=$(date +%s)
+  now=$("$DATE" +%s)
   LOADED=()
 
   shopt -s nullglob
@@ -425,27 +441,27 @@ load_alarms() {
     # state that is no longer ours to trust.
     local raw
     if ! raw=$(read_state "$file"); then
-      rm -f -- "$file"
+      "$RM" -f -- "$file"
       continue
     fi
-    if ! jq -e 'type == "object" and has("at") and has("id")' >/dev/null 2>&1 <<<"$raw"; then
-      rm -f -- "$file"
+    if ! "$JQ" -e 'type == "object" and has("at") and has("id")' >/dev/null 2>&1 <<<"$raw"; then
+      "$RM" -f -- "$file"
       continue
     fi
 
-    id=$(jq -r '.id' <<<"$raw")
-    at=$(jq -r '.at' <<<"$raw")
-    message=$(jq -r '.message // ""' <<<"$raw")
+    id=$("$JQ" -r '.id' <<<"$raw")
+    at=$("$JQ" -r '.at' <<<"$raw")
+    message=$("$JQ" -r '.message // ""' <<<"$raw")
 
     if ! valid_id "$id" || [[ ! $at =~ ^[0-9]+$ ]]; then
-      rm -f -- "$file"
+      "$RM" -f -- "$file"
       continue
     fi
 
     # Past its time and not ringing: it fired while we were not running, or the
     # timer was lost. Either way there is nothing left to wait for.
     if ((at <= now)); then
-      [[ -f "$RING_DIR/$id.json" ]] || rm -f -- "$file"
+      [[ -f "$RING_DIR/$id.json" ]] || "$RM" -f -- "$file"
       continue
     fi
 
@@ -457,8 +473,8 @@ load_alarms() {
 
 cancel_alarm() {
   local id=$1
-  pkill -f -- "$(sleeper_pattern "$id")" >/dev/null 2>&1 || true
-  rm -f -- "$ALARM_DIR/$id.json" "$RING_DIR/$id.json"
+  "$PKILL" -f -- "$(sleeper_pattern "$id")" >/dev/null 2>&1 || true
+  "$RM" -f -- "$ALARM_DIR/$id.json" "$RING_DIR/$id.json"
 }
 
 # ---------------------------------------------------------------------------
@@ -476,7 +492,7 @@ cmd_parse() {
     --argjson at "$PARSED_AT" \
     --arg atLabel "$(format_at "$PARSED_AT")" \
     --arg atPhrase "$(format_at_phrase "$PARSED_AT")" \
-    --arg remaining "$(format_remaining $((PARSED_AT - $(date +%s))))" \
+    --arg remaining "$(format_remaining $((PARSED_AT - $("$DATE" +%s))))" \
     --arg message "$PARSED_MESSAGE" \
     '{ok: true, at: $at, atLabel: $atLabel, atPhrase: $atPhrase, remaining: $remaining, message: $message}'
 }
@@ -488,7 +504,7 @@ cmd_set() {
   if demo_on; then ok_json '{ok: true, demo: true}'; return; fi
 
   local count
-  count=$(find "$ALARM_DIR" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l)
+  count=$("$FIND" "$ALARM_DIR" -maxdepth 1 -name '*.json' 2>/dev/null | "$WC" -l)
   ((count >= MAX_ALARMS)) && die "too many alarms"
 
   local PARSED_AT PARSED_MESSAGE
@@ -499,7 +515,7 @@ cmd_set() {
   write_alarm "$id" "$PARSED_AT" "$PARSED_MESSAGE"
 
   if ! arm_timer "$id" "$PARSED_AT"; then
-    rm -f -- "$ALARM_DIR/$id.json"
+    "$RM" -f -- "$ALARM_DIR/$id.json"
     die "could not set the timer"
   fi
 
@@ -507,7 +523,7 @@ cmd_set() {
   ok_json --arg id "$id" --argjson at "$PARSED_AT" \
     --arg atLabel "$(format_at "$PARSED_AT")" \
     --arg atPhrase "$(format_at_phrase "$PARSED_AT")" \
-    --arg remaining "$(format_remaining $((PARSED_AT - $(date +%s))))" \
+    --arg remaining "$(format_remaining $((PARSED_AT - $("$DATE" +%s))))" \
     --arg message "$PARSED_MESSAGE" \
     '{ok: true, id: $id, at: $at, atLabel: $atLabel, atPhrase: $atPhrase, remaining: $remaining, message: $message}'
 }
@@ -520,17 +536,17 @@ cmd_list() {
   load_alarms
 
   local now entry id at message alarms='[]' item
-  now=$(date +%s)
+  now=$("$DATE" +%s)
 
   for entry in "${LOADED[@]}"; do
     IFS=$'\t' read -r id at message <<<"$entry"
-    item=$(jq -cn --arg id "$id" --argjson at "$at" --arg message "$message" \
+    item=$("$JQ" -cn --arg id "$id" --argjson at "$at" --arg message "$message" \
       --arg atLabel "$(format_at "$at")" \
       --arg atPhrase "$(format_at_phrase "$at")" \
       --arg remaining "$(format_remaining $((at - now)))" \
       --argjson remainingSeconds $((at - now)) \
       '{id: $id, at: $at, message: $message, atLabel: $atLabel, atPhrase: $atPhrase, remaining: $remaining, remainingSeconds: $remainingSeconds, ringing: false}')
-    alarms=$(jq -c --argjson item "$item" '. + [$item]' <<<"$alarms")
+    alarms=$("$JQ" -c --argjson item "$item" '. + [$item]' <<<"$alarms")
   done
 
   # Anything still ringing goes on the front: it is the only thing in the panel
@@ -538,18 +554,18 @@ cmd_list() {
   local ringing='[]' file raw
   shopt -s nullglob
   for file in "$RING_DIR"/*.json; do
-    raw=$(read_state "$file") || { rm -f -- "$file"; continue; }
-    jq -e 'type == "object" and has("id")' >/dev/null 2>&1 <<<"$raw" || { rm -f -- "$file"; continue; }
-    item=$(jq -c '. + {ringing: true, remaining: "now", remainingSeconds: 0,
+    raw=$(read_state "$file") || { "$RM" -f -- "$file"; continue; }
+    "$JQ" -e 'type == "object" and has("id")' >/dev/null 2>&1 <<<"$raw" || { "$RM" -f -- "$file"; continue; }
+    item=$("$JQ" -c '. + {ringing: true, remaining: "now", remainingSeconds: 0,
                        atPhrase: ("at " + (.atLabel // ""))}' <<<"$raw")
-    ringing=$(jq -c --argjson item "$item" '. + [$item]' <<<"$ringing")
+    ringing=$("$JQ" -c --argjson item "$item" '. + [$item]' <<<"$ringing")
   done
   shopt -u nullglob
 
-  alarms=$(jq -c 'sort_by(.at)' <<<"$alarms")
-  alarms=$(jq -c --argjson ringing "$ringing" '$ringing + .' <<<"$alarms")
+  alarms=$("$JQ" -c 'sort_by(.at)' <<<"$alarms")
+  alarms=$("$JQ" -c --argjson ringing "$ringing" '$ringing + .' <<<"$alarms")
 
-  jq -cn --argjson alarms "$alarms" '
+  "$JQ" -cn --argjson alarms "$alarms" '
     {
       ok: true,
       count: ($alarms | length),
@@ -584,7 +600,7 @@ cmd_clear() {
   done
   shopt -u nullglob
   # Sweep any orphaned sleepers whose state files were already gone.
-  pkill -f -- 'nag-sleeper-' >/dev/null 2>&1 || true
+  "$PKILL" -f -- 'nag-sleeper-' >/dev/null 2>&1 || true
   refresh_panel
   ok_json '{ok: true}'
 }
@@ -602,15 +618,15 @@ cmd_snooze() {
 
   local message="" raw=""
   raw=$(read_state "$RING_DIR/$id.json") || raw=$(read_state "$ALARM_DIR/$id.json") || die "unknown alarm"
-  message=$(jq -r '.message // ""' <<<"$raw" 2>/dev/null || true)
+  message=$("$JQ" -r '.message // ""' <<<"$raw" 2>/dev/null || true)
 
   cancel_alarm "$id"
 
   local new_alarm at
   new_alarm=$(new_id)
-  at=$(($(date +%s) + minutes * 60))
+  at=$(($("$DATE" +%s) + minutes * 60))
   write_alarm "$new_alarm" "$at" "$message"
-  arm_timer "$new_alarm" "$at" || { rm -f -- "$ALARM_DIR/$new_alarm.json"; die "could not set the timer"; }
+  arm_timer "$new_alarm" "$at" || { "$RM" -f -- "$ALARM_DIR/$new_alarm.json"; die "could not set the timer"; }
 
   refresh_panel
   ok_json --arg id "$new_alarm" --argjson at "$at" \
@@ -657,11 +673,11 @@ cmd_ask() {
   # only chance to read back what was understood. It says the same sentence the
   # panel puts under its field, for the same reason: it shows where the split
   # between the time and the message landed.
-  if [[ $(jq -r '.ok' <<<"$result" 2>/dev/null) == "true" ]]; then
+  if [[ $("$JQ" -r '.ok' <<<"$result" 2>/dev/null) == "true" ]]; then
     local message atPhrase remaining headline
-    message=$(jq -r '.message // ""' <<<"$result")
-    atPhrase=$(jq -r '.atPhrase // ""' <<<"$result")
-    remaining=$(jq -r '.remaining // ""' <<<"$result")
+    message=$("$JQ" -r '.message // ""' <<<"$result")
+    atPhrase=$("$JQ" -r '.atPhrase // ""' <<<"$result")
+    remaining=$("$JQ" -r '.remaining // ""' <<<"$result")
 
     headline=$(strip_markup "$message")
     headline=${headline:-Alarm}
@@ -707,23 +723,23 @@ cmd_fire() {
   raw=$(read_state "$file") || exit 0
 
   local message at
-  message=$(jq -r '.message // ""' <<<"$raw" 2>/dev/null || printf '')
-  at=$(jq -r '.at // 0' <<<"$raw" 2>/dev/null || printf '0')
-  [[ $at =~ ^[0-9]+$ ]] || at=$(date +%s)
+  message=$("$JQ" -r '.message // ""' <<<"$raw" 2>/dev/null || printf '')
+  at=$("$JQ" -r '.at // 0' <<<"$raw" 2>/dev/null || printf '0')
+  [[ $at =~ ^[0-9]+$ ]] || at=$("$DATE" +%s)
 
   local payload
-  payload=$(jq -cn --arg id "$id" --argjson at "$at" --arg message "$message" \
-    --arg atLabel "$(date -d "@$at" '+%H:%M')" \
+  payload=$("$JQ" -cn --arg id "$id" --argjson at "$at" --arg message "$message" \
+    --arg atLabel "$("$DATE" -d "@$at" '+%H:%M')" \
     '{id: $id, at: $at, message: $message, atLabel: $atLabel}')
   write_state "$RING_DIR/$id.json" "$payload"
-  rm -f -- "$file"
+  "$RM" -f -- "$file"
 
   # PulseAudio (paplay) first — Omaxian default — then PipeWire's pw-play.
   if [[ -r $SOUND ]]; then
-    if command -v paplay >/dev/null 2>&1; then
-      paplay "$SOUND" >/dev/null 2>&1 &
-    elif command -v pw-play >/dev/null 2>&1; then
-      pw-play "$SOUND" >/dev/null 2>&1 &
+    if [[ -x $PAPLAY ]]; then
+      "$PAPLAY" "$SOUND" >/dev/null 2>&1 &
+    elif [[ -x $PWPLAY ]]; then
+      "$PWPLAY" "$SOUND" >/dev/null 2>&1 &
     fi
   fi
 
@@ -736,7 +752,7 @@ cmd_fire() {
   # being re-parsed, so it comes last and the message never reaches it. Nothing
   # from the message is in it: it is three constant words.
   omarchy-notification-send -u critical -g "$GLYPH" \
-    "$headline" "$(date -d "@$at" '+%H:%M')" \
+    "$headline" "$("$DATE" -d "@$at" '+%H:%M')" \
     --exec omarchy-shell shell summon jankeesvw.nag >/dev/null 2>&1 || true
 
   refresh_panel
@@ -750,12 +766,12 @@ cmd_demo() {
   case "${1:-status}" in
     on)
       : >"$DEMO_FILE"
-      chmod 600 "$DEMO_FILE" 2>/dev/null || true
+      "$CHMOD" 600 "$DEMO_FILE" 2>/dev/null || true
       refresh_panel
       ok_json '{ok: true, demo: true}'
       ;;
     off)
-      rm -f -- "$DEMO_FILE"
+      "$RM" -f -- "$DEMO_FILE"
       refresh_panel
       ok_json '{ok: true, demo: false}'
       ;;

@@ -89,8 +89,9 @@ Menu extension (same as upstream), in
 
 ```bash
 omarchy-plugin-remove jankeesvw.nag
-pkill -f 'nag-sleeper-' 2>/dev/null || true
-rm -rf ~/.local/state/nag   # optional: delete stored alarms
+~/.config/omarchy/plugins/jankeesvw.nag/bin/nag clear   # stops sleepers + deletes alarms
+# or only wipe state if the plugin tree is already gone:
+# rm -rf ~/.local/state/nag
 ```
 
 ## Licence

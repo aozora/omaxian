@@ -120,9 +120,10 @@ Location is stored at `~/.local/state/omarchy/settings/weather.json`
 ## Privacy and network access
 
 No account or API key. When a location is set, its name and/or coordinates go
-to Open-Meteo and wttr.in for weather, and to RainViewer, Esri, and CARTO for
-map imagery. With no location configured, wttr.in is used for IP-based
-detection. Requests use HTTPS. No credentials are stored.
+to Open-Meteo and wttr.in for weather (HTTPS). RainViewer metadata is no longer
+fetched into the shell; the panel opens RainViewer in the browser when you ask.
+With no location configured, wttr.in is used for IP-based detection. No
+credentials are stored.
 
 ## Remove
 

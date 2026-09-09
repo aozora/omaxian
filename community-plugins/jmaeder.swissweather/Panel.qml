@@ -99,18 +99,33 @@ Panel {
 
   // --- paths ---------------------------------------------------------------
 
-  readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/omarchy/plugins/jmaeder.swissweather"
-  readonly property string statePath: stateDir + "/state.json"
+  readonly property string ioHelperPath: String(Qt.resolvedUrl("io-helper.py")).replace(/^file:\/\//, "")
+  readonly property string pluginRoot: String(Qt.resolvedUrl(".")).replace(/^file:\/\//, "").replace(/\/$/, "")
+  readonly property string pythonPath: "/usr/bin/python3"
+  readonly property int maxProcBytes: 524288
+  readonly property int procDeadlineMs: 45000
 
-  /**
-   * Filesystem path of a file shipped inside the plugin directory.
-   * Qt.resolvedUrl gives a percent-encoded file:// URL; FileView wants a plain
-   * path, so each segment is decoded back.
-   */
-  function localPath(relative) {
-    var url = String(Qt.resolvedUrl(relative))
-    if (url.indexOf("file://") !== 0) return ""
-    return url.substring(7).split("/").map(decodeURIComponent).join("/")
+  property string stateBuf: ""
+  property string placesBuf: ""
+  property string forecastPagesBuf: ""
+  property string stationsBuf: ""
+  property string webcamsBuf: ""
+  property string measurementsBuf: ""
+  property string forecastBuf: ""
+  property string geoipBuf: ""
+
+  function ioCmd() {
+    var cmd = [root.pythonPath, "-I", "-S", root.ioHelperPath]
+    for (var i = 0; i < arguments.length; i++)
+      cmd.push(arguments[i])
+    return cmd
+  }
+
+  // Returns the buffer with the chunk appended, or null when the budget is
+  // gone, in which case the caller stops the process and keeps nothing.
+  function appendBounded(buffer, chunk) {
+    var next = String(buffer || "") + String(chunk || "")
+    return next.length > root.maxProcBytes ? null : next
   }
 
   // --- persisted state -----------------------------------------------------
@@ -544,7 +559,7 @@ Panel {
   }
 
   function flushState() {
-    stateFile.setText(JSON.stringify(Model.serializeState({
+    var payload = JSON.stringify(Model.serializeState({
       language: root.language,
       units: root.units,
       favourites: root.favourites,
@@ -555,7 +570,9 @@ Panel {
       showHazardWarnings: root.showHazardWarnings,
       notifyWarnings: root.notifyWarnings,
       seenWarnings: root.seenWarnings
-    }), null, 2) + "\n")
+    }), null, 2) + "\n"
+    stateWriteProc.command = root.ioCmd("write-state", payload)
+    stateWriteProc.running = true
   }
 
   Timer {
@@ -565,25 +582,40 @@ Panel {
     onTriggered: root.flushState()
   }
 
-  // mkdir before the first write: FileView will not create the directory, and
-  // a fixed argv array built from $HOME leaves nothing to inject into.
   Process {
-    id: ensureStateDirProc
-    command: ["mkdir", "-p", root.stateDir]
+    id: stateReadProc
+    command: root.ioCmd("read-state")
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.stateBuf, chunk)
+        if (next === null) {
+          root.stateBuf = ""
+          stateReadProc.signal(15)
+          stateReadKill.start()
+          return
+        }
+        root.stateBuf = next
+      }
+    }
+    onRunningChanged: if (running) stateReadDeadline.restart(); else { stateReadDeadline.stop(); stateReadKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.stateBuf
+      root.stateBuf = ""
+      // First run / missing file: empty state still applies defaults and
+      // resolves the starting town.
+      root.loadState(exitCode === 0 ? text : "")
+    }
   }
+  Timer { id: stateReadDeadline; interval: root.procDeadlineMs; onTriggered: { stateReadProc.signal(15); stateReadKill.start() } }
+  Timer { id: stateReadKill; interval: 2000; onTriggered: stateReadProc.signal(9) }
 
-  FileView {
-    id: stateFile
-    path: root.statePath
-    watchChanges: true
-    atomicWrites: true
-    printErrors: false
-    onFileChanged: reload()
-    onLoaded: root.loadState(text())
-    // First run: no file yet. Loading the empty state anyway is what gets the
-    // defaults applied and the starting town resolved.
-    onLoadFailed: root.loadState("")
+  Process {
+    id: stateWriteProc
+    onRunningChanged: if (running) stateWriteDeadline.restart(); else { stateWriteDeadline.stop(); stateWriteKill.stop() }
   }
+  Timer { id: stateWriteDeadline; interval: root.procDeadlineMs; onTriggered: { stateWriteProc.signal(15); stateWriteKill.start() } }
+  Timer { id: stateWriteKill; interval: 2000; onTriggered: stateWriteProc.signal(9) }
 
   // --- bundled indexes -----------------------------------------------------
 
@@ -592,44 +624,114 @@ Panel {
   property var webcams: []
   property var forecastPages: ({})
 
-  FileView {
-    id: placesFile
-    path: root.localPath("data/places.csv")
-    watchChanges: false
-    printErrors: false
-    onLoaded: {
-      root.places = Places.parsePlaces(text())
-      root.resolveStartingLocation()
+  Process {
+    id: placesProc
+    command: root.ioCmd("read-asset", root.pluginRoot, "data/places.csv")
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.placesBuf, chunk)
+        if (next === null) {
+          root.placesBuf = ""
+          placesProc.signal(15)
+          placesKill.start()
+          return
+        }
+        root.placesBuf = next
+      }
     }
-    onLoadFailed: root.places = []
+    onRunningChanged: if (running) placesDeadline.restart(); else { placesDeadline.stop(); placesKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.placesBuf
+      root.placesBuf = ""
+      if (exitCode === 0) {
+        root.places = Places.parsePlaces(text)
+        root.resolveStartingLocation()
+      } else {
+        root.places = []
+      }
+    }
   }
+  Timer { id: placesDeadline; interval: root.procDeadlineMs; onTriggered: { placesProc.signal(15); placesKill.start() } }
+  Timer { id: placesKill; interval: 2000; onTriggered: placesProc.signal(9) }
 
-  FileView {
-    id: forecastPagesFile
-    path: root.localPath("data/forecast-pages.csv")
-    watchChanges: false
-    printErrors: false
-    onLoaded: root.forecastPages = Places.parseForecastPages(text())
-    onLoadFailed: root.forecastPages = ({})
+  Process {
+    id: forecastPagesProc
+    command: root.ioCmd("read-asset", root.pluginRoot, "data/forecast-pages.csv")
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.forecastPagesBuf, chunk)
+        if (next === null) {
+          root.forecastPagesBuf = ""
+          forecastPagesProc.signal(15)
+          forecastPagesKill.start()
+          return
+        }
+        root.forecastPagesBuf = next
+      }
+    }
+    onRunningChanged: if (running) forecastPagesDeadline.restart(); else { forecastPagesDeadline.stop(); forecastPagesKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.forecastPagesBuf
+      root.forecastPagesBuf = ""
+      root.forecastPages = exitCode === 0 ? Places.parseForecastPages(text) : ({})
+    }
   }
+  Timer { id: forecastPagesDeadline; interval: root.procDeadlineMs; onTriggered: { forecastPagesProc.signal(15); forecastPagesKill.start() } }
+  Timer { id: forecastPagesKill; interval: 2000; onTriggered: forecastPagesProc.signal(9) }
 
-  FileView {
-    id: stationsFile
-    path: root.localPath("data/stations.csv")
-    watchChanges: false
-    printErrors: false
-    onLoaded: root.stations = Places.parseStations(text())
-    onLoadFailed: root.stations = []
+  Process {
+    id: stationsProc
+    command: root.ioCmd("read-asset", root.pluginRoot, "data/stations.csv")
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.stationsBuf, chunk)
+        if (next === null) {
+          root.stationsBuf = ""
+          stationsProc.signal(15)
+          stationsKill.start()
+          return
+        }
+        root.stationsBuf = next
+      }
+    }
+    onRunningChanged: if (running) stationsDeadline.restart(); else { stationsDeadline.stop(); stationsKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.stationsBuf
+      root.stationsBuf = ""
+      root.stations = exitCode === 0 ? Places.parseStations(text) : []
+    }
   }
+  Timer { id: stationsDeadline; interval: root.procDeadlineMs; onTriggered: { stationsProc.signal(15); stationsKill.start() } }
+  Timer { id: stationsKill; interval: 2000; onTriggered: stationsProc.signal(9) }
 
-  FileView {
-    id: webcamsFile
-    path: root.localPath("data/webcams.csv")
-    watchChanges: false
-    printErrors: false
-    onLoaded: root.webcams = Places.parseWebcams(text())
-    onLoadFailed: root.webcams = []
+  Process {
+    id: webcamsProc
+    command: root.ioCmd("read-asset", root.pluginRoot, "data/webcams.csv")
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.webcamsBuf, chunk)
+        if (next === null) {
+          root.webcamsBuf = ""
+          webcamsProc.signal(15)
+          webcamsKill.start()
+          return
+        }
+        root.webcamsBuf = next
+      }
+    }
+    onRunningChanged: if (running) webcamsDeadline.restart(); else { webcamsDeadline.stop(); webcamsKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.webcamsBuf
+      root.webcamsBuf = ""
+      root.webcams = exitCode === 0 ? Places.parseWebcams(text) : []
+    }
   }
+  Timer { id: webcamsDeadline; interval: root.procDeadlineMs; onTriggered: { webcamsProc.signal(15); webcamsKill.start() } }
+  Timer { id: webcamsKill; interval: 2000; onTriggered: webcamsProc.signal(9) }
 
   // --- location ------------------------------------------------------------
 
@@ -980,27 +1082,42 @@ Panel {
 
   Process {
     id: measurementsProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var parsed = Model.parseMeasurements(text)
-        var count = 0
-        for (var key in parsed) { count++; break }
-        if (count === 0) {
-          root.measurementsFailed = true
-          if (root.measurementRetries < 3) {
-            measurementRetryTimer.interval = root.retryDelay(root.measurementRetries)
-            root.measurementRetries++
-            measurementRetryTimer.restart()
-          }
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.measurementsBuf, chunk)
+        if (next === null) {
+          root.measurementsBuf = ""
+          measurementsProc.signal(15)
+          measurementsKill.start()
           return
         }
-        root.measurements = parsed
-        root.measurementsFailed = false
-        root.measurementRetries = 0
+        root.measurementsBuf = next
       }
     }
+    onRunningChanged: if (running) measurementsDeadline.restart(); else { measurementsDeadline.stop(); measurementsKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.measurementsBuf
+      root.measurementsBuf = ""
+      var parsed = Model.parseMeasurements(exitCode === 0 ? text : "")
+      var count = 0
+      for (var key in parsed) { count++; break }
+      if (count === 0) {
+        root.measurementsFailed = true
+        if (root.measurementRetries < 3) {
+          measurementRetryTimer.interval = root.retryDelay(root.measurementRetries)
+          root.measurementRetries++
+          measurementRetryTimer.restart()
+        }
+        return
+      }
+      root.measurements = parsed
+      root.measurementsFailed = false
+      root.measurementRetries = 0
+    }
   }
+  Timer { id: measurementsDeadline; interval: root.procDeadlineMs; onTriggered: { measurementsProc.signal(15); measurementsKill.start() } }
+  Timer { id: measurementsKill; interval: 2000; onTriggered: measurementsProc.signal(9) }
 
   Timer {
     id: measurementRetryTimer
@@ -1010,29 +1127,44 @@ Panel {
 
   Process {
     id: forecastProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        // Late response for a town the user has already left.
-        if (root.forecastRequestId !== root.activePointId) return
-
-        var parsed = Model.parseForecast(text)
-        if (!parsed.valid || parsed.current === null) {
-          root.forecastFailed = true
-          if (root.forecastRetries < 3) {
-            forecastRetryTimer.interval = root.retryDelay(root.forecastRetries)
-            root.forecastRetries++
-            forecastRetryTimer.restart()
-          }
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.forecastBuf, chunk)
+        if (next === null) {
+          root.forecastBuf = ""
+          forecastProc.signal(15)
+          forecastKill.start()
           return
         }
-        root.forecast = parsed
-        root.forecastFailed = false
-        root.forecastRetries = 0
-        root.notifyNewWarnings()
+        root.forecastBuf = next
       }
     }
+    onRunningChanged: if (running) forecastDeadline.restart(); else { forecastDeadline.stop(); forecastKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.forecastBuf
+      root.forecastBuf = ""
+      // Late response for a town the user has already left.
+      if (root.forecastRequestId !== root.activePointId) return
+
+      var parsed = Model.parseForecast(exitCode === 0 ? text : "")
+      if (!parsed.valid || parsed.current === null) {
+        root.forecastFailed = true
+        if (root.forecastRetries < 3) {
+          forecastRetryTimer.interval = root.retryDelay(root.forecastRetries)
+          root.forecastRetries++
+          forecastRetryTimer.restart()
+        }
+        return
+      }
+      root.forecast = parsed
+      root.forecastFailed = false
+      root.forecastRetries = 0
+      root.notifyNewWarnings()
+    }
   }
+  Timer { id: forecastDeadline; interval: root.procDeadlineMs; onTriggered: { forecastProc.signal(15); forecastKill.start() } }
+  Timer { id: forecastKill; interval: 2000; onTriggered: forecastProc.signal(9) }
 
   Timer {
     id: forecastRetryTimer
@@ -1042,11 +1174,28 @@ Panel {
 
   Process {
     id: geoipProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.applyDetection(text)
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.geoipBuf, chunk)
+        if (next === null) {
+          root.geoipBuf = ""
+          geoipProc.signal(15)
+          geoipKill.start()
+          return
+        }
+        root.geoipBuf = next
+      }
+    }
+    onRunningChanged: if (running) geoipDeadline.restart(); else { geoipDeadline.stop(); geoipKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.geoipBuf
+      root.geoipBuf = ""
+      root.applyDetection(exitCode === 0 ? text : "")
     }
   }
+  Timer { id: geoipDeadline; interval: root.procDeadlineMs; onTriggered: { geoipProc.signal(15); geoipKill.start() } }
+  Timer { id: geoipKill; interval: 2000; onTriggered: geoipProc.signal(9) }
 
   Timer {
     id: refreshTimer
@@ -1057,7 +1206,25 @@ Panel {
     onTriggered: root.refresh()
   }
 
-  Component.onCompleted: ensureStateDirProc.running = true
+  Component.onCompleted: {
+    stateReadProc.running = true
+    placesProc.running = true
+    forecastPagesProc.running = true
+    stationsProc.running = true
+    webcamsProc.running = true
+  }
+
+  Component.onDestruction: {
+    stateReadProc.signal(15)
+    stateWriteProc.signal(15)
+    placesProc.signal(15)
+    forecastPagesProc.signal(15)
+    stationsProc.signal(15)
+    webcamsProc.signal(15)
+    measurementsProc.signal(15)
+    forecastProc.signal(15)
+    geoipProc.signal(15)
+  }
 
   IpcHandler {
     target: root.ipcTarget

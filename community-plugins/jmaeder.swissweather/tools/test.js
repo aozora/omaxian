@@ -57,7 +57,7 @@ equal("language is truncated to two letters", Net.normalizedLanguage("FR_CH.UTF-
 
 const forecastCommand = Net.forecastCommand("800100", "fr")
 check("forecast command is argv", Array.isArray(forecastCommand))
-check("forecast command starts with curl", forecastCommand[0] === "curl")
+check("forecast command starts with curl", forecastCommand[0] === "/usr/bin/curl")
 check("forecast command forbids redirects", forecastCommand.includes("--max-redirs") &&
   forecastCommand[forecastCommand.indexOf("--max-redirs") + 1] === "0")
 check("forecast command pins https", forecastCommand.includes("--proto") &&

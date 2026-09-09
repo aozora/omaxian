@@ -114,8 +114,10 @@ function curlCommand(url, maxBytes, timeoutSeconds, extraArgs) {
   if (target === "") return null
 
   var command = [
-    "curl",
+    "/usr/bin/curl",
+    "-q",
     "--proto", "=https",
+    "--proto-redir", "=https",
     "--tlsv1.2",
     "--max-redirs", "0",
     "--fail",

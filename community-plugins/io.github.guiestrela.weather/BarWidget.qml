@@ -24,14 +24,21 @@ BarWidget {
     if (panelLoader.item && panelLoader.item.toggle) panelLoader.item.toggle()
   }
 
+  function plain(value) {
+    return String(value || "")
+      .replace(/[<>&]/g, " ")
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+      .slice(0, 200)
+  }
+
   function notifyWeather() {
     var panel = panelLoader.item
     if (!panel) return
 
-    var location = panel.reportLocation || "Weather"
-    var temperature = panel.reportTempNum || "—"
-    var unit = panel.tempUnit || ""
-    var wind = panel.reportWind || "—"
+    var location = plain(panel.reportLocation || "Weather")
+    var temperature = plain(panel.reportTempNum || "—")
+    var unit = plain(panel.tempUnit || "")
+    var wind = plain(panel.reportWind || "—")
     notificationProc.command = [
       "omarchy-notification-send",
       location + "  ·  Temp " + temperature + unit + "  ·  Wind " + wind

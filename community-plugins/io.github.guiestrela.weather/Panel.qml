@@ -74,30 +74,47 @@ Panel {
   property var report: null
   property var dailyForecastReport: null
   property string wttrLocation: ""
-  property string radarHost: "https://tilecache.rainviewer.com"
-  // Filled from RainViewer's metadata endpoint. Radar paths are short-lived
-  // and must not be hard-coded here.
-  property string radarPath: ""
   property string radarLatitude: ""
   property string radarLongitude: ""
-  // Rain radar is always enabled; the base satellite imagery remains visible
-  // underneath it without exposing layer-switching controls.
-  property string selectedMapLayer: "rain"
-  // Keep the detailed base map zoom. RainViewer has a lower native maximum,
-  // so its tiles are rendered at radarZoom and scaled to this map's zoom.
-  property int mapZoom: 10
-  property int mapMinZoom: 3
-  property int mapMaxZoom: 10
-  property int radarZoom: 7
   property bool activitiesExpanded: true
   property bool mapsExpanded: true
   // shellDir is the Omarchy shell root, not this plugin's directory.
   readonly property string helperPath: String(Qt.resolvedUrl("weather-helper.py")).replace(/^file:\/\//, "")
   readonly property string pythonPath: "/usr/bin/python3"
+  readonly property int maxProcBytes: 262144
+  readonly property int procDeadlineMs: 45000
   // QML does not always track dependencies read indirectly from JavaScript
   // functions. Bump this when a new auto-detected report supplies map
-  // coordinates so tile URL bindings are evaluated again.
+  // coordinates so hasRadarCoordinates is re-evaluated.
   property int mapRevision: 0
+
+  property string radarGeocodeBuf: ""
+  property string locationFileBuf: ""
+  property string panelStateFileBuf: ""
+  property string forecastBuf: ""
+  property string dailyForecastBuf: ""
+  property string geocodeBuf: ""
+  property string locationProcBuf: ""
+
+  function helperCmd() {
+    var cmd = [root.pythonPath, "-I", "-S", root.helperPath]
+    for (var i = 0; i < arguments.length; i++)
+      cmd.push(arguments[i])
+    return cmd
+  }
+
+  function appendBounded(buffer, chunk) {
+    var next = String(buffer || "") + String(chunk || "")
+    return next.length > root.maxProcBytes ? null : next
+  }
+
+  function openRadarInBrowser() {
+    var lat = root.radarCoordinate("lat")
+    var lon = root.radarCoordinate("lon")
+    if (lat === "" || lon === "") return
+    var url = "https://www.rainviewer.com/map?loc=" + encodeURIComponent(lat + "," + lon + ",8")
+    Quickshell.execDetached([root.pythonPath, "-I", "-S", root.helperPath, "open", url])
+  }
 
   function radarCoordinate(value) {
     var configured = parseFloat(String(value === "lat" ? configuredLocationState.latitude : configuredLocationState.longitude))
@@ -129,45 +146,17 @@ Panel {
   }
 
   function savePanelState() {
-    panelStateSaveProc.command = [root.pythonPath, root.helperPath, "write", "weather-panel.json", JSON.stringify({
+    panelStateSaveProc.command = root.helperCmd("write", "weather-panel.json", JSON.stringify({
       activitiesExpanded: activitiesExpanded,
       mapsExpanded: mapsExpanded
-    }) + "\n"]
+    }) + "\n")
     panelStateSaveProc.running = true
   }
 
-  // Tile Images keep evaluating their source binding while the section is
-  // hidden, so the URL builders need the same guard the visibility uses.
-  // Reading mapRevision here keeps the indirect coordinate reads observable,
-  // exactly as the source bindings below do.
+  // Reading mapRevision here keeps the indirect coordinate reads observable.
   readonly property bool hasRadarCoordinates: {
     var revision = mapRevision
     return radarCoordinate("lat") !== "" && radarCoordinate("lon") !== ""
-  }
-
-  function mapTile(value, offset) {
-    var latitude = parseFloat(radarCoordinate("lat"))
-    var longitude = parseFloat(radarCoordinate("lon"))
-    if (isNaN(latitude) || isNaN(longitude)) return 0
-    var zoom = root.mapZoom
-    var scale = Math.pow(2, zoom)
-    var tile = value === "x"
-      ? Math.floor((longitude + 180) / 360 * scale) + (offset || 0)
-      : Math.floor((1 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / Math.PI) / 2 * scale) + (offset || 0)
-    if (value === "x") return ((tile % scale) + scale) % scale
-    return Math.max(0, Math.min(scale - 1, tile))
-  }
-
-  function mapFraction(value) {
-    var latitude = parseFloat(radarCoordinate("lat"))
-    var longitude = parseFloat(radarCoordinate("lon"))
-    if (isNaN(latitude) || isNaN(longitude)) return 0
-    var zoom = root.mapZoom
-    var scale = Math.pow(2, zoom)
-    var raw = value === "x"
-      ? (longitude + 180) / 360 * scale
-      : (1 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / Math.PI) / 2 * scale
-    return raw - Math.floor(raw)
   }
 
   function scrollHorizontally(flickable, wheel) {
@@ -178,104 +167,49 @@ Panel {
     wheel.accepted = true
   }
 
-  function zoomMap(wheel) {
-    var delta = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.pixelDelta.y
-    if (delta === 0) return
-    root.mapZoom = Math.max(root.mapMinZoom, Math.min(root.mapMaxZoom, root.mapZoom + (delta > 0 ? 1 : -1)))
-    wheel.accepted = true
-  }
-
-  function radarRenderZoom() {
-    return Math.min(root.mapZoom, root.radarZoom)
-  }
-
-  function radarTile(value, offset) {
-    var latitude = parseFloat(radarCoordinate("lat"))
-    var longitude = parseFloat(radarCoordinate("lon"))
-    if (isNaN(latitude) || isNaN(longitude)) return 0
-    var scale = Math.pow(2, root.radarRenderZoom())
-    var tile = value === "x"
-      ? Math.floor((longitude + 180) / 360 * scale) + (offset || 0)
-      : Math.floor((1 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / Math.PI) / 2 * scale) + (offset || 0)
-    if (value === "x") return ((tile % scale) + scale) % scale
-    return Math.max(0, Math.min(scale - 1, tile))
-  }
-
-  function radarFraction(value) {
-    var latitude = parseFloat(radarCoordinate("lat"))
-    var longitude = parseFloat(radarCoordinate("lon"))
-    if (isNaN(latitude) || isNaN(longitude)) return 0
-    var scale = Math.pow(2, root.radarRenderZoom())
-    var raw = value === "x"
-      ? (longitude + 180) / 360 * scale
-      : (1 - Math.asinh(Math.tan(latitude * Math.PI / 180)) / Math.PI) / 2 * scale
-    return raw - Math.floor(raw)
-  }
-
+  // Ensure coordinates for the Open radar button; map tiles are not loaded in-shell.
   function refreshRadar() {
-    if (radarCoordinate("lat") === "" || radarCoordinate("lon") === "") {
-      if (configuredLocation !== "" && !radarGeocodeProc.running) radarGeocodeProc.running = true
-      return
-    }
-    radarProc.running = true
+    if (radarCoordinate("lat") !== "" && radarCoordinate("lon") !== "") return
+    if (configuredLocation !== "" && !radarGeocodeProc.running) radarGeocodeProc.running = true
   }
 
   Process {
     id: radarGeocodeProc
-    command: [root.pythonPath, root.helperPath, "fetch", "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(root.configuredLocation) + "&count=10&language=en&format=json", "5"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        try {
-          var results = (JSON.parse(String(text || "")).results || []).slice(0, 10)
-          var selected = results.length > 0 ? results[0] : null
-          if (selected) {
-            root.radarLatitude = String(selected.latitude)
-            root.radarLongitude = String(selected.longitude)
-            root.refreshRadar()
-          }
-        } catch (e) {
-          // Radar remains hidden until coordinates are available.
+    command: root.helperCmd("fetch", "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(root.configuredLocation) + "&count=10&language=en&format=json", "5")
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.radarGeocodeBuf, chunk)
+        if (next === null) { root.radarGeocodeBuf = ""; radarGeocodeProc.signal(15); radarGeocodeKill.start(); return }
+        root.radarGeocodeBuf = next
+      }
+    }
+    onRunningChanged: if (running) radarGeocodeDeadline.restart(); else { radarGeocodeDeadline.stop(); radarGeocodeKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.radarGeocodeBuf
+      root.radarGeocodeBuf = ""
+      if (exitCode !== 0) return
+      try {
+        var results = (JSON.parse(String(text || "")).results || []).slice(0, 10)
+        var selected = results.length > 0 ? results[0] : null
+        if (selected) {
+          root.radarLatitude = String(selected.latitude)
+          root.radarLongitude = String(selected.longitude)
+          root.mapRevision++
         }
+      } catch (e) {
+        // Radar button stays hidden until coordinates are available.
       }
     }
   }
+  Timer { id: radarGeocodeDeadline; interval: root.procDeadlineMs; onTriggered: { radarGeocodeProc.signal(15); radarGeocodeKill.start() } }
+  Timer { id: radarGeocodeKill; interval: 2000; onTriggered: radarGeocodeProc.signal(9) }
 
   Timer {
     interval: 5 * 60 * 1000
     running: true
     repeat: true
     triggeredOnStart: true
-    onTriggered: root.refreshRadar()
-  }
-
-  Process {
-    id: radarProc
-    command: [root.pythonPath, root.helperPath, "fetch", "https://api.rainviewer.com/public/weather-maps.json", "8"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        try {
-          var parsed = JSON.parse(String(text || ""))
-          var frames = parsed.radar && parsed.radar.past ? parsed.radar.past.slice(0, 10) : []
-          if (frames.length > 0 && frames[frames.length - 1].path) {
-            root.radarHost = Model.safeRadarHost(parsed.host)
-            root.radarPath = Model.safeRadarPath(frames[frames.length - 1].path)
-            if (root.radarPath === "") radarRetryTimer.restart()
-          } else {
-            radarRetryTimer.restart()
-          }
-        } catch (e) {
-          radarRetryTimer.restart()
-        }
-      }
-    }
-  }
-
-  Timer {
-    id: radarRetryTimer
-    interval: 10000
-    repeat: false
     onTriggered: root.refreshRadar()
   }
 
@@ -305,30 +239,58 @@ Panel {
 
   Process {
     id: locationFile
-    command: [root.pythonPath, root.helperPath, "read", "weather.json"]
+    command: root.helperCmd("read", "weather.json")
     function reload() { if (!running) running = true }
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.configuredLocationState = Model.parseLocationFile(text)
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.locationFileBuf, chunk)
+        if (next === null) { root.locationFileBuf = ""; locationFile.signal(15); locationFileKill.start(); return }
+        root.locationFileBuf = next
+      }
     }
+    onRunningChanged: if (running) locationFileDeadline.restart(); else { locationFileDeadline.stop(); locationFileKill.stop() }
     onExited: function(exitCode) {
-      if (exitCode !== 0) root.configuredLocationState = Model.parseLocationFile("")
+      var text = root.locationFileBuf
+      root.locationFileBuf = ""
+      if (exitCode !== 0) {
+        root.configuredLocationState = Model.parseLocationFile("")
+        return
+      }
+      root.configuredLocationState = Model.parseLocationFile(text)
     }
   }
+  Timer { id: locationFileDeadline; interval: root.procDeadlineMs; onTriggered: { locationFile.signal(15); locationFileKill.start() } }
+  Timer { id: locationFileKill; interval: 2000; onTriggered: locationFile.signal(9) }
 
   Process {
     id: panelStateFile
-    command: [root.pythonPath, root.helperPath, "read", "weather-panel.json"]
+    command: root.helperCmd("read", "weather-panel.json")
     function reload() { if (!running) running = true }
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.loadPanelState(text)
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.panelStateFileBuf, chunk)
+        if (next === null) { root.panelStateFileBuf = ""; panelStateFile.signal(15); panelStateFileKill.start(); return }
+        root.panelStateFileBuf = next
+      }
+    }
+    onRunningChanged: if (running) panelStateFileDeadline.restart(); else { panelStateFileDeadline.stop(); panelStateFileKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.panelStateFileBuf
+      root.panelStateFileBuf = ""
+      if (exitCode === 0) root.loadPanelState(text)
     }
   }
+  Timer { id: panelStateFileDeadline; interval: root.procDeadlineMs; onTriggered: { panelStateFile.signal(15); panelStateFileKill.start() } }
+  Timer { id: panelStateFileKill; interval: 2000; onTriggered: panelStateFile.signal(9) }
 
   Process {
     id: panelStateSaveProc
+    onRunningChanged: if (running) panelStateSaveDeadline.restart(); else { panelStateSaveDeadline.stop(); panelStateSaveKill.stop() }
   }
+  Timer { id: panelStateSaveDeadline; interval: root.procDeadlineMs; onTriggered: { panelStateSaveProc.signal(15); panelStateSaveKill.start() } }
+  Timer { id: panelStateSaveKill; interval: 2000; onTriggered: panelStateSaveProc.signal(9) }
 
   // The first read can race shell startup (observed sporadically), leaving a
   // stored location unhonored until the next file write. One delayed reload
@@ -418,7 +380,7 @@ Panel {
       + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"
       + "&forecast_days=6"
       + "&timezone=auto"
-    dailyForecastProc.command = [root.pythonPath, root.helperPath, "fetch", url, "5"]
+    dailyForecastProc.command = root.helperCmd("fetch", url, "5")
     dailyForecastProc.running = true
   }
 
@@ -510,8 +472,8 @@ Panel {
 
   function startGeocode() {
     geocodeActiveQuery = geocodePendingQuery
-    geocodeProc.command = [root.pythonPath, root.helperPath, "fetch",
-      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json", "5"]
+    geocodeProc.command = root.helperCmd("fetch",
+      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json", "5")
     geocodeProc.running = true
   }
 
@@ -602,36 +564,46 @@ Panel {
 
   Process {
     id: forecastProc
-    command: [root.pythonPath, root.helperPath, "fetch", "https://wttr.in/" + root.locationQuery + "?format=j1", "10"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) {
-          root.scheduleForecastRetry()
-          return
-        }
-        try {
-          var parsed = Model.normalizeWttrResponse(JSON.parse(raw))
-          if (!parsed) throw new Error("Invalid wttr response")
-          root.report = parsed
-          root.mapRevision++
-          if (!root.hasConfiguredCoordinates)
-            root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
-          root.forecastRetries = 0
-          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
-            root.finishSavingLocation()
-          // Stored coordinates already drove the fast open-meteo fetch from
-          // refresh(); only auto-detect needs the area wttr reported.
-          if (isNaN(parseFloat(String(root.configuredLocationState.latitude))))
-            root.refreshDailyForecast(parsed)
-        } catch (e) {
-          // Keep last-good report visible, but try again shortly.
-          root.scheduleForecastRetry()
-        }
+    command: root.helperCmd("fetch", "https://wttr.in/" + root.locationQuery + "?format=j1", "10")
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.forecastBuf, chunk)
+        if (next === null) { root.forecastBuf = ""; forecastProc.signal(15); forecastKill.start(); return }
+        root.forecastBuf = next
+      }
+    }
+    onRunningChanged: if (running) forecastDeadline.restart(); else { forecastDeadline.stop(); forecastKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.forecastBuf
+      root.forecastBuf = ""
+      var raw = String(text || "").trim()
+      if (exitCode !== 0 || !raw) {
+        root.scheduleForecastRetry()
+        return
+      }
+      try {
+        var parsed = Model.normalizeWttrResponse(JSON.parse(raw))
+        if (!parsed) throw new Error("Invalid wttr response")
+        root.report = parsed
+        root.mapRevision++
+        if (!root.hasConfiguredCoordinates)
+          root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
+        root.forecastRetries = 0
+        if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
+          root.finishSavingLocation()
+        // Stored coordinates already drove the fast open-meteo fetch from
+        // refresh(); only auto-detect needs the area wttr reported.
+        if (isNaN(parseFloat(String(root.configuredLocationState.latitude))))
+          root.refreshDailyForecast(parsed)
+      } catch (e) {
+        // Keep last-good report visible, but try again shortly.
+        root.scheduleForecastRetry()
       }
     }
   }
+  Timer { id: forecastDeadline; interval: root.procDeadlineMs; onTriggered: { forecastProc.signal(15); forecastKill.start() } }
+  Timer { id: forecastKill; interval: 2000; onTriggered: forecastProc.signal(9) }
 
   // wttr.in can be slow or flaky, especially for a location it hasn't
   // cached yet. Retry a few times before leaving it to the refresh timer.
@@ -664,41 +636,61 @@ Panel {
 
   Process {
     id: dailyForecastProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) {
-          root.scheduleDailyForecastRetry()
-          return
-        }
-        try {
-          var parsed = JSON.parse(raw)
-          var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
-          root.dailyForecastReport = parsed
-          root.label = Model.currentIcon(parsedCurrent, root.label)
-          root.dailyForecastRetries = 0
-          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
-            root.finishSavingLocation()
-        } catch (e) {
-          // Keep last-good daily forecast visible, but try again shortly.
-          root.scheduleDailyForecastRetry()
-        }
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.dailyForecastBuf, chunk)
+        if (next === null) { root.dailyForecastBuf = ""; dailyForecastProc.signal(15); dailyForecastKill.start(); return }
+        root.dailyForecastBuf = next
+      }
+    }
+    onRunningChanged: if (running) dailyForecastDeadline.restart(); else { dailyForecastDeadline.stop(); dailyForecastKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.dailyForecastBuf
+      root.dailyForecastBuf = ""
+      var raw = String(text || "").trim()
+      if (exitCode !== 0 || !raw) {
+        root.scheduleDailyForecastRetry()
+        return
+      }
+      try {
+        var parsed = JSON.parse(raw)
+        var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
+        root.dailyForecastReport = parsed
+        root.label = Model.currentIcon(parsedCurrent, root.label)
+        root.dailyForecastRetries = 0
+        if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
+          root.finishSavingLocation()
+      } catch (e) {
+        // Keep last-good daily forecast visible, but try again shortly.
+        root.scheduleDailyForecastRetry()
       }
     }
   }
+  Timer { id: dailyForecastDeadline; interval: root.procDeadlineMs; onTriggered: { dailyForecastProc.signal(15); dailyForecastKill.start() } }
+  Timer { id: dailyForecastKill; interval: 2000; onTriggered: dailyForecastProc.signal(9) }
 
   Process {
     id: geocodeProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.locationSuggestions = root.editingLocation ? Model.parseGeocodingResults(text) : []
-        root.suggestionIndex = 0
-        if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.geocodeBuf, chunk)
+        if (next === null) { root.geocodeBuf = ""; geocodeProc.signal(15); geocodeKill.start(); return }
+        root.geocodeBuf = next
       }
     }
+    onRunningChanged: if (running) geocodeDeadline.restart(); else { geocodeDeadline.stop(); geocodeKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.geocodeBuf
+      root.geocodeBuf = ""
+      root.locationSuggestions = root.editingLocation ? Model.parseGeocodingResults(text) : []
+      root.suggestionIndex = 0
+      if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
+    }
   }
+  Timer { id: geocodeDeadline; interval: root.procDeadlineMs; onTriggered: { geocodeProc.signal(15); geocodeKill.start() } }
+  Timer { id: geocodeKill; interval: 2000; onTriggered: geocodeProc.signal(9) }
 
   Timer {
     id: geocodeDebounce
@@ -708,6 +700,7 @@ Panel {
 
   Process {
     id: locationSaveProc
+    onRunningChanged: if (running) locationSaveDeadline.restart(); else { locationSaveDeadline.stop(); locationSaveKill.stop() }
     onExited: function(exitCode) {
       if (exitCode !== 0 || !root.savingLocation) return
 
@@ -724,18 +717,43 @@ Panel {
       }
     }
   }
+  Timer { id: locationSaveDeadline; interval: root.procDeadlineMs; onTriggered: { locationSaveProc.signal(15); locationSaveKill.start() } }
+  Timer { id: locationSaveKill; interval: 2000; onTriggered: locationSaveProc.signal(9) }
 
   Process {
     id: locationProc
-    command: [root.pythonPath, root.helperPath, "fetch", "https://wttr.in/?format=%l", "4"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) return
-        root.wttrLocation = raw.split(",")[0].slice(0, 128)
+    command: root.helperCmd("fetch", "https://wttr.in/?format=%l", "4")
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.locationProcBuf, chunk)
+        if (next === null) { root.locationProcBuf = ""; locationProc.signal(15); locationProcKill.start(); return }
+        root.locationProcBuf = next
       }
     }
+    onRunningChanged: if (running) locationProcDeadline.restart(); else { locationProcDeadline.stop(); locationProcKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.locationProcBuf
+      root.locationProcBuf = ""
+      if (exitCode !== 0) return
+      var raw = String(text || "").trim()
+      if (!raw) return
+      root.wttrLocation = raw.split(",")[0].slice(0, 128)
+    }
+  }
+  Timer { id: locationProcDeadline; interval: root.procDeadlineMs; onTriggered: { locationProc.signal(15); locationProcKill.start() } }
+  Timer { id: locationProcKill; interval: 2000; onTriggered: locationProc.signal(9) }
+
+  Component.onDestruction: {
+    radarGeocodeProc.signal(15)
+    locationFile.signal(15)
+    panelStateFile.signal(15)
+    panelStateSaveProc.signal(15)
+    forecastProc.signal(15)
+    dailyForecastProc.signal(15)
+    geocodeProc.signal(15)
+    locationSaveProc.signal(15)
+    locationProc.signal(15)
   }
 
   Timer {
@@ -817,6 +835,7 @@ Panel {
           spacing: Style.space(16)
 
           Text {
+            textFormat: Text.PlainText
             id: heroIcon
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: 5
@@ -883,6 +902,7 @@ Panel {
             spacing: Style.space(6)
 
             Text {
+              textFormat: Text.PlainText
               text: ""  // nf-fa-map_marker
               color: Qt.darker(root.bar.foreground, 1.4)
               font.family: root.bar.fontFamily
@@ -956,6 +976,7 @@ Panel {
               color: !root.savingLocation && clearLocationArea.containsMouse ? Style.hoverFillFor(root.bar.foreground, Color.accent) : "transparent"
 
               Text {
+                textFormat: Text.PlainText
                 anchors.centerIn: parent
                 text: root.savingLocation ? "󰦖" : "✕"
                 font.family: root.bar.fontFamily
@@ -989,6 +1010,7 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
+                textFormat: Text.PlainText
                 text: "FEELS"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -1007,6 +1029,7 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
+                textFormat: Text.PlainText
                 text: "WIND"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -1037,6 +1060,7 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
+                textFormat: Text.PlainText
                 text: "HUMID"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -1122,6 +1146,7 @@ Panel {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: !root.current
         text: "Fetching forecast…"
         color: Qt.darker(root.bar.foreground, 1.5)
@@ -1204,6 +1229,7 @@ Panel {
               }
 
               Text {
+                textFormat: Text.PlainText
                 width: Style.space(42)
                 opacity: root.showDailyDetails(modelData.date) ? 1 : 0
                 text: root.forecastIcon(modelData, false)
@@ -1215,6 +1241,7 @@ Panel {
               }
 
               Text {
+                textFormat: Text.PlainText
                 width: Style.space(42)
                 opacity: root.showDailyDetails(modelData.date) ? 1 : 0
                 text: root.forecastIcon(modelData, true)
@@ -1257,6 +1284,7 @@ Panel {
           spacing: Style.space(8)
 
         Text {
+          textFormat: Text.PlainText
           text: "TODAY"
           color: Qt.darker(root.bar.foreground, 1.4)
           font.family: root.bar.fontFamily
@@ -1269,6 +1297,7 @@ Panel {
           spacing: Style.space(12)
 
           Text {
+            textFormat: Text.PlainText
             text: root.dayIcon(root.todayForecast)
             color: root.bar.foreground
             font.family: root.bar.fontFamily
@@ -1360,6 +1389,7 @@ Panel {
                     horizontalAlignment: Text.AlignHCenter
                   }
                   Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     text: root.dayIcon(modelData)
                     color: root.bar.foreground
@@ -1443,6 +1473,7 @@ Panel {
             height: Style.space(18)
 
             Text {
+              textFormat: Text.PlainText
               id: activityTitle
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
@@ -1454,6 +1485,7 @@ Panel {
             }
 
             Text {
+              textFormat: Text.PlainText
               id: activityToggle
               anchors.left: activityTitle.right
               anchors.verticalCenter: parent.verticalCenter
@@ -1535,6 +1567,7 @@ Panel {
                       spacing: Style.space(3)
 
                       Text {
+                        textFormat: Text.PlainText
                         text: modelData.symbol + "  " + modelData.name
                         color: root.bar.foreground
                         font.family: root.bar.fontFamily
@@ -1542,6 +1575,7 @@ Panel {
                         font.bold: true
                       }
                       Text {
+                        textFormat: Text.PlainText
                         text: modelData.status
                         color: root.bar.foreground
                         font.family: root.bar.fontFamily
@@ -1606,6 +1640,7 @@ Panel {
           height: Style.space(20)
 
           Text {
+            textFormat: Text.PlainText
             id: mapsTitle
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -1618,6 +1653,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             id: mapsToggle
             anchors.left: mapsTitle.right
             anchors.verticalCenter: parent.verticalCenter
@@ -1651,148 +1687,32 @@ Panel {
           }
         }
 
-        Rectangle {
+        Column {
           visible: root.mapsExpanded
           width: parent.width
-          height: Style.space(260)
-          radius: 0
-          color: "transparent"
-          border.width: 0
-          clip: true
-
-          Item {
-            id: mapTiles
-            anchors.centerIn: parent
-            anchors.horizontalCenterOffset: Style.space(128) - Style.space(256) * root.mapFraction("x")
-            anchors.verticalCenterOffset: Style.space(128) - Style.space(256) * root.mapFraction("y")
-            width: Style.space(768)
-            height: Style.space(768)
-
-            Repeater {
-              model: 9
-
-              Image {
-                required property int index
-                x: (index % 3) * Style.space(256)
-                y: Math.floor(index / 3) * Style.space(256)
-                width: Style.space(256)
-                height: Style.space(256)
-                source: {
-                  // Explicit dependency: mapTile() reads auto-detected
-                  // coordinates through areaInfo, which QML cannot reliably
-                  // observe when the read is indirect.
-                  var revision = root.mapRevision
-                  if (!root.hasRadarCoordinates) return ""
-                  return "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/" + root.mapZoom + "/" + root.mapTile("y", -1 + Math.floor(index / 3)) + "/" + root.mapTile("x", -1 + (index % 3))
-                }
-                asynchronous: true
-                smooth: false
-                opacity: 0.78
-              }
-            }
-
-            // Transparent CARTO overlay keeps city names, roads and map
-            // outlines readable on top of the satellite imagery.
-            Repeater {
-              model: 9
-
-              Image {
-                required property int index
-                x: (index % 3) * Style.space(256)
-                y: Math.floor(index / 3) * Style.space(256)
-                width: Style.space(256)
-                height: Style.space(256)
-                source: {
-                  var revision = root.mapRevision
-                  if (!root.hasRadarCoordinates) return ""
-                  return "https://a.basemaps.cartocdn.com/light_only_labels/" + root.mapZoom + "/" + root.mapTile("x", -1 + (index % 3)) + "/" + root.mapTile("y", -1 + Math.floor(index / 3)) + ".png"
-                }
-                asynchronous: true
-                smooth: false
-                opacity: 0.9
-              }
-            }
-          }
-
-          // RainViewer's current Weather Maps API exposes radar as regular
-          // map tiles (z/x/y). The former single-image URL based on
-          // latitude/longitude is no longer supported, which left this
-          // layer blank even when the metadata request succeeded.
-          Item {
-            id: radarTiles
-            anchors.fill: parent
-            visible: root.selectedMapLayer === "rain" && root.radarPath !== ""
-            clip: true
-            z: 1
-
-            Item {
-              anchors.centerIn: parent
-              property real radarScale: Math.pow(2, root.mapZoom - root.radarRenderZoom())
-              anchors.horizontalCenterOffset: Style.space(128) * radarScale - Style.space(256) * radarScale * root.radarFraction("x", root.mapRevision)
-              anchors.verticalCenterOffset: Style.space(128) * radarScale - Style.space(256) * radarScale * root.radarFraction("y", root.mapRevision)
-              width: Style.space(768) * radarScale
-              height: Style.space(768) * radarScale
-
-              Repeater {
-                model: 9
-
-                Image {
-                  required property int index
-                  x: (index % 3) * Style.space(256) * parent.radarScale
-                  y: Math.floor(index / 3) * Style.space(256) * parent.radarScale
-                  width: Style.space(256) * parent.radarScale
-                  height: Style.space(256) * parent.radarScale
-                  source: {
-                    var revision = root.mapRevision
-                    if (!root.hasRadarCoordinates || root.radarPath === "") return ""
-                    return root.radarHost + root.radarPath + "/256/" + root.radarRenderZoom() + "/" + root.radarTile("x", -1 + (index % 3)) + "/" + root.radarTile("y", -1 + Math.floor(index / 3)) + "/2/1_1.png"
-                  }
-                  asynchronous: true
-                  cache: true
-                  smooth: false
-                }
-              }
-            }
-          }
-
-          // The map mosaic is positioned so the configured location is at
-          // the exact center of the viewport. This marker makes that point
-          // visible on both the satellite and rain layers.
-          Rectangle {
-            anchors.centerIn: parent
-            width: Style.space(10)
-            height: width
-            radius: width / 2
-            color: Color.accent
-            border.width: Style.space(2)
-            border.color: root.bar.foreground
-            z: 2
-            visible: root.hasRadarCoordinates
-          }
+          spacing: Style.space(10)
 
           Text {
-            anchors.left: parent.left
-            anchors.bottom: parent.bottom
-            anchors.leftMargin: Style.space(8)
-            anchors.bottomMargin: Style.space(6)
-            text: "Satellite: Esri  •  Labels: CARTO  •  Radar: RainViewer"
-            color: root.bar.foreground
+            textFormat: Text.PlainText
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "Map tiles are not loaded inside the shell. Open the radar map in your browser instead."
+            color: Qt.darker(root.bar.foreground, 1.2)
             font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.caption
-            opacity: 0.8
+            font.pixelSize: Style.font.body
           }
 
-          // Capture only wheel events so the map can zoom without interfering
-          // with the rest of the panel.
-          MouseArea {
-            anchors.fill: parent
-            z: 3
-            acceptedButtons: Qt.NoButton
-            onWheel: function(wheel) { root.zoomMap(wheel) }
+          Button {
+            text: "Open radar map"
+            bordered: true
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+            onClicked: root.openRadarInBrowser()
           }
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           text: "Current temperature of approximately " + (root.reportTempNum || "—") + root.tempUnit
           color: root.bar.foreground
