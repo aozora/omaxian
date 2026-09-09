@@ -15,7 +15,7 @@ Plugin path: `omaxian/.local/share/omarchy/shell/plugins/panels/settings/`
 
 | From | How |
 |---|---|
-| Omarchy menu | Super+L → Setup → Settings |
+| Omarchy menu | Super+Space → Setup → Settings |
 | Control Panel | Gear icon → **Settings** at the bottom of the sidebar |
 | Keybind | Super+Ctrl+S |
 | IPC | `omarchy-shell shell toggle omaxian.settings` |
@@ -40,9 +40,9 @@ redeploy, so layout edits survive.
 - Position: top / bottom / left / right
 - Transparent bar
 - Floating island (`island`, `islandMargin`, `islandRadius`) — inset rounded
-  chrome; see [bar.md](bar.md)
-- Center widget
-- Per-section widget list with up / down / remove
+  chrome; see [bar.md](bar.md). Toggling island may need a shell reload
+  (prefer log out / log in; avoid `omarchy-restart-shell` on glx picom)
+- Left / Center / Right widget lists with up / down / remove
 - Available widgets that are not on the bar yet, with Add
 
 ### Dock
@@ -57,7 +57,8 @@ from `dock.toml` in the active theme. Pinned apps stay on the dock
 - Icon size, hover scale, corner radius, island gap
 - Running indicator: dot / bar / none
 
-`full-width` may need `omarchy-restart-shell`; most other keys apply live.
+`full-width` may need a shell reload (prefer log out / log in); most other
+keys apply live.
 
 ### Appearance
 
@@ -134,11 +135,15 @@ keyboard layouts live under Settings → Keyboard / `keyboard.json`, and that
 | Changed | Takes effect |
 |---|---|
 | `shell.json` (bar / widgets / plugins) | live (file-watched) |
+| `shell.json` `island` toggle | often needs log out / log in |
 | `shell.toml` | live (file-watched) |
 | Theme / user `dock.toml` | live |
-| `dock.toml` `full-width` | `omarchy-restart-shell` recommended |
+| `dock.toml` `full-width` | often needs log out / log in |
 | `startup.json` | next login, or Launch now |
 | `keyboard.json` | next login, or Apply now |
+
+Do not use `omarchy-restart-shell` to apply those reload cases on a glx
+picom session — it can freeze X. Log out and back in instead.
 
 See also [displays.md](displays.md) for multi-monitor layout, workspace
 clicks, and wallpaper-on-X11.

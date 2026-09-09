@@ -4,10 +4,10 @@
 # omarchy:args=[-q] <target> <method> [args...]
 # omarchy:examples=omarchy-shell shell ping | omarchy-shell -q omarchy.indicators refresh
 #
-# Devuan/X11 port of upstream omarchy-quattro/bin/omarchy-shell. Only change:
-# the out-of-session display recovery scans /tmp/.X11-unix instead of the
-# Wayland socket dir. Everything else (qs ipc call, timeout + error parsing)
-# is upstream.
+# Devuan/X11 port of upstream omarchy-quattro/bin/omarchy-shell.
+# Divergences: X11 DISPLAY recovery (/tmp/.X11-unix), XDG_RUNTIME_DIR
+# fallback, qs ipc --any-display (exact DISPLAY string matching), and
+# surfacing qs stderr on connection failure.
 
 QUIET=0
 if [[ ${1:-} == "-q" ]]; then
@@ -45,6 +45,13 @@ fi
 : "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
 [[ -f $OMARCHY_PATH/shell/shell.qml ]] || fail "omarchy-shell config not found: $OMARCHY_PATH/shell/shell.qml"
 
+# Same fallback as omarchy-launch-shell / omarchy-restart-shell: qs stores
+# instance sockets under $XDG_RUNTIME_DIR/quickshell and fails closed if the
+# client cannot see that directory.
+if [[ -z ${XDG_RUNTIME_DIR:-} && -d /run/user/$UID ]]; then
+  export XDG_RUNTIME_DIR=/run/user/$UID
+fi
+
 # qs matches instances by display; a caller from outside the session (ssh/TTY
 # omarchy-restart-shell) has none, so recover it from the X socket.
 if [[ -z ${DISPLAY:-} ]]; then
@@ -59,13 +66,24 @@ fi
 # The -- keeps function names that shadow qs subcommands (e.g. show) as
 # positionals. qs reports connection failures with a nonzero exit; IPC-level
 # failures (unknown target/function, bad arguments) go to stdout with exit 0.
+#
+# --any-display: qs keys instances as "x11,$DISPLAY" with an exact string
+# match, so DISPLAY=:0 (i3/launch) vs :0.0 (some terminals) looks like a
+# different seat and returns "not running" while the bar is fine. Omaxian is
+# single-seat; path (-p) already selects the Omarchy config.
 ipc_timeout=${OMARCHY_SHELL_IPC_TIMEOUT:-2s}
-output=$(timeout --kill-after=1s "$ipc_timeout" qs ipc -n -p "$OMARCHY_PATH/shell" call -- "$@" 2>/dev/null)
+errfile=$(mktemp) || fail "omarchy-shell is not running"
+trap 'rm -f -- "$errfile"' EXIT
+output=$(timeout --kill-after=1s "$ipc_timeout" qs ipc --any-display -n -p "$OMARCHY_PATH/shell" call -- "$@" 2>"$errfile")
 ipc_status=$?
 
 if (( ipc_status == 124 || ipc_status == 137 )); then
   fail "omarchy-shell is not responding"
 elif (( ipc_status != 0 )); then
+  if (( !QUIET )) && [[ -s $errfile ]]; then
+    echo "omarchy-shell: qs ipc failed:" >&2
+    cat "$errfile" >&2
+  fi
   fail "omarchy-shell is not running"
 fi
 
