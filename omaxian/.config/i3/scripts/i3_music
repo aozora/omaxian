@@ -4,8 +4,7 @@
 ##
 ## Run ncmpcpp with alternate config (kitty)
 
-DIR="$HOME/.config/i3"
-CONFIG="$DIR/kitty/kitty.conf"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/kitty/kitty.conf"
 
 exec kitty --class 'Music,Music' --config "$CONFIG" \
 	--override 'initial_window_width=105c' \

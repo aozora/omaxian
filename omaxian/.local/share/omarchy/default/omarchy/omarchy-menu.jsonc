@@ -1,5 +1,5 @@
 {
-  // Omaxian port of Omarchy v4.0.2 omarchy-menu.jsonc.
+  // Omaxian port of Omarchy v4.0.3 omarchy-menu.jsonc.
   // Install/Remove trees and Hyprland/Arch/unported-plugin leaves are omitted
   // (empty submenus hide themselves). Actions are rewired to i3/elogind/X11.
 

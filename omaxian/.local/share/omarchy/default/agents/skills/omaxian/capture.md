@@ -20,7 +20,9 @@ confuse with **Super+Shift+C**, which reloads the i3 config.
 
 Files land in `$(xdg-user-dir PICTURES)/Screenshots` and are copied to the
 clipboard as `image/png`. `flameshot` is also installed by `setup.sh` if the
-user wants an interactive annotator.
+user wants an interactive annotator. Its tray icon is a StatusNotifier item on
+the Quickshell bar; `omarchy-startup-launch` waits for that host so the daemon
+does not start before the systray exists.
 
 ## Screen recording
 

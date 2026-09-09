@@ -26,6 +26,16 @@ fi
 
 mkdir -p "$(dirname "$LOG")"
 
+# Prefix each log line with a local wall-clock time so freezes/crashes are
+# correlatable after reboot (raw quickshell output has no timestamps).
+log_ts() { date '+%Y-%m-%d %H:%M:%S'; }
+prefix_ts() {
+	while IFS= read -r line || [[ -n $line ]]; do
+		printf '%s %s\n' "$(log_ts)" "$line"
+	done
+}
+logmsg() { printf '%s %s\n' "$(log_ts)" "$*" >>"$LOG"; }
+
 # Quickshell.I3 needs a live socket path in the environment. i3_bar / i3_autostart
 # deliberately unset a possibly-stale I3SOCK so `i3-msg` falls back to the X
 # property — but that leaves Quickshell unable to connect ("Cannot connect to
@@ -79,7 +89,7 @@ if ! flock -n 8; then
 	fi
 fi
 echo "$$" >"$LOCK_DIR/launch-shell.pid"
-echo "omarchy-launch-shell: starting pid=$$ I3SOCK=${I3SOCK:-<unset>} OMARCHY_PATH=$OMARCHY_PATH" >&2
+echo "$(log_ts) omarchy-launch-shell: starting pid=$$ I3SOCK=${I3SOCK:-<unset>} OMARCHY_PATH=$OMARCHY_PATH" >&2
 
 # Repair a stale DBUS_SESSION_BUS_ADDRESS before launching. It gets inherited
 # across an `i3 restart` or from a detached subshell and can point at a
@@ -109,8 +119,18 @@ fi
 run_shell() {
 	# Re-resolve in case i3 restarted under us and the socket path changed.
 	resolve_i3sock || true
-	QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
-		quickshell -n -p "$CONFIG_DIR" >>"$LOG" 2>&1 &
+	logmsg "omarchy-launch-shell: launching quickshell"
+	# Line-buffer so timestamps appear as events happen, not in chunks.
+	# Process substitution keeps $! as quickshell's pid (for stop/wait).
+	if command -v stdbuf >/dev/null 2>&1; then
+		QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
+			stdbuf -oL -eL quickshell -n -p "$CONFIG_DIR" \
+			> >(prefix_ts >>"$LOG") 2>&1 &
+	else
+		QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
+			quickshell -n -p "$CONFIG_DIR" \
+			> >(prefix_ts >>"$LOG") 2>&1 &
+	fi
 	shell_pid=$!
 
 	local status
@@ -120,6 +140,7 @@ run_shell() {
 		kill -0 "$shell_pid" 2>/dev/null || break
 	done
 
+	logmsg "omarchy-launch-shell: quickshell exited status=$status"
 	shell_pid=""
 	return $status
 }
@@ -164,10 +185,11 @@ while true; do
 
 	if (( ++attempts > 5 )); then
 		logger -t omarchy-shell "Giving up on the Omarchy shell after $attempts relaunches in under a minute." 2>/dev/null
-		echo "omarchy-launch-shell: giving up after $attempts relaunches in <60s" >&2
+		logmsg "omarchy-launch-shell: giving up after $attempts relaunches in <60s"
 		exit 1
 	fi
 
 	logger -t omarchy-shell "Omarchy shell exited with status $status; relaunching." 2>/dev/null
+	logmsg "omarchy-launch-shell: exited status=$status; relaunching (attempt $attempts)"
 	sleep 1
 done

@@ -1,8 +1,6 @@
 # TODO
 
-- standard plugin ports for v1 → land under `community-plugins/` (opt-in;
-  see that README). Do not add them to `shell/plugins/` or stock `shell.json`.
-
+- engine to index/crawl for compatible community plugins?
 
 
 # v2
