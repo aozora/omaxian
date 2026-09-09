@@ -13,7 +13,7 @@ import "AppSearch.js" as AppSearch
 // launch-feedback OSD via `Quickshell.Wayland` / `ToplevelManager`
 // (spinner while the launched window appears). None of that maps to X11 —
 // dropped, along with `remove()` (no hide-from-launcher UI in this profile).
-// `launch()` is `uwsm-app -- gtk-launch` → plain `gtk-launch`.
+// `launch()` is setsid + Exec argv (gtk-launch fallback); libstdbuf scrubbed.
 Item {
   id: root
 
@@ -132,7 +132,7 @@ Item {
     if (!iconIndexScan.running) iconIndexScan.running = true
   }
 
-  // Launch via `setsid -f gtk-launch <filename>`, with Exec argv fallback.
+  // Launch via `setsid -f` + Exec argv (or gtk-launch fallback).
   //  - `gtk-launch` (not `entry.execute()`): QS 0.3.0's Debian build compiles
   //    in the systemd launch path, and Devuan has no `systemd --user`, so
   //    `execute()` no-ops. `gtk-launch` parses Exec=/field-codes/Terminal=
@@ -142,7 +142,23 @@ Item {
   //  - `setsid -f`: QS 0.3.0's `execDetached` does NOT fully detach on this
   //    build — when the direct child (`gtk-launch`) exits, the grandchild GUI
   //    app is signalled and dies. A new session via `setsid -f` keeps it
-  //    alive (same reason the AppImage branch above already uses it).
+  //    alive (same reason the AppImage branch already uses it).
+  //  - Scrub libstdbuf from LD_PRELOAD before exec: a parent `stdbuf` (or any
+  //    leftover) must not reach Electron/AppImage children — that preload has
+  //    crashed Cursor's renderer (code 11) when started from Menu/Dock.
+  function scrubStdbufAndExec(argv) {
+    if (!argv || argv.length === 0) return
+    Quickshell.execDetached([
+      "setsid", "-f", "bash", "-c",
+      'IFS=:; cleaned=""; for p in ${LD_PRELOAD-}; do ' +
+        '[ -n "$p" ] || continue; case "$p" in *libstdbuf*) continue ;; esac; ' +
+        'cleaned="${cleaned}${cleaned:+:}$p"; done; unset IFS; ' +
+        'if [ -n "$cleaned" ]; then export LD_PRELOAD="$cleaned"; else unset LD_PRELOAD; fi; ' +
+        'exec "$@"',
+      "omarchy-app-launch"
+    ].concat(argv))
+  }
+
   function launch(entryOrId, name) {
     // Defensive: unwrap a scored row `{ entry, score, key, name }` if one slips through.
     if (entryOrId && typeof entryOrId === "object" && entryOrId.entry && !entryOrId.id)
@@ -150,8 +166,11 @@ Item {
 
     // Loose AppImage pseudo-entry: chmod +x (some downloads aren't) then exec.
     if (entryOrId && entryOrId._appimagePath) {
-      Quickshell.execDetached(["bash", "-c",
-        'chmod +x -- "$1" 2>/dev/null; exec setsid -f -- "$1"', "bash", String(entryOrId._appimagePath)])
+      root.scrubStdbufAndExec([
+        "bash", "-c",
+        'chmod +x -- "$1" 2>/dev/null; exec "$1"', "bash",
+        String(entryOrId._appimagePath)
+      ])
       return
     }
 
@@ -174,7 +193,7 @@ Item {
         argv.push(part)
       }
       if (argv.length > 0) {
-        Quickshell.execDetached(["setsid", "-f"].concat(argv))
+        root.scrubStdbufAndExec(argv)
         return
       }
     }
@@ -182,7 +201,7 @@ Item {
     var id = String((entry && entry.id) || entryOrId || "")
     var desktopFile = root.gtkLaunchDesktopFile(id)
     if (desktopFile)
-      Quickshell.execDetached(["setsid", "-f", "gtk-launch", desktopFile])
+      root.scrubStdbufAndExec(["gtk-launch", desktopFile])
   }
 
   // Map a DesktopEntry.id to the filename gtk-launch expects.

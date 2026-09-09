@@ -120,17 +120,15 @@ run_shell() {
 	# Re-resolve in case i3 restarted under us and the socket path changed.
 	resolve_i3sock || true
 	logmsg "omarchy-launch-shell: launching quickshell"
-	# Line-buffer so timestamps appear as events happen, not in chunks.
+	# Do NOT wrap quickshell in `stdbuf`: that injects libstdbuf.so into
+	# LD_PRELOAD, which every Menu/Dock child inherits via execDetached and
+	# has crashed Electron AppImage renderers (Cursor: renderer code 11).
 	# Process substitution keeps $! as quickshell's pid (for stop/wait).
-	if command -v stdbuf >/dev/null 2>&1; then
-		QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
-			stdbuf -oL -eL quickshell -n -p "$CONFIG_DIR" \
-			> >(prefix_ts >>"$LOG") 2>&1 &
-	else
-		QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
-			quickshell -n -p "$CONFIG_DIR" \
-			> >(prefix_ts >>"$LOG") 2>&1 &
-	fi
+	# Timestamps still land per-line once QS flushes; prefer that over
+	# poisoning the session launch environment.
+	QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
+		quickshell -n -p "$CONFIG_DIR" \
+		> >(prefix_ts >>"$LOG") 2>&1 &
 	shell_pid=$!
 
 	local status
