@@ -766,6 +766,10 @@ Panel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
+    // Location TextField owns Escape while editing (cancel); otherwise ESC
+    // must dismiss the panel. Mirrored on KeyboardPanel so its Application
+    // Shortcut stays disabled during edit even if focus drifts.
+    escapeBlocked: root.editingLocation
     contentWidth: Style.space(500)
     contentHeight: panel.fittedContentHeight(weatherColumn.implicitHeight)
 
@@ -776,6 +780,15 @@ Panel {
       onReturnRequested: root.startEditingLocation()
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+
+      // Belt-and-braces with KeyboardPanel's Escape Shortcut / Keys.onPressed
+      // (same pattern as Media.qml): keeps dismiss working when a child stole
+      // activeFocus after a click inside the scroll area.
+      Keys.onEscapePressed: function(event) {
+        if (root.editingLocation) return
+        root.close()
+        event.accepted = true
+      }
 
       Flickable {
         id: weatherScroll

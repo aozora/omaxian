@@ -155,8 +155,12 @@ PopupWindow {
     root.close()
   }
 
+  // ApplicationShortcut: under i3 a Qt::Popup often is not Qt's "active
+  // window" even after XSetInputFocus, so WindowShortcut never fires.
+  // Enabled only while this panel is open (and not editor-blocked).
   Shortcut {
     sequence: "Escape"
+    context: Qt.ApplicationShortcut
     enabled: root.open && root.escapeCloses && !root.escapeBlocked
              && !(root.focusTarget && root.focusTarget.blocked === true)
     onActivated: root.handleEscape()

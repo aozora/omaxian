@@ -681,6 +681,7 @@ Panel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
+    escapeBlocked: root.editingLocation
     contentWidth: panel.fittedContentWidth(Style.space(480))
     contentHeight: panel.fittedContentHeight(weatherColumn.implicitHeight)
 
@@ -691,6 +692,12 @@ Panel {
       onReturnRequested: root.startEditingLocation()
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+
+      Keys.onEscapePressed: function(event) {
+        if (root.editingLocation) return
+        root.close()
+        event.accepted = true
+      }
 
       Flickable {
         id: weatherScroll

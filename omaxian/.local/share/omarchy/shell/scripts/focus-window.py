@@ -18,8 +18,9 @@ sticks (verified: repeated open/type/check-focus cycles hold focus on the
 popup, not reverting to whatever window was focused before).
 
 Finds the popup by: owned by this quickshell process (`_NET_WM_PID`),
-override-redirect (popups are; the bar/dock is not), mapped, and not the
-full-width bar strip.
+override-redirect (popups are; the bar/dock is not), mapped, taller than
+the bar strip, and — when several match — the largest by area (so a tall
+KeyboardPanel wins over a short overlay that appeared first in the tree).
 """
 import subprocess
 import sys
@@ -43,7 +44,12 @@ def main() -> int:
     root = d.screen().root
     pid_atom = d.intern_atom("_NET_WM_PID")
 
-    def find(win):
+    # Collect every candidate, then prefer the largest. DFS-first used to
+    # focus a short dock/tooltip overlay instead of a tall KeyboardPanel
+    # (e.g. weather), so Escape never reached the panel that just opened.
+    candidates = []
+
+    def collect(win):
         try:
             attrs = win.get_attributes()
             geom = win.get_geometry()
@@ -55,7 +61,8 @@ def main() -> int:
                 and attrs.map_state == X.IsViewable
                 and geom.height > 40  # excludes the 36px bar strip
             ):
-                return win
+                area = max(1, int(geom.width)) * max(1, int(geom.height))
+                candidates.append((area, win))
         except Exception:
             pass
         try:
@@ -63,15 +70,14 @@ def main() -> int:
         except Exception:
             children = []
         for c in children:
-            found = find(c)
-            if found:
-                return found
-        return None
+            collect(c)
 
-    target = find(root)
-    if target is None:
+    collect(root)
+    if not candidates:
         return 1
 
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    target = candidates[0][1]
     target.set_input_focus(X.RevertToParent, X.CurrentTime)
     d.sync()
     return 0
