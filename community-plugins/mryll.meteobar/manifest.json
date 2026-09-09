@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "id": "mryll.meteobar",
+  "name": "Meteobar",
+  "version": "0.5.3",
+  "author": "mryll",
+  "license": "MIT",
+  "description": "Open-Meteo weather (meteobar) in the Omarchy bar: condition glyph + temperature, with an hourly and daily forecast panel.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "omarchy/BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Meteobar",
+    "description": "Click: forecast panel. Middle click: refresh.",
+    "category": "Status",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshMinutes": 15,
+      "units": "metric",
+      "location": "",
+      "iconSet": "nerd",
+      "colorMode": "full"
+    },
+    "schema": [
+      {
+        "key": "refreshMinutes",
+        "type": "integer",
+        "label": "Refresh interval (minutes)",
+        "description": "How often to fetch the forecast. Open-Meteo publishes hourly, so anything under 10 minutes fetches the same numbers again.",
+        "min": 1,
+        "max": 180,
+        "step": 1,
+        "defaultValue": 15
+      },
+      {
+        "key": "units",
+        "type": "enum",
+        "label": "Units",
+        "description": "Metric is °C, km/h and mm; imperial is °F, mph and inches. Applies to the bar, the tooltip and the panel at once.",
+        "options": [
+          "metric",
+          "imperial"
+        ],
+        "defaultValue": "metric"
+      },
+      {
+        "key": "location",
+        "type": "string",
+        "label": "Location",
+        "defaultValue": "",
+        "description": "City name, 'City, Province' or 'City, CC' (meteobar's geocoding disambiguation). Empty auto-detects by IP."
+      },
+      {
+        "key": "iconSet",
+        "type": "enum",
+        "label": "Icon set",
+        "options": [
+          "nerd",
+          "weather",
+          "emoji",
+          "fontawesome"
+        ],
+        "defaultValue": "nerd",
+        "description": "Glyph family for condition icons. 'fontawesome' requires otf-font-awesome >= 7."
+      },
+      {
+        "key": "colorMode",
+        "type": "enum",
+        "label": "Colors",
+        "options": [
+          "full",
+          "none",
+          "bar-only",
+          "panel-only"
+        ],
+        "defaultValue": "full",
+        "description": "Monochrome rendering uses foreground tones only — severity stays readable through the numbers and glyphs. none: no color anywhere. bar-only: colored bar face, plain panel. panel-only: the reverse."
+      }
+    ]
+  }
+}

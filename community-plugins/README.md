@@ -49,6 +49,7 @@ community-plugins/
 | ----------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
 | [`jankeesvw.nag`](jankeesvw.nag/)               | `jankeesvw.nag`        | [omarchy-nag](https://github.com/jankeesvw/omarchy-nag) — disposable alarms; calendar user timers → wall-clock sleeper, `paplay`/`pw-play` | Ported |
 | [`jmaeder.swissweather`](jmaeder.swissweather/) | `jmaeder.swissweather` | [omarchy-swissweather](https://github.com/jmaeder/omarchy-swissweather) — MeteoSwiss bar weather; QML compatible as-is                     | Ported |
+| [`mryll.meteobar`](mryll.meteobar/)             | `mryll.meteobar`       | [meteobar](https://github.com/mryll/meteobar) — Open-Meteo weather; Arch package/`wl` clipboard → `make install` + `xclip`/`xsel`             | Ported |
 
 ## Install (opt-in)
 
