@@ -522,7 +522,7 @@ vs `omarchy-quattro/manual/07-hotkeys.md`. `$MOD = Mod4 (Super)`, `$ALT = Mod1`.
 | `Shift+XF86MonBrightnessUp/Down`                      | Max/min brightness           | `exec brightnessctl set 100%` / `1%`                                                                                                            |
 | `Alt+XF86MonBrightness*` / `Alt+XF86Audio*`           | 1% steps                     | `exec ... set 1%-`/`+1%`                                                                                                                        |
 | `Alt+XF86AudioPlay` / `Alt+Shift+…`                   | Next / prev track            | `exec playerctl next` / `previous`                                                                                                              |
-| `Super+Minus` / `Super+Equal` (+`Shift`/`Alt`/`Ctrl`) | Resize edges, step sizes     | `resize shrink/grow width/height {2,10,20} px or … ppt` (replaces `Super+Alt+arrows`)                                                           |
+| `Super+Minus` / `Super+Plus` (+`Shift`/`Alt`/`Ctrl`) | Resize edges, step sizes     | `resize shrink/grow width/height {2,10,20} px or … ppt` (replaces `Super+Alt+arrows`; `Plus` not `Equal` — on IT `Equal` is Shift+0 and stole workspace 10) |
 
 ### 9c. Omarchy features i3 cannot do 1:1 (document as gaps, keep marcello's or omit)
 
