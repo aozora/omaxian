@@ -162,14 +162,62 @@ xkb_group_index() {
 	xkb_py group
 }
 
-layout_list() {
+layout_list_from_rules() {
 	local layouts
 	layouts="$(xprop -root _XKB_RULES_NAMES 2>/dev/null \
 		| awk -F'"' '{print $6; exit}')"
 	if [[ -z $layouts || $layouts == "STRING" ]]; then
 		layouts="$(setxkbmap -query 2>/dev/null | awk '/layout:/{print $2; exit}')"
 	fi
-	printf '%s' "${layouts:-??}"
+	printf '%s' "${layouts:-}"
+}
+
+# Live symbols can disagree with _XKB_RULES_NAMES (session hooks / greeter /
+# a later setxkbmap -layout that only refreshed the atom). Parse the compiled
+# map so Alt+Shift group changes still label RU/US/… correctly.
+layout_list_from_symbols() {
+	local sym
+	sym="$(xkbcomp -xkb "${DISPLAY:-:0}" - 2>/dev/null \
+		| awk '/xkb_symbols / { gsub(/"/, "", $2); print $2; exit }')"
+	[[ -n $sym ]] || return 0
+	python3 - "$sym" <<'PY'
+import re, sys
+sym = sys.argv[1]
+parts = []
+for bit in sym.split("+"):
+	if bit == "pc" or bit.startswith("inet(") or bit.startswith("group("):
+		continue
+	bit = re.sub(r":\d+$", "", bit)
+	name = re.sub(r"\(.*\)$", "", bit)
+	if name and re.fullmatch(r"[a-z0-9_]+", name):
+		parts.append(name)
+print(",".join(parts))
+PY
+}
+
+csv_len() {
+	local s="${1-}"
+	[[ -n $s ]] || { printf '0'; return; }
+	local -a a=()
+	IFS=',' read -r -a a <<<"$s"
+	printf '%s' "${#a[@]}"
+}
+
+layout_list() {
+	local rules eff
+	rules="$(layout_list_from_rules)"
+	eff="$(layout_list_from_symbols || true)"
+	# Prefer the longer list — rules often lag with a single system layout
+	# (e.g. /etc/default/keyboard XKBLAYOUT=it) while the map still has it,ru.
+	if [[ -n $eff ]] && (( $(csv_len "$eff") >= $(csv_len "$rules") )); then
+		printf '%s' "$eff"
+	elif [[ -n $rules ]]; then
+		printf '%s' "$rules"
+	elif [[ -n $eff ]]; then
+		printf '%s' "$eff"
+	else
+		printf '??'
+	fi
 }
 
 query_field() {
@@ -226,11 +274,10 @@ cycle_next() {
 	"${cmd[@]}"
 }
 
-format_status() {
-	local group="$1" caps_flag="${2:-0}"
-	local layouts idx layout caps
+format_status_with() {
+	local layouts="$1" group="$2" caps_flag="${3:-0}"
+	local idx layout caps
 	local -a layout_arr=()
-	layouts="$(layout_list)"
 	IFS=',' read -r -a layout_arr <<<"$layouts"
 	idx="${group:-0}"
 	if ((idx < 0 || idx >= ${#layout_arr[@]})); then
@@ -253,6 +300,10 @@ format_status() {
 	printf ' %s%s\n' "$layout" "$caps"
 }
 
+format_status() {
+	format_status_with "$(layout_list)" "$1" "${2:-0}"
+}
+
 print_status() {
 	local group
 	group="$(xkb_group_index)"
@@ -260,12 +311,19 @@ print_status() {
 }
 
 watch_status() {
-	# One long-lived python reader; re-format in bash so layout_list stays here.
-	# Exit when the pipe breaks (widget torn down).
-	local group caps
+	# Resolve the layout list once; refresh if the group index walks past it
+	# (rules atom caught up, or a setxkbmap ran). Avoid xkbcomp on every
+	# XkbStateNotify — that fires for ordinary modifier noise too.
+	local group caps layouts
+	local -a layout_arr=()
+	layouts="$(layout_list)"
 	while IFS=$'\t' read -r group caps; do
 		[[ $group =~ ^[0-9]+$ ]] || continue
-		format_status "$group" "${caps:-0}"
+		IFS=',' read -r -a layout_arr <<<"$layouts"
+		if (( group >= ${#layout_arr[@]} )); then
+			layouts="$(layout_list)"
+		fi
+		format_status_with "$layouts" "$group" "${caps:-0}"
 	done < <(xkb_py watch-signal)
 }
 
