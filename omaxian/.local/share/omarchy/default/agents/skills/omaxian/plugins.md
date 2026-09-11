@@ -79,9 +79,14 @@ Plugin id `omaxian.dock`. Disable by adding it to `disabledPlugins` in
 
 ## Idle and lock
 
-Lock appearance: `i3lock-omaxian` reads `~/.config/omarchy/lock-settings.json`
+Lock appearance: shipped `i3lock-omaxian` reads `~/.config/omarchy/lock-settings.json`
 (screenshot / fixed image / random folder; effect none/blur/pixelate). Prefer
 Settings → Lock screen (Preview / Test lock).
+
+**Deps:** `i3lock` + `xss-lock` (required via `setup.sh`); `imagemagick` for
+compose/preview; `maim` preferred for screenshot mode (else ImageMagick
+`import`). `i3lock-fancy` is an optional fallback. Without `i3lock`, Preview
+still works; locking skips omaxian/fancy and tries other lockers.
 
 Idle auto-lock: `shell.json` `idle.enabled` + `idle.lock` (seconds). When
 enabled, `omarchy-idle-lock-apply` starts `xss-lock` and arms `xset s`. Stay

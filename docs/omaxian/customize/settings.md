@@ -147,6 +147,7 @@ Appearance in `~/.config/omarchy/lock-settings.json` (not overwritten by deploy)
 - Choose file / Choose folder use the in-panel path picker (image filters: png/jpg/webp/bmp)
 - **Preview** composes the lock image without locking; **Test lock** runs the real locker
 - Idle auto-lock toggle / timeout writes `shell.json` `idle.enabled` + `idle.lock` and runs `omarchy-idle-lock-apply` (`xss-lock` + `xset`)
+- **Packages:** `i3lock` + `xss-lock` required; `imagemagick` (and preferably `maim`) for `i3lock-omaxian` compose/screenshot; `i3lock-fancy` optional fallback. Preview needs `imagemagick` only; lock needs `i3lock`.
 
 ### Advanced
 

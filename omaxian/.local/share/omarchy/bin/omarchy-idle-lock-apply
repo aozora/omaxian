@@ -94,12 +94,18 @@ ensure_xss_lock() {
     return 0
   fi
   local cmd=()
+  # Prefer i3_lock (full fallback chain). Never point xss-lock at i3lock-omaxian
+  # without i3lock — a failing locker loop is worse than no auto-lock.
   if [[ -x $LOCK ]]; then
     cmd=("$LOCK")
   elif command -v "$LOCKER" >/dev/null 2>&1; then
     cmd=("$LOCKER")
-  elif command -v i3lock-omaxian >/dev/null 2>&1; then
+  elif command -v i3lock >/dev/null 2>&1 && command -v i3lock-omaxian >/dev/null 2>&1; then
     cmd=(i3lock-omaxian)
+  elif command -v i3lock >/dev/null 2>&1; then
+    cmd=(i3lock -n -e -f -c 1e1e2e)
+  elif command -v slock >/dev/null 2>&1; then
+    cmd=(slock)
   else
     return 0
   fi

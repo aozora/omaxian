@@ -81,10 +81,6 @@ command -v convert >/dev/null 2>&1 || {
   echo "i3lock-omaxian: ImageMagick convert not found" >&2
   exit 1
 }
-command -v i3lock >/dev/null 2>&1 || {
-  echo "i3lock-omaxian: i3lock not found" >&2
-  exit 1
-}
 
 # Parse lock-settings.json into shell vars (python keeps this dependency-light).
 eval "$(
@@ -332,6 +328,11 @@ if (( PREVIEW )); then
   printf '%s\n' "$out"
   exit 0
 fi
+
+command -v i3lock >/dev/null 2>&1 || {
+  echo "i3lock-omaxian: i3lock not found (install i3lock to lock the screen)" >&2
+  exit 1
+}
 
 # Foreground lock so callers (i3_lock) can clean up after unlock.
 if ! i3lock -n -i "$IMAGE_TMP" "${I3LOCK_EXTRA[@]}" >/dev/null 2>&1; then

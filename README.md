@@ -191,11 +191,12 @@ The full skip list is in [`docs/omarchy-port/deltas.md`](docs/omarchy-port/delta
 `setup.sh` installs these. The important ones:
 
 - **Must have:** i3, Quickshell, picom, dunst, kitty, NetworkManager, PulseAudio
-  (or pipewire-pulse), a polkit agent (`mate-polkit`), and the bundled
-  fonts (otherwise the bar shows tofu). A display manager is **not** packaged;
-  use whatever already starts your X session.
-- **Recommended (default `setup.sh`):** `fastfetch` (themed system fetch), plus
-  the screenshot / media / Bluetooth tools listed in that script.
+  (or pipewire-pulse), a polkit agent (`mate-polkit`), `i3lock`, `xss-lock`, and
+  the bundled fonts (otherwise the bar shows tofu). A display manager is **not**
+  packaged; use whatever already starts your X session.
+- **Recommended (default `setup.sh`):** `imagemagick` + `maim` (lock compose /
+  screenshots for `i3lock-omaxian`), `i3lock-fancy` (fallback locker),
+  `fastfetch`, plus the other screenshot / media / Bluetooth tools in that script.
 - **`python3-xlib`:** without it, typing in the Omarchy menu does nothing.
 - **`python3-i3ipc`:** alternating split layout (`alternating_layouts.py`).
 - **No systemd needed.** Session pieces are elogind (`loginctl`) and D-Bus.

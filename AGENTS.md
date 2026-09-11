@@ -10,7 +10,9 @@ This checkout has two trees:
 
 See `README.md` for install, keybinds, and the list of things that are not 1:1 with Omarchy. Porting notes live in `docs/omarchy-port/`.
 
-**Recommended packages:** `upower`, `light`, `pactl` (pulseaudio-utils or pipewire-pulse), `playerctl`, `bluez`, `python3-gi` + NetworkManager, `papirus-icon-theme`, `fonts-jetbrains-mono`, `maim`, `xclip`, `dunst`, `gpick` (color picker; replaces Arch `xcolor`), `i3lock-fancy` (uses `i3lock` + `maim`), `xss-lock` (optional, registers locker for loginctl), `mate-polkit` or `xfce-polkit`.
+**Recommended packages:** `upower`, `light`, `pactl` (pulseaudio-utils or pipewire-pulse), `playerctl`, `bluez`, `python3-gi` + NetworkManager, `papirus-icon-theme`, `fonts-jetbrains-mono`, `maim`, `xclip`, `dunst`, `gpick` (color picker; replaces Arch `xcolor`), `imagemagick` (compose for shipped `i3lock-omaxian`), `i3lock-fancy` (fallback locker), `mate-polkit` or `xfce-polkit`.
+
+**Lock / idle (from `setup.sh`):** `i3lock` and `xss-lock` are required. Shipped `i3lock-omaxian` needs `i3lock` + `imagemagick` (`maim` preferred for screenshots; `convert`/`import` also work). Without `i3lock`, preview still works; locking falls through to `i3lock-fancy` / `slock` / notify. Idle auto-lock (Settings → Lock screen) uses `xss-lock` + `xset` via `omarchy-idle-lock-apply`.
 
 # Task Guides
 
@@ -91,7 +93,7 @@ Use these instead of raw shell commands where they exist:
 
 There is no `omarchy-pkg-add` / `omarchy-pkg-drop`. Install packages with `apt` (via `setup.sh` for the default sets). Do not add `pacman` or AUR paths.
 
-Commands that `setup.sh` installs as required are runtime invariants on a deployed desktop. Invoke them directly; do not add defensive `omarchy-cmd-present` checks around `i3`, `dunst`, `kitty`, and the like. Use command-presence helpers only for optional dependencies (`redshift`, `xkb-switch`, `i3lock-fancy`, GPU tools).
+Commands that `setup.sh` installs as required are runtime invariants on a deployed desktop. Invoke them directly; do not add defensive `omarchy-cmd-present` checks around `i3`, `dunst`, `kitty`, and the like. Use command-presence helpers only for optional dependencies (`redshift`, `xkb-switch`, `i3lock-fancy`, `imagemagick`/`maim` for fancy lock compose, GPU tools).
 
 # Menu
 

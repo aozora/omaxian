@@ -6,7 +6,7 @@ description: >
   ~/.config/kitty/, or ~/.config/i3/dunstrc.
   Triggers: i3, Omaxian, omarchy-shell, bar, dock, Control Panel, Settings, keybindings,
   window rules, gaps, borders, monitors, xrandr, themes, background, night light (redshift),
-  lock screen (i3lock), screenshots (maim), reminders, display config, dunst, picom, and
+  lock screen (i3lock-omaxian / i3lock), screenshots (maim), reminders, display config, dunst, picom, and
   user-facing omarchy-* commands. Excludes Omaxian source development in the git checkout.
 ---
 
@@ -31,7 +31,7 @@ It is not for contributing to the Omaxian source tree.
 - Display/monitor configuration (xrandr / Control Panel Displays / Super+Ctrl+D)
 - Themes, backgrounds, fonts, appearance
 - User-facing `omarchy-*` commands (`omarchy-theme-set`, `omarchy-restart-shell`, …)
-- Screenshots, reminders, night light (redshift), lock screen (i3lock)
+- Screenshots, reminders, night light (redshift), lock screen (`i3lock-omaxian` / `i3lock`)
 
 **If you're about to edit a config file in ~/.config/ on this system, STOP and use this skill first.**
 

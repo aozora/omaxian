@@ -83,11 +83,13 @@ try_xfce_screensaver() {
 try_i3lock_omaxian() {
 	command -v i3lock-omaxian >/dev/null 2>&1 || return 1
 	command -v i3lock >/dev/null 2>&1 || return 1
+	# Composition needs ImageMagick; skip without stopping picom so fallbacks run.
+	command -v convert >/dev/null 2>&1 || return 1
 
 	mark_locked
 	stop_picom
 	# Blocks until unlock (i3lock -n); cleanup trap restores picom.
-	i3lock-omaxian
+	i3lock-omaxian || return 1
 }
 
 try_i3lock_fancy() {

@@ -11,15 +11,19 @@ if [[ -x $lock ]]; then
   exec "$lock"
 fi
 
-if command -v i3lock-omaxian >/dev/null 2>&1; then
+# i3lock-omaxian needs i3lock; skip so we can try other lockers.
+if command -v i3lock-omaxian >/dev/null 2>&1 && command -v i3lock >/dev/null 2>&1; then
   exec i3lock-omaxian
 fi
-if command -v i3lock-fancy >/dev/null 2>&1; then
+if command -v i3lock-fancy >/dev/null 2>&1 && command -v i3lock >/dev/null 2>&1; then
   exec i3lock-fancy
 fi
 if command -v i3lock >/dev/null 2>&1; then
   exec i3lock -e -f -c 1e1e2e
 fi
+if command -v slock >/dev/null 2>&1; then
+  exec slock
+fi
 
-echo "omarchy-system-lock: no locker found" >&2
+echo "omarchy-system-lock: no locker found (install i3lock or slock)" >&2
 exit 1

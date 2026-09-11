@@ -179,7 +179,7 @@ Item {
     command: ["i3lock-omaxian", "--preview", root.previewPath]
     onExited: function(exitCode) {
       if (exitCode !== 0) {
-        root.statusMessage = "Preview failed (need convert + i3lock-omaxian)"
+        root.statusMessage = "Preview failed (need ImageMagick convert)"
         return
       }
       root.previewVersion += 1
