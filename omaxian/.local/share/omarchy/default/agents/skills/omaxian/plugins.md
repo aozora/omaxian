@@ -65,6 +65,12 @@ Do not copy them into `$OMARCHY_PATH/shell/plugins/` (first-party, on by
 default). `omarchy-plugin-add` only accepts git URLs today; for a local port
 use the copy/rsync steps in `community-plugins/README.md`.
 
+**Updates:** `omarchy-plugin-update` fast-forwards every git-managed plugin
+(or one id). For a local community port, refresh with
+`omarchy-plugin-update <id> --from community-plugins/<id>` after re-checking
+the tree. Failed validation rolls back; enablement and plugin-owned state
+under `~/.config/` / keyring are left alone.
+
 ## Dock
 
 Plugin id `omaxian.dock`. Disable by adding it to `disabledPlugins` in

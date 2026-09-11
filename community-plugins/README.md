@@ -84,6 +84,30 @@ omarchy-shell shell rescanPlugins
 omarchy-plugin-enable "$ID"
 ```
 
+### Update
+
+Community ports change over time (upstream syncs, X11 fixes). Re-apply without
+removing enablement or mailbox/config state:
+
+**Git install** (cloned with `omarchy-plugin-add`):
+
+```bash
+omarchy-plugin-update                 # every git-managed plugin
+omarchy-plugin-update "$ID"           # one id
+```
+
+**Local install** (rsync from this tree):
+
+```bash
+omarchy-plugin-check "$PLUGIN"
+omarchy-plugin-validate "$PLUGIN"
+omarchy-plugin-update "$ID" --from "$PLUGIN"
+```
+
+`--from` validates the source, replaces `~/.config/omarchy/plugins/$ID/`, and
+rolls back if the new tree fails validation. Then `rescanPlugins` runs
+automatically. Menu → Setup → Plugins → Update Plugins covers the git path.
+
 Disable or remove later:
 
 ```bash

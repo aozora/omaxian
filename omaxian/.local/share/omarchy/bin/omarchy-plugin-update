@@ -1,0 +1,225 @@
+#!/bin/bash
+
+# omarchy:summary=Update installed shell plugins (git pull, or --from a local tree)
+# omarchy:group=plugin
+# omarchy:args=[id] [--from <dir>] [--yes]
+# omarchy:examples=omarchy-plugin-update | omarchy-plugin-update omamail --from ./community-plugins/omamail
+
+set -euo pipefail
+
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -oBatchMode=yes}"
+
+PLUGINS_DIR="$HOME/.config/omarchy/plugins"
+ASSUME_YES=0
+UPDATED_ANY=0
+FROM_DIR=""
+
+fail() {
+  echo "omarchy-plugin-update: $*" >&2
+  exit 1
+}
+
+interactive() {
+  [[ -t 0 && -t 1 ]]
+}
+
+confirm() {
+  local prompt="$1"
+  (( ASSUME_YES )) && return 0
+  if interactive; then
+    gum confirm "$prompt"
+  else
+    fail "refusing to continue without confirmation; pass --yes"
+  fi
+}
+
+valid_plugin_id() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && $1 != *..* ]]
+}
+
+# Replace an installed plugin tree from a local directory (community-plugins
+# ports, or any validated checkout). Stages first so a failed validate rolls
+# back to the previous bytes.
+update_from_dir() {
+  local id="$1"
+  local src="$2"
+  local dir="$PLUGINS_DIR/$id"
+  local src_id old_ver new_ver stage
+
+  [[ -d $src ]] || fail "source directory not found: $src"
+  [[ -f $src/manifest.json ]] || fail "no manifest.json in $src"
+
+  if ! omarchy-plugin-validate "$src"; then
+    fail "refusing to update: source validation failed"
+  fi
+
+  src_id=$(jq -r '.id // empty' "$src/manifest.json")
+  [[ -n $src_id ]] || fail "source manifest has no id"
+  [[ $src_id == "$id" ]] ||
+    fail "source id '$src_id' does not match installed plugin '$id'"
+
+  old_ver=$(jq -r '.version // "?"' "$dir/manifest.json" 2>/dev/null || echo "?")
+  new_ver=$(jq -r '.version // "?"' "$src/manifest.json")
+
+  if (( ! ASSUME_YES )); then
+    echo "Update $id from $src"
+    echo "  installed version: $old_ver"
+    echo "  source version:    $new_ver"
+    echo
+    confirm "Replace installed '$id' with this tree?" || {
+      echo "Skipped $id."
+      return 0
+    }
+  fi
+
+  stage="$PLUGINS_DIR/.update.tmp.$$"
+  rm -rf "$stage"
+  mkdir -p "$stage"
+  # Keep a full copy of the live tree for rollback; exclude the staging dir name.
+  if ! cp -a "$dir/." "$stage/"; then
+    rm -rf "$stage"
+    fail "failed to stage current '$id' for rollback"
+  fi
+
+  if ! rsync -a --delete --exclude '.git' --exclude '.update.tmp.*' -- "$src/" "$dir/"; then
+    rsync -a --delete -- "$stage/" "$dir/" >/dev/null 2>&1 || true
+    rm -rf "$stage"
+    fail "rsync failed while updating '$id'; previous tree restored if possible"
+  fi
+
+  if ! omarchy-plugin-validate "$dir"; then
+    rsync -a --delete -- "$stage/" "$dir/" >/dev/null 2>&1 || true
+    rm -rf "$stage"
+    echo "omarchy-plugin-update: update of '$id' failed validation; rolled back" >&2
+    return 1
+  fi
+
+  rm -rf "$stage"
+  echo "Updated $id ($old_ver → $new_ver)."
+  UPDATED_ANY=1
+}
+
+update_one_git() {
+  local id="$1"
+  local dir="$PLUGINS_DIR/$id"
+
+  if ! git -C "$dir" fetch --quiet origin HEAD; then
+    echo "omarchy-plugin-update: fetch failed for '$id'" >&2
+    return 1
+  fi
+
+  if [[ $(git -C "$dir" rev-parse HEAD) == $(git -C "$dir" rev-parse FETCH_HEAD) ]]; then
+    echo "$id is up to date."
+    return 0
+  fi
+
+  if (( ! ASSUME_YES )); then
+    echo "Changes for $id:"
+    if omarchy-cmd-present delta; then
+      git -C "$dir" diff HEAD FETCH_HEAD | delta --paging=never
+    else
+      git -C "$dir" diff HEAD FETCH_HEAD
+    fi
+    echo
+    confirm "Update $id?" || {
+      echo "Skipped $id."
+      return 0
+    }
+  fi
+
+  if ! git -C "$dir" merge --ff-only FETCH_HEAD >/dev/null 2>&1; then
+    echo "omarchy-plugin-update: cannot fast-forward '$id'; you have local changes in $dir" >&2
+    return 1
+  fi
+
+  if ! omarchy-plugin-validate "$dir"; then
+    git -C "$dir" reset --hard ORIG_HEAD >/dev/null
+    echo "omarchy-plugin-update: update of '$id' failed validation; rolled back" >&2
+    return 1
+  fi
+
+  echo "Updated $id."
+  UPDATED_ANY=1
+}
+
+id=""
+
+while (( $# > 0 )); do
+  case "$1" in
+  --from)
+    (( $# >= 2 )) || fail "--from requires a directory"
+    FROM_DIR="$2"
+    shift 2
+    ;;
+  --yes | -y)
+    ASSUME_YES=1
+    shift
+    ;;
+  -h | --help)
+    cat <<'EOF'
+Usage: omarchy-plugin-update [id] [--from <dir>] [--yes]
+
+  With no args: fast-forward every git-managed plugin under
+  ~/.config/omarchy/plugins/.
+
+  With id: update that plugin only (git fetch + ff-only merge).
+
+  With --from <dir>: replace the installed plugin tree from a local
+  directory (community-plugins ports installed via rsync). Requires id.
+  Validates before and after; rolls back on failure.
+EOF
+    exit 0
+    ;;
+  -*)
+    fail "unknown update option: $1"
+    ;;
+  *)
+    [[ -z $id ]] || fail "unexpected argument: $1"
+    id="$1"
+    shift
+    ;;
+  esac
+done
+
+[[ -d $PLUGINS_DIR ]] || fail "no plugins installed"
+
+if [[ -n $FROM_DIR ]]; then
+  [[ -n $id ]] || fail "--from requires a plugin id"
+  valid_plugin_id "$id" || fail "invalid plugin id '$id'"
+  [[ -d $PLUGINS_DIR/$id ]] || fail "plugin '$id' is not installed"
+  update_from_dir "$id" "$FROM_DIR" || exit 1
+  if (( UPDATED_ANY )); then
+    omarchy-shell shell rescanPlugins >/dev/null
+  fi
+  exit 0
+fi
+
+targets=()
+if [[ -n $id ]]; then
+  valid_plugin_id "$id" || fail "invalid plugin id '$id'"
+  [[ -d $PLUGINS_DIR/$id ]] || fail "plugin '$id' is not installed"
+  [[ -d $PLUGINS_DIR/$id/.git ]] ||
+    fail "plugin '$id' is not a git checkout; update from a tree with: omarchy-plugin-update $id --from <dir>"
+  targets=("$id")
+else
+  for dir in "$PLUGINS_DIR"/*/; do
+    [[ -d $dir/.git ]] || continue
+    targets+=("$(basename "$dir")")
+  done
+  if (( ${#targets[@]} == 0 )); then
+    echo "No git-managed plugins installed."
+    echo "Local (rsync) installs: omarchy-plugin-update <id> --from <dir>"
+    exit 0
+  fi
+fi
+
+rc=0
+for id in "${targets[@]}"; do
+  update_one_git "$id" || rc=1
+done
+
+if (( UPDATED_ANY )); then
+  omarchy-shell shell rescanPlugins >/dev/null
+fi
+exit $rc

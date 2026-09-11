@@ -32,7 +32,7 @@ Works with **Gmail**, **HEY**, **Fastmail**, **iCloud Mail**, **Outlook**, **Yah
 | Wayland paste CLI then `xclip` for compose paste | `xclip` only |
 | Hyprland bind example | i3 bind example below |
 | `omarchy-mise-install` for `hey` | [hey-cli](https://github.com/basecamp/hey-cli) / setup-page install line |
-| `omarchy plugin add` / `make install` | rsync into `~/.config/omarchy/plugins/` (see Install) |
+| `omarchy plugin add` / `make install` | rsync into `~/.config/omarchy/plugins/`; later `omarchy-plugin-update --from` |
 
 `FloatingWindow`, `KeyboardPanel`, `secret-tool`, `curl`, and `notify-send` work
 as on Omarchy. File attach uses `omarchy-file-select` when present, otherwise
@@ -133,6 +133,20 @@ omarchy-plugin-enable "$ID"
 "$HOME/.config/omarchy/plugins/$ID/scripts/register-mailto.sh" \
   "$HOME/.config/omarchy/plugins/$ID" --claim-default
 ```
+
+### Update
+
+When this port changes in the repo, refresh the installed tree (keeps accounts
+and enablement):
+
+```bash
+omarchy-plugin-check "$PLUGIN"
+omarchy-plugin-validate "$PLUGIN"
+omarchy-plugin-update "$ID" --from "$PLUGIN"
+```
+
+Git installs: `omarchy-plugin-update omamail`. See
+[`../README.md`](../README.md#update).
 
 Then click the envelope in the bar. To open it from the keyboard, add an i3
 bind (e.g. in `~/.config/i3/config.d/`):

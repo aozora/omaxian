@@ -141,7 +141,7 @@ omarchy-theme-set --help 2>/dev/null || omarchy-theme-set
 | `omarchy-theme-bg-next` / `omarchy-theme-bg-set` | Wallpapers |
 | `omarchy-toggle-nightlight` | Night light (redshift) |
 | `omarchy-toggle-bar` | Show / hide the bar |
-| `omarchy-plugin-list` / `clone` / `add` / `enable` / `disable` | Plugins |
+| `omarchy-plugin-list` / `clone` / `add` / `update` / `enable` / `disable` | Plugins |
 | `omarchy-plugin-check` | Static X11/Debian check before installing a community plugin |
 | `omarchy-reminder` | Desktop notification reminders |
 | `omarchy-system-lock` / `logout` / `reboot` / `shutdown` | Session |

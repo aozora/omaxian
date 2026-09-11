@@ -65,6 +65,7 @@
   "setup.plugin.enable": {"icon": "󰄬", "label": "Enable Plugin", "action": "omarchy-menu-plugin enable"},
   "setup.plugin.disable": {"icon": "󰅖", "label": "Disable Plugin", "action": "omarchy-menu-plugin disable"},
   "setup.plugin.add": {"icon": "󰖟", "label": "Add Plugin", "action": "omarchy-launch-floating-terminal-with-presentation 'omarchy-plugin-add'"},
+  "setup.plugin.update": {"icon": "󰚰", "label": "Update Plugins", "when": "compgen -G \"$HOME/.config/omarchy/plugins/*/manifest.json\"", "action": "omarchy-launch-floating-terminal-with-presentation 'omarchy-plugin-update'"},
   "setup.plugin.clone": {"icon": "󰆏", "label": "Clone Plugin", "action": "omarchy-menu-plugin clone"},
   "setup.plugin.remove": {"icon": "󰭌", "label": "Remove Plugin", "when": "compgen -G \"$HOME/.config/omarchy/plugins/*/manifest.json\"", "action": "omarchy-menu-plugin remove"},
   "setup.config": {"icon": "", "label": "Config"},

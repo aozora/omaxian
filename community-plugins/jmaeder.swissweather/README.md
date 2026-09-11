@@ -62,6 +62,14 @@ omarchy-shell shell rescanPlugins
 omarchy-plugin-enable "$ID"   # default section: center
 ```
 
+### Update
+
+```bash
+omarchy-plugin-update "$ID" --from "$PLUGIN"
+```
+
+See [`../README.md`](../README.md#update).
+
 To place it next to the clock:
 
 ```bash

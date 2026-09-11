@@ -84,6 +84,7 @@ Use these instead of raw shell commands where they exist:
 - `omarchy-notification-send` - send desktop notifications; do not call `notify-send` / `dunstify` directly from new `omarchy-*` code
 - `omarchy-restart-shell` - restart Quickshell after QML / theme-file edits
 - `omarchy-plugin-check` - static X11/Debian compatibility check for a community plugin
+- `omarchy-plugin-update` - update git-managed plugins, or refresh a local port with `--from`
 - `omarchy-session-is-i3` - exit 0 only in a live i3 session
 
 There is no `omarchy-pkg-add` / `omarchy-pkg-drop`. Install packages with `apt` (via `setup.sh` for the default sets). Do not add `pacman` or AUR paths.

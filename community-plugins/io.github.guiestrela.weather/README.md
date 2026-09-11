@@ -70,6 +70,14 @@ omarchy-shell shell rescanPlugins
 omarchy-plugin-enable "$ID" --section center
 ```
 
+### Update
+
+```bash
+omarchy-plugin-update "$ID" --from "$PLUGIN"
+```
+
+See [`../README.md`](../README.md#update).
+
 ### Replacing the built-in weather widget
 
 Omaxian ships `omarchy.weather`. Disable it so only this pill remains:

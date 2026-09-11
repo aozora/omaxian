@@ -61,6 +61,16 @@ omarchy-plugin-check https://github.com/…/omarchy-nag-omaxian.git
 omarchy-plugin-add https://github.com/…/omarchy-nag-omaxian.git --enable
 ```
 
+### Update
+
+```bash
+omarchy-plugin-update "$ID" --from "$PLUGIN"   # local tree
+# or, for a git install:
+omarchy-plugin-update jankeesvw.nag
+```
+
+See [`../README.md`](../README.md#update).
+
 Open with `omarchy-shell shell toggle jankeesvw.nag`, or:
 
 ```bash

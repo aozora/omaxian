@@ -140,7 +140,7 @@ fi
 target="$PLUGINS_DIR/$id"
 if [[ -e $target || -L $target ]]; then
   rm -rf "$stage"
-  fail "plugin '$id' is already installed; update it with: omarchy plugin update $id"
+  fail "plugin '$id' is already installed; update it with: omarchy-plugin-update $id"
 fi
 
 mv "$stage" "$target"
