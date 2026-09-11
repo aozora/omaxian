@@ -93,8 +93,10 @@ fi
 "$idir"/scripts/i3_comp
 
 # Screen lock: xss-lock (session Lock + optional idle via xset) from Settings.
+# Delay so Quickshell / picom finish coming up before xss-lock can ever run the
+# locker (i3_lock stops picom; doing that mid-startup freezes or kills QS).
 if command -v omarchy-idle-lock-apply >/dev/null 2>&1; then
-	omarchy-idle-lock-apply &
+	( sleep 3; omarchy-idle-lock-apply ) &
 fi
 
 # Host-only apps (skip in VM)

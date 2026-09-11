@@ -42,7 +42,7 @@ Item {
     } else {
       applyProc.command = [
         "bash", "-c",
-        'mkdir -p -- "$1" && printf %s 0 >"$2"; command -v omarchy-idle-lock-apply >/dev/null && omarchy-idle-lock-apply || { xset s on +dpms; xset s default; }',
+        'mkdir -p -- "$1" && printf %s 0 >"$2"; if command -v omarchy-idle-lock-apply >/dev/null; then omarchy-idle-lock-apply; else xset s reset; xset s off; fi',
         "idle-sleep", root.stayAwakeStateDir, root.stayAwakeStatePath
       ]
     }

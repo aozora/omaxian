@@ -18,7 +18,7 @@ stay_awake_on() {
   [[ -f $STATE_FILE ]] || return 1
   local v
   v=$(tr -d '[:space:]' <"$STATE_FILE" 2>/dev/null || true)
-  # Service writes 0/1; omarchy-toggle-idle may touch an empty file.
+  # Service writes 0/1; omarchy-toggle-idle may touch an empty file (= on).
   [[ $v != "0" ]]
 }
 
@@ -37,7 +37,11 @@ except Exception:
 idle = data.get("idle") if isinstance(data, dict) else None
 if not isinstance(idle, dict):
     idle = {}
-enabled = idle.get("enabled", False)
+raw = idle.get("enabled", False)
+if isinstance(raw, str):
+    enabled = raw.strip().lower() in ("1", "true", "yes", "on")
+else:
+    enabled = bool(raw)
 lock = idle.get("lock", 300)
 try:
     lock = int(lock)
@@ -61,6 +65,29 @@ if ! read_idle "$CONFIG"; then
   read_idle "$STOCK" || true
 fi
 
+apply_xset() {
+  command -v xset >/dev/null 2>&1 || return 0
+  # Reset any pending screensaver activation before arming/disarming so a
+  # freshly started xss-lock cannot immediately run the locker (which stops
+  # picom and can take down Quickshell under glx during login).
+  xset s reset >/dev/null 2>&1 || true
+
+  if stay_awake_on; then
+    xset s off -dpms >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  if [[ $IDLE_ENABLED == "1" ]]; then
+    xset s "$IDLE_LOCK" "$IDLE_LOCK" >/dev/null 2>&1 || true
+    xset s on >/dev/null 2>&1 || true
+    xset +dpms >/dev/null 2>&1 || true
+    xset dpms "$IDLE_LOCK" "$IDLE_LOCK" "$IDLE_LOCK" >/dev/null 2>&1 || true
+  else
+    # xss-lock may still handle logind Lock; do not arm screensaver idle lock.
+    xset s off >/dev/null 2>&1 || true
+  fi
+}
+
 ensure_xss_lock() {
   command -v xss-lock >/dev/null 2>&1 || return 0
   if pgrep -u "$UID" -x xss-lock >/dev/null 2>&1; then
@@ -77,29 +104,13 @@ ensure_xss_lock() {
     return 0
   fi
   # -l: transfer sleep lock; locker runs on screensaver / logind Lock.
+  # Must run AFTER apply_xset so we never attach xss-lock to an already-active
+  # or imminent screensaver during session start.
   xss-lock -l -- "${cmd[@]}" >/dev/null 2>&1 &
   disown || true
 }
 
+apply_xset
 ensure_xss_lock
-
-if stay_awake_on; then
-  # Idle service / Stay Awake owns xset while awake; do not fight it.
-  exit 0
-fi
-
-if ! command -v xset >/dev/null 2>&1; then
-  exit 0
-fi
-
-if [[ $IDLE_ENABLED == "1" ]]; then
-  xset s "$IDLE_LOCK" "$IDLE_LOCK" >/dev/null 2>&1 || true
-  xset s on >/dev/null 2>&1 || true
-  xset +dpms >/dev/null 2>&1 || true
-  xset dpms "$IDLE_LOCK" "$IDLE_LOCK" "$IDLE_LOCK" >/dev/null 2>&1 || true
-else
-  # xss-lock may still handle logind Lock; do not arm screensaver idle lock.
-  xset s off >/dev/null 2>&1 || true
-fi
 
 exit 0
