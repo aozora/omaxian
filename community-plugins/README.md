@@ -50,6 +50,7 @@ community-plugins/
 | [`jankeesvw.nag`](jankeesvw.nag/)                                       | `jankeesvw.nag`                  | [omarchy-nag](https://github.com/jankeesvw/omarchy-nag) — disposable alarms; calendar user timers → wall-clock sleeper, `paplay`/`pw-play` | Ported |
 | [`jmaeder.swissweather`](jmaeder.swissweather/)                         | `jmaeder.swissweather`           | [omarchy-swissweather](https://github.com/jmaeder/omarchy-swissweather) — MeteoSwiss bar weather; QML compatible as-is                     | Ported |
 | [`io.github.guiestrela.weather`](io.github.guiestrela.weather/)         | `io.github.guiestrela.weather`   | [guiestrela/weather](https://github.com/guiestrela/weather) — Better Weather (Open-Meteo / wttr.in / RainViewer); QML compatible as-is     | Ported |
+| [`omamail`](omamail/)                                                   | `omamail`                        | [huacnlee/omamail](https://github.com/huacnlee/omamail) — Gmail/HEY/JMAP/IMAP client; Wayland clipboard → Qt clipboard / `xclip`              | Ported |
 
 ## Install (opt-in)
 
@@ -79,6 +80,7 @@ mkdir -p ~/.config/omarchy/plugins
 rsync -a --delete -- "$PLUGIN/" "$HOME/.config/omarchy/plugins/$ID/"
 
 omarchy-shell shell rescanPlugins
+# rescan is async; omarchy-plugin-enable waits briefly for the id to appear
 omarchy-plugin-enable "$ID"
 ```
 

@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "id": "omamail",
+  "name": "Omamail",
+  "version": "0.8.2",
+  "author": "huacnlee",
+  "license": "MIT",
+  "homepage": "https://huacnlee.github.io/omamail/",
+  "description": "Email client for Omaxian/Omarchy: read, triage, and reply to Gmail, HEY and any JMAP or IMAP mailbox in a native window. Fastmail, iCloud, Outlook, Zoho, Proton Bridge, or your own server — several accounts at once, each with its own inbox and unread count. Keyboard-first, three columns when there is room and one when there is not, and it follows your theme. Meeting invitations are drawn as meetings you can answer, newsletters unsubscribe in one click, and remote images stay blocked until you ask. (Omaxian port: xclip / Qt clipboard instead of Wayland clipboard tools.)",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel"
+  ],
+  "activation": "on-demand",
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "App.qml"
+  },
+  "barWidget": {
+    "displayName": "Omamail",
+    "description": "Unread mail count in the bar; the inbox itself opens as its own window. Works with Gmail, HEY and any JMAP or IMAP mail server.",
+    "category": "Communication",
+    "aliases": [
+      "mail",
+      "email",
+      "gmail",
+      "hey",
+      "imap",
+      "jmap",
+      "inbox",
+      "e-mail",
+      "mailbox",
+      "smtp"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 120,
+      "maxMessages": 25,
+      "heavyMessageRendering": "Show plain text first",
+      "contentDirection": "Auto",
+      "defaultQuery": "in:inbox",
+      "notifyNewMail": "On",
+      "oauthPort": 9481,
+      "undoSendSeconds": 10,
+      "unifiedCalendarView": false,
+      "openOnClick": "Window",
+      "showBarIcon": true,
+      "previewOnCursor": false,
+      "markReadDelaySec": 2
+    },
+    "schema": [
+      {
+        "key": "showBarIcon",
+        "type": "boolean",
+        "label": "Show the icon in the bar",
+        "defaultValue": true,
+        "description": "Turn this off to run Omamail with no envelope in the bar. Mail is still checked and still notifies; only the icon goes. With it off the window opens from a keybinding or a terminal and nowhere else, so bind a key first (i3 example): bindsym $mod+Shift+g exec --no-startup-id omarchy-shell shell toggle omamail '{}'"
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Check for mail every (seconds)",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "defaultValue": 120,
+        "description": "How often the unread count is refreshed while the panel is closed."
+      },
+      {
+        "key": "maxMessages",
+        "type": "integer",
+        "label": "Messages per page",
+        "min": 5,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 25
+      },
+      {
+        "key": "previewOnCursor",
+        "type": "boolean",
+        "label": "Preview as the cursor moves",
+        "defaultValue": false,
+        "description": "Show a message as soon as the cursor reaches it, instead of waiting for Enter. Off by default because stepping through a list would otherwise mark every message it passed read; with this on, a previewed message is marked read only once the cursor has stayed on it. Not applied in a narrow window, where the reader takes the list's place."
+      },
+      {
+        "key": "markReadDelaySec",
+        "type": "integer",
+        "label": "Mark a previewed message read after (seconds)",
+        "min": 0,
+        "max": 30,
+        "step": 1,
+        "defaultValue": 2,
+        "description": "How long the cursor has to stay on a message before it counts as read. 0 marks it read as soon as it is previewed. Only applies while Preview as the cursor moves is on; Enter always marks it read."
+      },
+      {
+        "key": "heavyMessageRendering",
+        "type": "enum",
+        "label": "Heavy message rendering",
+        "options": [
+          "Show plain text first",
+          "Always render"
+        ],
+        "defaultValue": "Show plain text first",
+        "description": "Choose whether potentially expensive rich text falls back to plain text with a Show anyway action."
+      },
+      {
+        "key": "contentDirection",
+        "type": "enum",
+        "label": "Message direction",
+        "options": [
+          "Auto",
+          "Left to right",
+          "Right to left"
+        ],
+        "defaultValue": "Auto",
+        "description": "Which way a message's own text runs. Auto reads it from the text itself, so an Arabic, Hebrew or Persian message lays out right-to-left and an English one does not. Set a direction to use that one for every message. The interface itself is unaffected."
+      },
+      {
+        "key": "defaultQuery",
+        "type": "string",
+        "label": "Default search",
+        "defaultValue": "in:inbox",
+        "description": "Applies to the inbox only, and to Gmail and IMAP accounts. Gmail takes any Gmail search operator, for example `in:inbox -category:promotions`; IMAP takes IMAP SEARCH criteria. HEY accounts always open their Imbox."
+      },
+      {
+        "key": "notifyNewMail",
+        "type": "enum",
+        "label": "Notify on new mail",
+        "options": [
+          "On",
+          "Off"
+        ],
+        "defaultValue": "On",
+        "description": "Sends a desktop notification when a new unread message arrives in the inbox."
+      },
+      {
+        "key": "oauthPort",
+        "type": "integer",
+        "label": "Sign-in callback port",
+        "min": 1024,
+        "max": 65535,
+        "step": 1,
+        "defaultValue": 9481,
+        "description": "Loopback port used once during Google sign-in. HEY and IMAP accounts never use it. Change it only if something else already listens there."
+      },
+      {
+        "key": "undoSendSeconds",
+        "type": "integer",
+        "label": "Undo send window (seconds)",
+        "min": 0,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 10,
+        "description": "Delays outgoing mail so you can cancel it. Set this to 0 to send immediately."
+      },
+      {
+        "key": "unifiedCalendarView",
+        "type": "boolean",
+        "label": "Unified calendar view",
+        "defaultValue": false,
+        "description": "Show calendars from every connected account instead of following the current mailbox."
+      },
+      {
+        "key": "openOnClick",
+        "type": "enum",
+        "label": "Clicking the bar icon opens",
+        "options": [
+          "Window",
+          "Quick preview"
+        ],
+        "defaultValue": "Window",
+        "description": "The full window, or a small card with the most recent unread mail."
+      }
+    ]
+  }
+}

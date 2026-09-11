@@ -82,6 +82,19 @@ placement=$(jq -cn \
     + (if $after == "" then {} else {after: $after} end)
   ')
 
+# `shell rescanPlugins` returns before the async scan finishes. A fresh rsync
+# install that enables immediately otherwise gets "unknown". Wait for the
+# registry to list the id (same window as omarchy-plugin-add), then enable.
+discovered=0
+for (( attempt = 0; attempt < 40; attempt++ )); do
+  if omarchy-plugin-list --json 2>/dev/null | jq -e --arg id "$id" 'any(.[]; .id == $id)' >/dev/null; then
+    discovered=1
+    break
+  fi
+  sleep 0.05
+done
+(( discovered )) || fail "plugin '$id' is not known; run: omarchy-shell shell rescanPlugins"
+
 result=$(omarchy-shell shell enablePlugin "$id" "$placement")
 if [[ $result == "unknown" ]]; then
   fail "plugin '$id' is not known; run: omarchy-shell shell rescanPlugins"
