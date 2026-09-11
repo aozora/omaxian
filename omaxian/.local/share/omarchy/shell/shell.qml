@@ -50,6 +50,7 @@ ShellRoot {
   readonly property var builtinShellConfig: ({
     version: 1,
     idle: {
+      enabled: false,
       screensaver: 150,
       lock: 300
     },

@@ -85,6 +85,8 @@ Use these instead of raw shell commands where they exist:
 - `omarchy-restart-shell` - restart Quickshell after QML / theme-file edits
 - `omarchy-plugin-check` - static X11/Debian compatibility check for a community plugin
 - `omarchy-plugin-update` - update git-managed plugins, or refresh a local port with `--from`
+- `omarchy-idle-lock-apply` - apply Settings → Lock screen idle auto-lock (`xss-lock` + `xset`)
+- `i3lock-omaxian` - lock screen compositor (screenshot / image / random; `--preview`)
 - `omarchy-session-is-i3` - exit 0 only in a live i3 session
 
 There is no `omarchy-pkg-add` / `omarchy-pkg-drop`. Install packages with `apt` (via `setup.sh` for the default sets). Do not add `pacman` or AUR paths.

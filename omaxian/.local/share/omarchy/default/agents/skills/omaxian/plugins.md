@@ -79,6 +79,11 @@ Plugin id `omaxian.dock`. Disable by adding it to `disabledPlugins` in
 
 ## Idle and lock
 
-`idle.screensaver` and `idle.lock` in `shell.json` are **not** wired to an
-auto-locker in this port. Lock is Super+Ctrl+L / `omarchy-system-lock`
-(`i3lock-fancy` or `i3lock`). Stay-awake on the bar toggles DPMS via `xset`.
+Lock appearance: `i3lock-omaxian` reads `~/.config/omarchy/lock-settings.json`
+(screenshot / fixed image / random folder; effect none/blur/pixelate). Prefer
+Settings → Lock screen (Preview / Test lock).
+
+Idle auto-lock: `shell.json` `idle.enabled` + `idle.lock` (seconds). When
+enabled, `omarchy-idle-lock-apply` starts `xss-lock` and arms `xset s`. Stay
+Awake on the bar suspends the screensaver timeout. Manual lock remains
+Super+Ctrl+L / `omarchy-system-lock`.

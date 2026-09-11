@@ -35,6 +35,7 @@ Item {
     { value: "plugins", label: "Plugins", icon: "󰐱" },
     { value: "startup", label: "Startup", icon: "󰐥" },
     { value: "keyboard", label: "Keyboard", icon: "󰌌" },
+    { value: "lock", label: "Lock screen", icon: "󰌾" },
     { value: "advanced", label: "Advanced", icon: "" }
   ]
 
@@ -194,6 +195,7 @@ Item {
               if (root.activeTab === "plugins") return pluginsLoader
               if (root.activeTab === "startup") return startupLoader
               if (root.activeTab === "keyboard") return keyboardLoader
+              if (root.activeTab === "lock") return lockLoader
               if (root.activeTab === "advanced") return advancedLoader
               return null
             }
@@ -261,6 +263,7 @@ Item {
             TabLoader { id: pluginsLoader; tabId: "plugins"; tabUrl: "PluginsTab.qml" }
             TabLoader { id: startupLoader; tabId: "startup"; tabUrl: "StartupTab.qml" }
             TabLoader { id: keyboardLoader; tabId: "keyboard"; tabUrl: "KeyboardTab.qml" }
+            TabLoader { id: lockLoader; tabId: "lock"; tabUrl: "LockTab.qml" }
             TabLoader { id: advancedLoader; tabId: "advanced"; tabUrl: "AdvancedTab.qml" }
 
             Text {

@@ -1,0 +1,105 @@
+#!/bin/bash
+
+# omarchy:summary=Apply idle auto-lock (xss-lock + xset) from shell.json
+# omarchy:group=system
+# omarchy:args=[]
+# omarchy:examples=omarchy-idle-lock-apply
+
+set -euo pipefail
+
+OMARCHY_PATH="${OMARCHY_PATH:-$HOME/.local/share/omarchy}"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json"
+STOCK="$OMARCHY_PATH/shell.json"
+STATE_FILE="$HOME/.local/state/omarchy/indicators/stay-awake"
+LOCK="${HOME}/.config/i3/scripts/i3_lock"
+LOCKER="omarchy-system-lock"
+
+stay_awake_on() {
+  [[ -f $STATE_FILE ]] || return 1
+  local v
+  v=$(tr -d '[:space:]' <"$STATE_FILE" 2>/dev/null || true)
+  # Service writes 0/1; omarchy-toggle-idle may touch an empty file.
+  [[ $v != "0" ]]
+}
+
+read_idle() {
+  local path=$1
+  [[ -f $path ]] || return 1
+  IDLE_JSON=$(
+    CONFIG_PATH="$path" python3 - <<'PY'
+import json, os, sys
+path = os.environ["CONFIG_PATH"]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(1)
+idle = data.get("idle") if isinstance(data, dict) else None
+if not isinstance(idle, dict):
+    idle = {}
+enabled = idle.get("enabled", False)
+lock = idle.get("lock", 300)
+try:
+    lock = int(lock)
+except Exception:
+    lock = 300
+if lock < 30:
+    lock = 30
+if lock > 86400:
+    lock = 86400
+print("1" if enabled else "0")
+print(lock)
+PY
+  ) || return 1
+  IDLE_ENABLED=$(printf '%s\n' "$IDLE_JSON" | sed -n '1p')
+  IDLE_LOCK=$(printf '%s\n' "$IDLE_JSON" | sed -n '2p')
+}
+
+IDLE_ENABLED=0
+IDLE_LOCK=300
+if ! read_idle "$CONFIG"; then
+  read_idle "$STOCK" || true
+fi
+
+ensure_xss_lock() {
+  command -v xss-lock >/dev/null 2>&1 || return 0
+  if pgrep -u "$UID" -x xss-lock >/dev/null 2>&1; then
+    return 0
+  fi
+  local cmd=()
+  if [[ -x $LOCK ]]; then
+    cmd=("$LOCK")
+  elif command -v "$LOCKER" >/dev/null 2>&1; then
+    cmd=("$LOCKER")
+  elif command -v i3lock-omaxian >/dev/null 2>&1; then
+    cmd=(i3lock-omaxian)
+  else
+    return 0
+  fi
+  # -l: transfer sleep lock; locker runs on screensaver / logind Lock.
+  xss-lock -l -- "${cmd[@]}" >/dev/null 2>&1 &
+  disown || true
+}
+
+ensure_xss_lock
+
+if stay_awake_on; then
+  # Idle service / Stay Awake owns xset while awake; do not fight it.
+  exit 0
+fi
+
+if ! command -v xset >/dev/null 2>&1; then
+  exit 0
+fi
+
+if [[ $IDLE_ENABLED == "1" ]]; then
+  xset s "$IDLE_LOCK" "$IDLE_LOCK" >/dev/null 2>&1 || true
+  xset s on >/dev/null 2>&1 || true
+  xset +dpms >/dev/null 2>&1 || true
+  xset dpms "$IDLE_LOCK" "$IDLE_LOCK" "$IDLE_LOCK" >/dev/null 2>&1 || true
+else
+  # xss-lock may still handle logind Lock; do not arm screensaver idle lock.
+  xset s off >/dev/null 2>&1 || true
+fi
+
+exit 0

@@ -92,7 +92,10 @@ fi
 # Lauch compositor
 "$idir"/scripts/i3_comp
 
-# Screen lock: manual only (Super+Ctrl+L → scripts/i3_lock). No xss-lock / screensaver.
+# Screen lock: xss-lock (session Lock + optional idle via xset) from Settings.
+if command -v omarchy-idle-lock-apply >/dev/null 2>&1; then
+	omarchy-idle-lock-apply &
+fi
 
 # Host-only apps (skip in VM)
 is_virtual_machine() {

@@ -128,12 +128,31 @@ default so Super+Space stays free for the menu), and **Apply now**.
 `omarchy-keyboard-apply` runs at login from `i3_autostart`. If the file is
 missing, the same defaults as above are used.
 
+### Lock screen
+
+Appearance in `~/.config/omarchy/lock-settings.json` (not overwritten by deploy):
+
+```json
+{
+  "mode": "blur",
+  "image": "",
+  "folder": "",
+  "effect": "blur",
+  "greyscale": false
+}
+```
+
+- **mode**: `blur` (screenshot), `image` (fixed path), `random` (folder)
+- **effect**: `none` / `blur` / `pixelate` — applies to every mode (blur a wallpaper by setting effect to `blur`)
+- **Preview** composes the lock image without locking; **Test lock** runs the real locker
+- Idle auto-lock toggle / timeout writes `shell.json` `idle.enabled` + `idle.lock` and runs `omarchy-idle-lock-apply` (`xss-lock` + `xset`)
+
 ### Advanced
 
 Opens config files in the user’s editor (`omarchy-launch-config-editor`):
 i3 keybindings, i3 theme/gaps, picom, dunst, menu extensions. Notes that
 keyboard layouts live under Settings → Keyboard / `keyboard.json`, and that
-`idle.*` times in `shell.json` are not enforced on X11.
+idle / lock appearance live under Settings → Lock screen.
 
 ## Reload
 
@@ -146,6 +165,8 @@ keyboard layouts live under Settings → Keyboard / `keyboard.json`, and that
 | `dock.toml` `full-width` | often needs log out / log in |
 | `startup.json` | next login, or Launch now |
 | `keyboard.json` | next login, or Apply now |
+| `lock-settings.json` | next lock / Preview |
+| `shell.json` `idle.*` | Apply idle now / next login (`omarchy-idle-lock-apply`) |
 
 Do not use `omarchy-restart-shell` to apply those reload cases on a glx
 picom session — it can freeze X. Log out and back in instead.

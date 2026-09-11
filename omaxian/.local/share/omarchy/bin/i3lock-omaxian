@@ -1,0 +1,339 @@
+#!/bin/bash
+
+# omarchy:summary=Omaxian screen locker (screenshot / image / random + effects)
+# omarchy:group=system
+# omarchy:name=i3lock-omaxian
+# omarchy:args=[--preview [outfile]] [--mode blur|image|random] [--image PATH] [--folder PATH] [--effect none|blur|pixelate] [--greyscale]
+# omarchy:examples=i3lock-omaxian | i3lock-omaxian --preview | i3lock-omaxian --mode image --image ~/Pictures/lock.png --effect blur
+
+set -euo pipefail
+
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/lock-settings.json"
+RUNTIME="${XDG_RUNTIME_DIR:-/tmp}"
+PREVIEW=0
+PREVIEW_OUT=""
+CLI_MODE=""
+CLI_IMAGE=""
+CLI_FOLDER=""
+CLI_EFFECT=""
+CLI_GREYSCALE=""
+
+usage() {
+  cat <<'EOF'
+Usage: i3lock-omaxian [options]
+
+  --preview [outfile]   Compose lock image and write PNG (no i3lock)
+  --mode MODE           blur | image | random
+  --image PATH          Fixed wallpaper for mode=image
+  --folder PATH         Folder for mode=random
+  --effect EFFECT       none | blur | pixelate
+  --greyscale           Force greyscale
+  -h, --help            Show this help
+
+Reads ~/.config/omarchy/lock-settings.json when flags are omitted.
+EOF
+}
+
+while (( $# > 0 )); do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --preview)
+      PREVIEW=1
+      if [[ ${2:-} != "" && ${2:-} != -* ]]; then
+        PREVIEW_OUT=$2
+        shift 2
+      else
+        shift
+      fi
+      ;;
+    --mode)
+      CLI_MODE=${2:-}
+      shift 2
+      ;;
+    --image)
+      CLI_IMAGE=${2:-}
+      shift 2
+      ;;
+    --folder)
+      CLI_FOLDER=${2:-}
+      shift 2
+      ;;
+    --effect)
+      CLI_EFFECT=${2:-}
+      shift 2
+      ;;
+    --greyscale)
+      CLI_GREYSCALE=1
+      shift
+      ;;
+    *)
+      echo "i3lock-omaxian: unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+command -v convert >/dev/null 2>&1 || {
+  echo "i3lock-omaxian: ImageMagick convert not found" >&2
+  exit 1
+}
+command -v i3lock >/dev/null 2>&1 || {
+  echo "i3lock-omaxian: i3lock not found" >&2
+  exit 1
+}
+
+# Parse lock-settings.json into shell vars (python keeps this dependency-light).
+eval "$(
+  CONFIG_PATH="$CONFIG" python3 - <<'PY'
+import json, os, shlex
+path = os.environ.get("CONFIG_PATH", "")
+data = {}
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        raw = f.read(65536)
+    parsed = json.loads(raw) if raw.strip() else {}
+    if isinstance(parsed, dict):
+        data = parsed
+except Exception:
+    data = {}
+
+def s(key, default=""):
+    v = data.get(key, default)
+    if v is None:
+        v = default
+    return str(v).strip()
+
+def b(key, default=False):
+    v = data.get(key, default)
+    return "1" if bool(v) else "0"
+
+mode = s("mode", "blur") or "blur"
+if mode not in ("blur", "image", "random"):
+    mode = "blur"
+effect = s("effect", "")
+if effect not in ("none", "blur", "pixelate"):
+    effect = "blur" if mode == "blur" else "none"
+
+print("CFG_MODE=" + shlex.quote(mode))
+print("CFG_IMAGE=" + shlex.quote(s("image")))
+print("CFG_FOLDER=" + shlex.quote(s("folder")))
+print("CFG_EFFECT=" + shlex.quote(effect))
+print("CFG_GREYSCALE=" + b("greyscale", False))
+PY
+)"
+
+MODE=${CLI_MODE:-$CFG_MODE}
+IMAGE=${CLI_IMAGE:-$CFG_IMAGE}
+FOLDER=${CLI_FOLDER:-$CFG_FOLDER}
+EFFECT=${CLI_EFFECT:-$CFG_EFFECT}
+if [[ $CLI_GREYSCALE == "1" ]]; then
+  GREYSCALE=1
+else
+  GREYSCALE=$CFG_GREYSCALE
+fi
+
+case "$MODE" in
+  blur|image|random) ;;
+  *) MODE=blur ;;
+esac
+case "$EFFECT" in
+  none|blur|pixelate) ;;
+  *)
+    if [[ $MODE == "blur" ]]; then
+      EFFECT=blur
+    else
+      EFFECT=none
+    fi
+    ;;
+esac
+
+IMAGE_TMP=$(mktemp --suffix=.png)
+trap 'rm -f "$IMAGE_TMP"' EXIT
+
+screen_geom() {
+  local dims
+  dims=$(xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2; exit}')
+  if [[ $dims =~ ^([0-9]+)x([0-9]+) ]]; then
+    printf '%s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  printf '1920 1080\n'
+}
+
+capture_screenshot() {
+  local out=$1
+  if command -v maim >/dev/null 2>&1; then
+    maim -u "$out"
+  elif command -v import >/dev/null 2>&1; then
+    import -silent -window root "$out"
+  else
+    echo "i3lock-omaxian: need maim or ImageMagick import for screenshot mode" >&2
+    return 1
+  fi
+}
+
+cover_image() {
+  local src=$1
+  local dest=$2
+  local w h
+  read -r w h < <(screen_geom)
+  convert "$src" -resize "${w}x${h}^" -gravity center -extent "${w}x${h}" "$dest"
+}
+
+pick_random_image() {
+  local dir=$1
+  [[ -d $dir ]] || return 1
+  local -a files=()
+  local f
+  shopt -s nullglob nocaseglob
+  for f in "$dir"/*.{png,jpg,jpeg,webp}; do
+    [[ -f $f ]] && files+=("$f")
+  done
+  shopt -u nullglob nocaseglob
+  (( ${#files[@]} > 0 )) || return 1
+  printf '%s\n' "${files[RANDOM % ${#files[@]}]}"
+}
+
+prepare_base() {
+  case "$MODE" in
+    image)
+      if [[ -n $IMAGE && -f $IMAGE ]]; then
+        cover_image "$IMAGE" "$IMAGE_TMP"
+        return 0
+      fi
+      echo "i3lock-omaxian: image missing ($IMAGE); falling back to screenshot" >&2
+      MODE=blur
+      [[ $EFFECT == "none" ]] && EFFECT=blur
+      capture_screenshot "$IMAGE_TMP"
+      ;;
+    random)
+      local pick
+      if pick=$(pick_random_image "$FOLDER"); then
+        cover_image "$pick" "$IMAGE_TMP"
+        return 0
+      fi
+      echo "i3lock-omaxian: no images in folder ($FOLDER); falling back to screenshot" >&2
+      MODE=blur
+      [[ $EFFECT == "none" ]] && EFFECT=blur
+      capture_screenshot "$IMAGE_TMP"
+      ;;
+    *)
+      capture_screenshot "$IMAGE_TMP"
+      ;;
+  esac
+}
+
+apply_effect() {
+  local hue=()
+  local effect_args=()
+
+  if (( GREYSCALE )); then
+    hue=(-level "0%,100%,0.6" -set colorspace Gray -average)
+  else
+    hue=(-level "0%,100%,0.6")
+  fi
+
+  case "$EFFECT" in
+    blur)
+      effect_args=(-filter Gaussian -resize 20% -define "filter:sigma=1.5" -resize 500.5%)
+      ;;
+    pixelate)
+      effect_args=(-scale 10% -scale 1000%)
+      ;;
+    none)
+      effect_args=()
+      ;;
+  esac
+
+  if (( ${#effect_args[@]} > 0 )); then
+    convert "$IMAGE_TMP" "${hue[@]}" "${effect_args[@]}" "$IMAGE_TMP"
+  elif (( GREYSCALE )); then
+    convert "$IMAGE_TMP" "${hue[@]}" "$IMAGE_TMP"
+  fi
+}
+
+# l10n unlock prompt (same idea as i3lock-fancy)
+unlock_text() {
+  case "${LANG:-}" in
+    de_*) printf '%s\n' "Bitte Passwort eingeben" ;;
+    es_*) printf '%s\n' "Ingrese su contraseña" ;;
+    fr_*) printf '%s\n' "Entrez votre mot de passe" ;;
+    it_*) printf '%s\n' "Inserisci la password" ;;
+    pt_*) printf '%s\n' "Digite a senha para desbloquear" ;;
+    ru_*) printf '%s\n' "Введите пароль" ;;
+    *) printf '%s\n' "Type password to unlock" ;;
+  esac
+}
+
+annotate_lock() {
+  local text bw icon
+  local -a param=()
+  text=$(unlock_text)
+
+  local color value=60
+  color=$(convert "$IMAGE_TMP" -gravity center -crop 100x100+0+0 +repage -colorspace hsb \
+    -resize 1x1 txt:- 2>/dev/null | awk -F '[%$]' 'NR==2{gsub(",",""); printf "%.0f\n", $(NF-1)}')
+  [[ $color =~ ^[0-9]+$ ]] || color=0
+
+  if (( color > value )); then
+    bw=black
+    icon="/usr/share/i3lock-fancy/icons/lockdark.png"
+  else
+    bw=white
+    icon="/usr/share/i3lock-fancy/icons/lock.png"
+  fi
+
+  local font
+  font=$(convert -list font 2>/dev/null | awk "{ a[NR] = \$2 } /family: $(fc-match sans -f "%{family}\n" 2>/dev/null)/ { print a[NR-1]; exit }" || true)
+  [[ -n $font ]] || font=DejaVu-Sans
+
+  if [[ -f $icon ]]; then
+    convert "$IMAGE_TMP" -font "$font" -pointsize 26 -fill "$bw" -gravity center \
+      -annotate +0+160 "$text" "$icon" -gravity center -composite "$IMAGE_TMP"
+  else
+    convert "$IMAGE_TMP" -font "$font" -pointsize 26 -fill "$bw" -gravity center \
+      -annotate +0+160 "$text" "$IMAGE_TMP"
+  fi
+
+  # Soft-fail i3lock-color ring params; stock i3lock ignores unknowns / fails → plain -i.
+  if (( color > value )); then
+    I3LOCK_EXTRA=(
+      --inside-color=0000001c --ring-color=0000003e
+      --line-color=00000000 --keyhl-color=ffffff80 --ringver-color=ffffff00
+      --separator-color=22222260 --insidever-color=ffffff1c
+      --ringwrong-color=ffffff55 --insidewrong-color=ffffff1c
+      --verif-color=ffffff00 --wrong-color=ff000000 --time-color=ffffff00
+      --date-color=ffffff00 --layout-color=ffffff00
+    )
+  else
+    I3LOCK_EXTRA=(
+      --inside-color=ffffff1c --ring-color=ffffff3e
+      --line-color=ffffff00 --keyhl-color=00000080 --ringver-color=00000000
+      --separator-color=22222260 --insidever-color=0000001c
+      --ringwrong-color=00000055 --insidewrong-color=0000001c
+      --verif-color=00000000 --wrong-color=ff000000 --time-color=00000000
+      --date-color=00000000 --layout-color=00000000
+    )
+  fi
+}
+
+prepare_base
+apply_effect
+annotate_lock
+
+if (( PREVIEW )); then
+  out=${PREVIEW_OUT:-$RUNTIME/omaxian-lock-preview.png}
+  mkdir -p -- "$(dirname -- "$out")"
+  cp -f -- "$IMAGE_TMP" "$out"
+  printf '%s\n' "$out"
+  exit 0
+fi
+
+# Foreground lock so callers (i3_lock) can clean up after unlock.
+if ! i3lock -n -i "$IMAGE_TMP" "${I3LOCK_EXTRA[@]}" >/dev/null 2>&1; then
+  i3lock -n -i "$IMAGE_TMP"
+fi

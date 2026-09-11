@@ -26,7 +26,7 @@ Item {
         description: String(m.description || ""),
         firstParty: !!m.__isFirstParty,
         enabled: pluginRegistry.isEnabled(id),
-        note: id === "omarchy.idle" ? "Idle lock times in shell.json are not enforced on X11." : ""
+        note: id === "omarchy.idle" ? "Stay Awake; idle timeout is Settings → Lock screen." : ""
       })
     }
     out.sort(function(a, b) {

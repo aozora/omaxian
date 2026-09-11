@@ -13,10 +13,6 @@ Item {
 
   readonly property string fontFamily: Style.font.family
   readonly property string home: Quickshell.env("HOME")
-  readonly property var idle: {
-    var cfg = shell && shell.shellConfig ? shell.shellConfig : {}
-    return (cfg && cfg.idle) ? cfg.idle : {}
-  }
 
   function openFile(path) {
     Quickshell.execDetached(["omarchy-launch-config-editor", path])
@@ -105,11 +101,8 @@ Item {
         textFormat: Text.PlainText
         width: parent.width
         wrapMode: Text.Wrap
-        text: "Idle screensaver / lock in shell.json ("
-              + String(idle.screensaver !== undefined ? idle.screensaver : 150)
-              + "s / "
-              + String(idle.lock !== undefined ? idle.lock : 300)
-              + "s) is not enforced on X11."
+        text: "Idle auto-lock and lock appearance: Settings → Lock screen"
+              + " (shell.json idle + ~/.config/omarchy/lock-settings.json)."
         color: Qt.darker(root.foreground, 1.4)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption

@@ -11,6 +11,9 @@ if [[ -x $lock ]]; then
   exec "$lock"
 fi
 
+if command -v i3lock-omaxian >/dev/null 2>&1; then
+  exec i3lock-omaxian
+fi
 if command -v i3lock-fancy >/dev/null 2>&1; then
   exec i3lock-fancy
 fi

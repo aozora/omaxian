@@ -163,8 +163,10 @@ work differently or are missing:
 - **Click-outside does not always close a popup.** A widget anchored to the bar
   may stay open if you click into another window. Close it with Escape, the
   same widget, or the same keybind.
-- **No idle / lid auto-lock.** Lock is Super+Ctrl+L only. Omarchy's screensaver
-  and session-lock plugins are not ported.
+- **Lock screen is `i3lock-omaxian`, not Omarchy’s Wayland session-lock plugin.**
+  Settings → Lock screen sets appearance (screenshot / image / random, blur
+  effects) and optional idle auto-lock via `xss-lock` + `xset`. Manual lock
+  remains Super+Ctrl+L. There is no in-shell password UI or fingerprint PAM.
 - **No dimming overlay.** Full-screen Omarchy scrims (lock, some pickers) would
   go black under picom; panels are small popups instead. Escape dismisses them.
 - **Bar cannot be dragged** to another screen or reordered by dragging widgets.

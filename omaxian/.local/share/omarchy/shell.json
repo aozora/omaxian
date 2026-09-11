@@ -33,5 +33,5 @@
   },
   "plugins": [],
   "disabledPlugins": ["omarchy.polkit"],
-  "idle": { "screensaver": 150, "lock": 300 }
+  "idle": { "enabled": false, "screensaver": 150, "lock": 300 }
 }

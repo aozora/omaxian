@@ -29,11 +29,13 @@ picom and freezes X).
 | `omaxian/.local/share/omarchy/shell/` | `$OMARCHY_PATH/shell/` (`~/.local/share/omarchy/shell/`) |
 | `omaxian/.local/share/omarchy/shell.json` | `$OMARCHY_PATH/shell.json` (stock defaults) |
 | — | `~/.config/omarchy/shell.json` (user; seeded once by `deploy.sh`) |
+| — | `~/.config/omarchy/lock-settings.json` (user lock appearance; Settings → Lock screen) |
 
 Edit QML under the repo `shell/` tree, then `./deploy.sh`. Do not treat
 `omarchy-quattro/shell/` as the working tree. Change stock bar defaults in
 `omaxian/.local/share/omarchy/shell.json`; live Settings / layout edits go
 only to `~/.config/omarchy/shell.json` and are not overwritten by redeploy.
+`lock-settings.json` is user-owned the same way (never seeded/overwritten by deploy).
 
 ## Plugin contract
 

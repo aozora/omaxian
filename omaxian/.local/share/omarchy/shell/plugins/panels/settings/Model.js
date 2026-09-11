@@ -252,6 +252,65 @@ function serializeWallpaperSettings(settings) {
   }, null, 2) + "\n"
 }
 
+// ---- lock-settings.json
+
+function normalizeLockMode(mode) {
+  var m = String(mode === undefined || mode === null ? "" : mode).trim()
+  if (m === "image" || m === "random" || m === "blur") return m
+  return "blur"
+}
+
+function normalizeLockEffect(effect, mode) {
+  var e = String(effect === undefined || effect === null ? "" : effect).trim()
+  if (e === "none" || e === "blur" || e === "pixelate") return e
+  return normalizeLockMode(mode) === "blur" ? "blur" : "none"
+}
+
+function parseLockSettings(raw) {
+  var text = String(raw === undefined || raw === null ? "" : raw).trim()
+  var parsed = null
+  if (text) {
+    try { parsed = JSON.parse(text) } catch (e) { parsed = null }
+  }
+  var source = isPlainObject(parsed) ? parsed : {}
+  var mode = normalizeLockMode(source.mode)
+  return {
+    mode: mode,
+    image: (typeof source.image === "string") ? source.image.trim() : "",
+    folder: (typeof source.folder === "string") ? source.folder.trim() : "",
+    effect: normalizeLockEffect(source.effect, mode),
+    greyscale: source.greyscale === true
+  }
+}
+
+function serializeLockSettings(settings) {
+  var s = isPlainObject(settings) ? settings : {}
+  var mode = normalizeLockMode(s.mode)
+  return JSON.stringify({
+    mode: mode,
+    image: (typeof s.image === "string") ? s.image.trim() : "",
+    folder: (typeof s.folder === "string") ? s.folder.trim() : "",
+    effect: normalizeLockEffect(s.effect, mode),
+    greyscale: s.greyscale === true
+  }, null, 2) + "\n"
+}
+
+function lockModeOptions() {
+  return [
+    { value: "blur", label: "Screenshot" },
+    { value: "image", label: "Fixed image" },
+    { value: "random", label: "Random from folder" }
+  ]
+}
+
+function lockEffectOptions() {
+  return [
+    { value: "none", label: "None" },
+    { value: "blur", label: "Blur" },
+    { value: "pixelate", label: "Pixelate" }
+  ]
+}
+
 // ---- startup.json
 
 function stripDesktop(id) {

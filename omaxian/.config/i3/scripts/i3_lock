@@ -11,7 +11,7 @@
 notify_fail() {
 	command -v dunstify >/dev/null 2>&1 \
 		&& dunstify -u normal "Screen lock failed" \
-			"Install i3lock-fancy (and i3lock) or start xfce4-screensaver."
+			"Install i3lock (and i3lock-omaxian / i3lock-fancy) or start xfce4-screensaver."
 }
 
 detect_wm() {
@@ -80,6 +80,16 @@ try_xfce_screensaver() {
 	xfce4-screensaver-command -l 2>/dev/null
 }
 
+try_i3lock_omaxian() {
+	command -v i3lock-omaxian >/dev/null 2>&1 || return 1
+	command -v i3lock >/dev/null 2>&1 || return 1
+
+	mark_locked
+	stop_picom
+	# Blocks until unlock (i3lock -n); cleanup trap restores picom.
+	i3lock-omaxian
+}
+
 try_i3lock_fancy() {
 	command -v i3lock-fancy >/dev/null 2>&1 || return 1
 	command -v i3lock >/dev/null 2>&1 || return 1
@@ -119,6 +129,7 @@ case "$(detect_wm)" in
 esac
 
 try_xfce_screensaver && exit 0
+try_i3lock_omaxian && exit 0
 try_i3lock_fancy && exit 0
 try_i3lock && exit 0
 try_slock && exit 0

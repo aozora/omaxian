@@ -14,6 +14,8 @@ case "$action" in
 	lock)
 		if [[ -x "$I3_SCRIPTS/i3_lock" ]]; then
 			"$I3_SCRIPTS/i3_lock"
+		elif command -v i3lock-omaxian >/dev/null 2>&1; then
+			i3lock-omaxian
 		elif command -v i3lock-fancy >/dev/null 2>&1; then
 			i3lock-fancy
 		elif command -v i3lock >/dev/null 2>&1; then

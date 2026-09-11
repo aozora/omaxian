@@ -2,12 +2,9 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// X11 delta (§2b / §6): upstream is a 360-line Hyprland `IdleMonitor` service
-// (idle → screensaver window / lock / DPMS wake, all via Hyprland events).
-// This profile does manual lock only (scripts/i3_lock; AGENTS.md), so the
-// idle-lock automation is dropped. What remains is the "stay awake" toggle
-// the `StayAwake` bar indicator needs: it flips the same state file and
-// drives `xset s` / DPMS so an X11 screensaver/blank is suppressed while on.
+// X11 delta (§2b / §6): upstream is a Hyprland IdleMonitor service. Here we
+// keep the Stay Awake toggle (xset s / DPMS) and re-apply configured idle
+// auto-lock via omarchy-idle-lock-apply when stay-awake turns off.
 Item {
   id: root
 
@@ -36,7 +33,6 @@ Item {
   function setStayAwake(value) {
     root.stayAwake = value
     root.stayAwakeStateLoaded = true
-    // Paths stay in argv ($1/$2); the script string is constant.
     if (value) {
       applyProc.command = [
         "bash", "-c",
@@ -46,7 +42,7 @@ Item {
     } else {
       applyProc.command = [
         "bash", "-c",
-        'mkdir -p -- "$1" && printf %s 0 >"$2" && xset s on +dpms && xset s default',
+        'mkdir -p -- "$1" && printf %s 0 >"$2"; command -v omarchy-idle-lock-apply >/dev/null && omarchy-idle-lock-apply || { xset s on +dpms; xset s default; }',
         "idle-sleep", root.stayAwakeStateDir, root.stayAwakeStatePath
       ]
     }

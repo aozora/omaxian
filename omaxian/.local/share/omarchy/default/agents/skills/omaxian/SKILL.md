@@ -201,14 +201,15 @@ first. For a single file, copy just that file from the checkout.
 ## System Commands
 
 ```bash
-omarchy-system-lock       # i3lock / i3lock-fancy
+omarchy-system-lock       # i3_lock → i3lock-omaxian / i3lock-fancy / i3lock
 omarchy-system-logout     # omarchy-host logout (i3-msg / loginctl)
 omarchy-system-shutdown
 omarchy-system-reboot
 ```
 
-Idle auto-lock is **not ported**. Super+Ctrl+L locks. `idle.lock` in
-`shell.json` does not start a locker.
+Idle auto-lock is optional: Settings → Lock screen enables `shell.json`
+`idle.enabled` and applies `xss-lock` + `xset` via `omarchy-idle-lock-apply`.
+Stay Awake on the bar still suspends idle lock. Manual lock: Super+Ctrl+L.
 
 ## Troubleshooting
 
