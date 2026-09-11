@@ -28,10 +28,19 @@ Item {
   property string effect: "blur"
   property bool greyscale: false
   property bool pickingFolder: false
+  property bool pickingFile: false
   property bool previewVisible: false
   property int previewVersion: 0
   property string statusMessage: ""
   property string lockReadBuf: ""
+
+  readonly property bool pickingPath: root.pickingFolder || root.pickingFile
+
+  function imagePickerStartPath() {
+    if (root.image && root.image.length) return root.image
+    if (root.folder && root.folder.length) return root.folder
+    return Quickshell.env("HOME")
+  }
 
   readonly property bool idleEnabled: {
     var idle = shell && shell.shellConfig && shell.shellConfig.idle ? shell.shellConfig.idle : ({})
@@ -210,7 +219,8 @@ Item {
     anchors.fill: parent
     visible: root.pickingFolder
     z: 20
-    startPath: root.folder
+    pickFiles: false
+    startPath: root.folder.length ? root.folder : Quickshell.env("HOME")
     heading: "Lock wallpaper folder"
     foreground: root.foreground
     onChosen: function(path) {
@@ -218,6 +228,21 @@ Item {
       root.persistAppearance({ mode: "random", folder: path })
     }
     onCancelled: root.pickingFolder = false
+  }
+
+  FolderPicker {
+    anchors.fill: parent
+    visible: root.pickingFile
+    z: 20
+    pickFiles: true
+    startPath: root.imagePickerStartPath()
+    heading: "Lock wallpaper image"
+    foreground: root.foreground
+    onChosen: function(path) {
+      root.pickingFile = false
+      root.persistAppearance({ mode: "image", image: path })
+    }
+    onCancelled: root.pickingFile = false
   }
 
   Rectangle {
@@ -261,7 +286,7 @@ Item {
   Flickable {
     id: flick
     anchors.fill: parent
-    visible: !root.pickingFolder && !root.previewVisible
+    visible: !root.pickingPath && !root.previewVisible
     clip: true
     contentWidth: width
     contentHeight: col.implicitHeight
@@ -323,13 +348,16 @@ Item {
         onClicked: root.persistAppearance({ greyscale: !root.greyscale })
       }
 
-      TextField {
-        width: parent.width
+      Text {
+        textFormat: Text.PlainText
         visible: root.mode === "image"
-        text: root.image
-        foreground: root.foreground
-        placeholderText: "Absolute path to lock image"
-        onEditingFinished: root.persistAppearance({ image: text })
+        width: parent.width
+        wrapMode: Text.Wrap
+        elide: Text.ElideMiddle
+        text: root.image.length ? root.image : "No image selected"
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
       }
 
       Row {
@@ -337,11 +365,28 @@ Item {
         visible: root.mode === "image"
 
         Button {
+          text: "Choose file"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.pickingFile = true
+        }
+
+        Button {
           text: "Use current wallpaper"
           bordered: true
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.useCurrentWallpaper()
+        }
+
+        Button {
+          text: "Clear"
+          bordered: true
+          enabled: root.image.length > 0
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.persistAppearance({ image: "" })
         }
       }
 

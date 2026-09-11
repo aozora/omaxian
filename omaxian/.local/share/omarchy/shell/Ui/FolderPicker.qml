@@ -6,22 +6,24 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 
-// Inline directory-only browser — the kit's "pick a folder" primitive. There
+// Inline filesystem browser — the kit's "pick a folder / file" primitive. There
 // is no native folder dialog on this stack, and a Ui/CenteredModal layered
 // over a grabFocus PopupCard / KeyboardPanel steals the pointer grab and
 // dismisses its own host. So this never creates a window: it's a plain Item
 // the consumer overlays in place (anchors.fill + toggled `visible`), sitting
 // on top of whatever content it replaces.
 //
-// Walks the filesystem with a dirs-only FolderListModel; the quick-jump row
-// seeds common roots ($HOME, /, /mnt, /media, /run/media/$USER). Emits
-// `chosen(path)` with an absolute path, or `cancelled()`.
+// Default is dirs-only. Set `pickFiles: true` to also list image files
+// (`nameFilters`) and confirm a file path. Emits `chosen(path)`, or `cancelled()`.
 Item {
   id: root
 
   // Absolute path to open at; falls back to $HOME when empty / missing.
   property string startPath: ""
   property string heading: "Choose a folder"
+  // When true, list image files and confirm a file (not a directory).
+  property bool pickFiles: false
+  property var nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp"]
 
   // Palette — defaults suit the dark popup card both consumers live on.
   property color foreground: Color.popups.text
@@ -32,6 +34,7 @@ Item {
   signal cancelled()
 
   property string currentPath: ""
+  property string selectedFile: ""
 
   function _norm(p) {
     var s = String(p || "").trim()
@@ -44,19 +47,50 @@ Item {
     var i = s.lastIndexOf("/")
     return i <= 0 ? "/" : s.slice(0, i)
   }
+  function _dirname(p) {
+    var s = _norm(p)
+    if (s.indexOf("/") < 0) return Quickshell.env("HOME")
+    return _parent(s)
+  }
+  function _isImageName(name) {
+    var lower = String(name || "").toLowerCase()
+    return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+      || lower.endsWith(".webp") || lower.endsWith(".bmp")
+  }
   function _rescan() {
     dirModel.folder = ""
     dirModel.folder = "file://" + root.currentPath
   }
+  function _confirm() {
+    if (root.pickFiles) {
+      if (root.selectedFile.length)
+        root.chosen(root.selectedFile)
+      return
+    }
+    root.chosen(root.currentPath)
+  }
 
   onVisibleChanged: if (visible) {
-    root.currentPath = _norm(root.startPath && root.startPath.length
-                             ? root.startPath : Quickshell.env("HOME"))
+    root.selectedFile = ""
+    var start = root.startPath && root.startPath.length ? root.startPath : Quickshell.env("HOME")
+    // File mode: if startPath points at a file, open its parent and preselect it.
+    if (root.pickFiles && root._isImageName(start)) {
+      root.selectedFile = root._norm(start)
+      root.currentPath = root._dirname(start)
+    } else {
+      root.currentPath = root._norm(start)
+    }
     _rescan()
     // Deferred: KeyboardPanel's open focus nudge can race this overlay.
     Qt.callLater(function() { if (root.visible) keyCatcher.forceActiveFocus() })
   }
-  onCurrentPathChanged: _rescan()
+  onCurrentPathChanged: {
+    if (!root.pickFiles)
+      root.selectedFile = ""
+    else if (root.selectedFile.length && root._dirname(root.selectedFile) !== root.currentPath)
+      root.selectedFile = ""
+    _rescan()
+  }
 
   readonly property var quickRoots: {
     var user = Quickshell.env("USER")
@@ -73,10 +107,11 @@ Item {
   FolderListModel {
     id: dirModel
     showDirs: true
-    showFiles: false
+    showFiles: root.pickFiles
     showDotAndDotDot: false
     showHidden: false
     showOnlyReadable: true
+    nameFilters: root.pickFiles ? root.nameFilters : []
     sortField: FolderListModel.Name
   }
 
@@ -102,7 +137,7 @@ Item {
       } else if (event.key === Qt.Key_Backspace) {
         root.currentPath = root._parent(root.currentPath); event.accepted = true
       } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-        root.chosen(root.currentPath); event.accepted = true
+        root._confirm(); event.accepted = true
       }
     }
 
@@ -148,7 +183,9 @@ Item {
         }
         Text {
           Layout.fillWidth: true
-          text: root.currentPath
+          text: root.pickFiles && root.selectedFile.length
+                ? root.selectedFile
+                : root.currentPath
           color: root.subtext
           font.family: Style.font.family
           font.pixelSize: Style.font.bodySmall
@@ -175,18 +212,26 @@ Item {
           ScrollBar.vertical: ScrollBar {}
 
           delegate: Item {
-            id: dirRow
+            id: entryRow
             required property string fileName
             required property string filePath
+            required property bool fileIsDir
             width: list.width
             height: Style.spacing.popupRowHeight
+
+            readonly property bool isSelected: root.pickFiles
+              && !entryRow.fileIsDir
+              && root._norm(entryRow.filePath) === root.selectedFile
 
             Rectangle {
               anchors.fill: parent
               radius: Style.cornerRadius
-              color: rowHover.hovered
+              color: entryRow.isSelected
                      ? Style.hoverFillFor(root.foreground, Color.accent)
-                     : "transparent"
+                     : (rowHover.hovered
+                        ? Style.hoverFillFor(root.foreground, Color.accent)
+                        : "transparent")
+              opacity: entryRow.isSelected ? 1 : (rowHover.hovered ? 0.7 : 1)
 
               RowLayout {
                 anchors.fill: parent
@@ -195,14 +240,14 @@ Item {
                 spacing: Style.spacing.sm
 
                 Text {
-                  text: "󰉋"
+                  text: entryRow.fileIsDir ? "󰉋" : "󰋩"
                   color: root.subtext
                   font.family: Style.font.family
                   font.pixelSize: Style.font.body
                 }
                 Text {
                   Layout.fillWidth: true
-                  text: dirRow.fileName
+                  text: entryRow.fileName
                   color: root.foreground
                   font.family: Style.font.family
                   font.pixelSize: Style.font.bodySmall
@@ -213,7 +258,19 @@ Item {
             }
 
             HoverHandler { id: rowHover }
-            TapHandler { onTapped: root.currentPath = root._norm(dirRow.filePath) }
+            TapHandler {
+              onTapped: {
+                if (entryRow.fileIsDir) {
+                  root.currentPath = root._norm(entryRow.filePath)
+                } else if (root.pickFiles) {
+                  var path = root._norm(entryRow.filePath)
+                  if (root.selectedFile === path)
+                    root.chosen(path)
+                  else
+                    root.selectedFile = path
+                }
+              }
+            }
           }
         }
       }
@@ -221,7 +278,7 @@ Item {
       Text {
         visible: dirModel.status === FolderListModel.Ready && dirModel.count === 0
         Layout.fillWidth: true
-        text: "No sub-folders here."
+        text: root.pickFiles ? "No folders or images here." : "No sub-folders here."
         color: root.subtext
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
@@ -241,12 +298,13 @@ Item {
           onClicked: root.cancelled()
         }
         Button {
-          text: "Use this folder"
+          text: root.pickFiles ? "Use this file" : "Use this folder"
           bordered: true
           selected: true
+          enabled: root.pickFiles ? root.selectedFile.length > 0 : true
           foreground: root.foreground
           fontSize: Style.font.bodySmall
-          onClicked: root.chosen(root.currentPath)
+          onClicked: root._confirm()
         }
       }
     }
