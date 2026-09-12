@@ -3,7 +3,7 @@
 #
 # The QML side never opens a file itself: it asks this script, and this script
 # answers with one JSON object. The tests stub `xclip` and `file` so they
-# do not need an X display or a particular magic database.
+# do not need a real X selection or a particular magic database.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)

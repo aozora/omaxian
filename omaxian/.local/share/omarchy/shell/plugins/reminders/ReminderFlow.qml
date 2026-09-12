@@ -62,7 +62,7 @@ Item {
       var nextMinutes = ReminderFlowModel.validMinutes(selection)
 
       if (!selection.trim()) {
-        root.dismiss()
+        Qt.callLater(function() { root.dismiss() })
         return
       }
 
@@ -79,8 +79,12 @@ Item {
 
     if (root.step === "message") {
       var args = [root.omarchyPath + "/bin/omarchy-reminder"].concat(ReminderFlowModel.reminderArgs(root.minutes, selection))
-      root.dismiss()
-      Quickshell.execDetached(args)
+      // Defer so CenteredModal can leave its Keys handler before unmap + the
+      // follow-up omarchy-shell indicators refresh IPC (see CenteredModal).
+      Qt.callLater(function() {
+        root.dismiss()
+        Quickshell.execDetached(args)
+      })
     }
   }
 
@@ -101,7 +105,7 @@ Item {
       Keys.onPressed: function(event) {
         if (event.key === Qt.Key_Escape) {
           if (root.filterText) root.setFilter("")
-          else root.dismiss()
+          else Qt.callLater(function() { root.dismiss() })
           event.accepted = true
         } else if (Util.editsFilter(event, root.filterText)) {
           root.setFilter(Util.editedFilter(event, root.filterText))

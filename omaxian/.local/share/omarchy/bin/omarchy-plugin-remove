@@ -20,10 +20,17 @@ interactive() {
 }
 
 confirm() {
-  local prompt="$1"
+  local prompt="$1" reply
   (( ASSUME_YES )) && return 0
   if interactive; then
-    gum confirm "$prompt"
+    if omarchy-cmd-present gum; then
+      gum confirm "$prompt"
+    else
+      # gum is Arch/Omarchy chrome; Debian/Omaxian uses a plain prompt.
+      printf '%s [y/N] ' "$prompt" >&2
+      read -r reply || return 1
+      [[ $reply == [yY] || $reply == [yY][eE][sS] ]]
+    fi
   else
     fail "refusing to continue without confirmation; pass --yes"
   fi
@@ -60,10 +67,14 @@ done
 
 if [[ -z $id ]]; then
   interactive || fail "a plugin-id is required"
-  id=$(find "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) \
-    ! -name '.*' -printf '%f\n' 2>/dev/null |
-    sort |
-    gum choose --header="Remove which plugin?") || fail "cancelled"
+  if omarchy-cmd-present gum; then
+    id=$(find "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) \
+      ! -name '.*' -printf '%f\n' 2>/dev/null |
+      sort |
+      gum choose --header="Remove which plugin?") || fail "cancelled"
+  else
+    fail "a plugin-id is required (install gum, or pass the id)"
+  fi
   [[ -n $id ]] || fail "nothing selected"
 fi
 valid_plugin_id "$id" || fail "invalid plugin id '$id'"

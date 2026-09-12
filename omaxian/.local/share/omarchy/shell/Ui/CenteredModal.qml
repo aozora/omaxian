@@ -44,10 +44,20 @@ Item {
   readonly property real _screenH: _screen ? _screen.height : 0
 
   onOpenChanged: {
-    if (!root.open) return
-    // grabFocus dismissal clobbers the declarative `visible` binding; re-arm.
-    card.visible = Qt.binding(function() { return root.open || card.opacity > 0 })
-    focusNudge.restart()
+    if (root.open) {
+      // grabFocus dismissal clobbers the declarative `visible` binding; re-arm.
+      card.visible = Qt.binding(function() { return root.open || card.opacity > 0 })
+      focusNudge.restart()
+      return
+    }
+    // Never unmap the grabFocus PopupWindow synchronously from a Keys
+    // handler living inside it — that use-after-frees in Quickshell 0.3.0
+    // (seen as SIGSEGV in the IPC ready-read path right after ReminderFlow
+    // submits). Let the current event finish, then hide.
+    Qt.callLater(function() {
+      if (!root.open)
+        card.visible = false
+    })
   }
 
   // The `card` PopupWindow is Qt::Popup / override-redirect; under i3 that
@@ -80,7 +90,9 @@ Item {
 
   PopupWindow {
     id: card
-    visible: root.open
+    // Visibility is driven from onOpenChanged so close can be deferred
+    // (see comment there). Start closed; open path installs the binding.
+    visible: false
     color: "transparent"
     implicitWidth: Math.max(1, root.contentWidth)
     // Floor of 64: scripts/focus-window.py ignores QS windows <= 40px tall
@@ -123,7 +135,8 @@ Item {
         focus: true
         Keys.priority: Keys.AfterItem
         Keys.onEscapePressed: function(event) {
-          root.dismissed()
+          // Same deferral as onOpenChanged: do not tear down from inside Keys.
+          Qt.callLater(function() { root.dismissed() })
           event.accepted = true
         }
       }

@@ -24,10 +24,17 @@ interactive() {
 }
 
 confirm() {
-  local prompt="$1"
+  local prompt="$1" reply
   (( ASSUME_YES )) && return 0
   if interactive; then
-    gum confirm "$prompt"
+    if omarchy-cmd-present gum; then
+      gum confirm "$prompt"
+    else
+      # gum is Arch/Omarchy chrome; Debian/Omaxian uses a plain prompt.
+      printf '%s [y/N] ' "$prompt" >&2
+      read -r reply || return 1
+      [[ $reply == [yY] || $reply == [yY][eE][sS] ]]
+    fi
   else
     fail "refusing to continue without confirmation; pass --yes"
   fi
@@ -46,8 +53,13 @@ select_bar_widget_placement() {
     "$PLUGINS_DIR/$id/manifest.json" >/dev/null 2>&1 || return 0
 
   default_section=$(jq -r '.barWidget.defaultSection // "center"' "$PLUGINS_DIR/$id/manifest.json")
-  section=$(printf '%s\n' left center right |
-    gum choose --header="Place $id in which bar section?" --selected "$default_section") || return 0
+  if omarchy-cmd-present gum; then
+    section=$(printf '%s\n' left center right |
+      gum choose --header="Place $id in which bar section?" --selected "$default_section") || return 0
+  else
+    # Keep the manifest default when gum is unavailable.
+    section=$default_section
+  fi
   [[ -n $section ]] || return 0
   ENABLE_PLACEMENT=(--section "$section")
 }
@@ -88,8 +100,12 @@ done
 
 if [[ -z $url ]]; then
   interactive ||
-    fail "a git URL is required (e.g. omarchy plugin add https://github.com/acme/omarchy-weather.git)"
-  url=$(gum input --prompt "Git URL of the plugin repo: ") || fail "cancelled"
+    fail "a git URL is required (e.g. omarchy-plugin-add https://github.com/acme/omarchy-weather.git)"
+  if omarchy-cmd-present gum; then
+    url=$(gum input --prompt "Git URL of the plugin repo: ") || fail "cancelled"
+  else
+    fail "a git URL is required (install gum, or pass the URL)"
+  fi
   [[ -n $url ]] || fail "a git URL is required"
 fi
 

@@ -2,7 +2,7 @@
 
 Email client for the Omaxian bar and shell. Port of
 [huacnlee/omamail](https://github.com/huacnlee/omamail)
-(upstream commit `77db4b1`).
+(upstream commit `01d6ea4`, plugin version `0.9.0`).
 
 Plugin id: `omamail` (unchanged). Optional — not installed by `./deploy.sh`.
 See [`../README.md`](../README.md) for the catalog install pattern.
@@ -10,7 +10,34 @@ See [`../README.md`](../README.md) for the catalog install pattern.
 **Your mail as a native window — not a browser tab.** Reads, triages, and
 answers mail over the Gmail API, Microsoft OAuth for Outlook, the HEY CLI,
 JMAP, or IMAP/SMTP. Runs inside `omarchy-shell`, follows the active theme, and
-puts an unread count in the bar.
+puts an unread count in the bar. Uses one private, exactly versioned Rust
+backend inside the plugin.
+
+## Omaxian deltas
+
+| Upstream (Omarchy) | This port |
+| ------------------ | --------- |
+| Wayland clipboard CLI for address / location copy | Qt clipboard via `copyText` |
+| Wayland paste CLI then `xclip` for compose paste | `xclip` only |
+| Hyprland bind example | i3 bind example below |
+| `omarchy-mise-install` for `hey` | [hey-cli](https://github.com/basecamp/hey-cli) / setup-page install line |
+| `omarchy plugin add` / `make install` | rsync into `~/.config/omarchy/plugins/`; later `omarchy-plugin-update --from` |
+
+`FloatingWindow`, `KeyboardPanel`, `secret-tool`, `curl`, and `notify-send` work
+as on Omarchy. File attach uses `omarchy-file-select` when present, otherwise
+`zenity`. Agent instruction files (`.agents/`, `AGENTS.md`) are omitted from
+this tree.
+
+---
+
+**Your mail as a native Omarchy window — not a browser tab.**
+
+Omamail is an Omarchy desktop email client: a Quickshell plugin
+that reads, triages, and answers your mail over the official Gmail API, through
+Microsoft OAuth for Outlook, over the HEY CLI client 37signals publish, over
+JMAP, or over IMAP and SMTP for every other mailbox. It follows your active
+theme and uses one private, exactly versioned Rust backend inside the plugin.
+
 
 <img width="800" alt="Omamail - Reading mail with AI assistance for selected messages" src="docs/images/full-mail.webp" />
 
@@ -24,29 +51,15 @@ And with mini size mode:
 
 Works with **Gmail**, **HEY**, **Fastmail**, **iCloud Mail**, **Outlook**, **Yahoo**, **Zoho**, **GMX**, **Proton Mail** (through its Bridge), and any server that speaks **JMAP** or **IMAP** — including one you run yourself.
 
-## Omaxian deltas
-
-| Upstream (Omarchy) | This port |
-| ------------------ | --------- |
-| Wayland clipboard CLI for address copy | Qt clipboard via existing `copyText` |
-| Wayland paste CLI then `xclip` for compose paste | `xclip` only |
-| Hyprland bind example | i3 bind example below |
-| `omarchy-mise-install` for `hey` | [hey-cli](https://github.com/basecamp/hey-cli) / setup-page install line |
-| `omarchy plugin add` / `make install` | rsync into `~/.config/omarchy/plugins/`; later `omarchy-plugin-update --from` |
-
-`FloatingWindow`, `KeyboardPanel`, `secret-tool`, `curl`, and `notify-send` work
-as on Omarchy. File attach uses `omarchy-file-select` when present, otherwise
-`zenity`. Agent instruction files (`.agents/`, `AGENTS.md`) are omitted from
-this tree.
-
 ## Features
 
 - **Designed, not assembled.** Monospace, square-cornered, and built to sit
-  inside the desktop rather than to look like a web app in a window. Three columns
+  inside Omarchy rather than to look like a web app in a window. Three columns
   when there is room, one when there is not, and nothing on screen that is not
   your mail.
 - **Gmail, Outlook, HEY, JMAP and IMAP.** Sign in to Gmail with Google, to Outlook with Microsoft, to HEY through the HEY CLI that 37signals publish, or add a mailbox on any JMAP or IMAP server with an address and an app password. Several accounts at once, each with its own inbox, cache and unread count.
-- **Keyboard-first.** `j`/`k` to move, `e` to archive, `v` to file, `s` to star, `r` to
+- **Keyboard-first.** `j`/`k` to move, `Shift+J`/`Shift+K` to scroll the reader,
+  `e` to archive, `v` to file, `s` to star, `r` to
   reply, `c` to compose, `Alt+1`…`0` for the mailboxes — hold Alt and the rail says
   which is which — `Alt+A` to switch account, `/` to search, `?` for the rest.
   A key the mailbox has no verb for says so instead of pretending: HEY has
@@ -90,30 +103,17 @@ this tree.
 
 ## What it is
 
-Three parts, one plugin:
+One installed application with three cooperating parts:
 
-- an **unread badge** in the bar, which keeps counting whether or not the
-  window is open
-- an **application window** — a real i3-managed `FloatingWindow`, tiled like any other,
+- a **background service**, which keeps counting whether or not the window is
+  open
+- an **application window** — a real i3/X11 window, tiled like any other,
   with your mailboxes, the message list, and the reader side by side
 - **compose and reply inside that same window**, because a second window would
-  take a region of its own under the panel mechanism. A `mailto:` link
-  from elsewhere on the desktop opens that same compose form.
+  take a region of its own. A `mailto:` link from elsewhere on the desktop
+  opens that same compose form.
 
-## Dependencies
-
-`socat`, `secret-tool` (libsecret-tools), `openssl`, `xdg-open`, `python3`,
-`curl`, `xclip`, and a running `omarchy-shell`. Attach picker: `zenity` (or
-`omarchy-file-select` if you have it). HEY mailboxes also need `hey` on
-`PATH` (typically `~/.local/bin`).
-
-Debian/Devuan packages (approximate):
-
-```bash
-sudo apt install socat libsecret-tools openssl xdg-utils python3 curl xclip zenity
-```
-
-## Install
+## Install the plugin
 
 From the Omaxian repo root:
 
@@ -148,6 +148,14 @@ omarchy-plugin-update "$ID" --from "$PLUGIN"
 Git installs: `omarchy-plugin-update omamail`. See
 [`../README.md`](../README.md#update).
 
+Open Omamail and explicitly install its backend when prompted. Loading the
+plugin never downloads a binary. The installer uses the exact `backend-version`
+release for Linux x86_64 or aarch64 and keeps it at `runtime/bin/omamail` inside
+the plugin. No system package or second Quickshell process is installed.
+See [backend installation and releases](docs/BACKEND-RUNTIME.md) for updates,
+optional CLI access and recovery. Each plugin revision keeps its own exact backend
+pin; an old plugin never automatically switches to the backend used by main.
+
 Then click the envelope in the bar. To open it from the keyboard, add an i3
 bind (e.g. in `~/.config/i3/config.d/`):
 
@@ -163,6 +171,19 @@ Once the plugin is enabled and mailto is registered, clicking an address in a
 browser, a PDF, or a notification opens compose here.
 `xdg-open mailto:you@example.com` is the check.
 
+Requires a running `omarchy-shell`, the Rust backend, `secret-tool`, `xdg-open`,
+`python3`, `curl`, and `xclip` for keyring, desktop integration, and compose
+paste. Attach picker: `zenity` (or `omarchy-file-select` if you have it). Rust
+owns mail networking, remote image fetching and one-click unsubscribe. A HEY
+mailbox additionally needs the official `hey` client; see below. Building
+locally also requires the Rust toolchain.
+
+Debian/Devuan packages (approximate):
+
+```bash
+sudo apt install libsecret-tools xdg-utils python3 curl xclip zenity
+```
+
 ## Mailboxes it can open
 
 Adding a mailbox asks which kind first, because the four setups have nothing in common.
@@ -172,7 +193,9 @@ project, so this route needs an OAuth client you create once — the setup page
 walks through it. In exchange it gets labels, conversations, Gmail's own search
 syntax, and a "report spam" that Google actually learns from.
 
-**Outlook** signs in on Microsoft's own page and uses [Microsoft's supported OAuth route for IMAP and SMTP][microsoft-mail-oauth]. It works with Outlook.com, Hotmail, Live and MSN accounts; Omamail never asks for the Microsoft account password. Until Omamail ships a maintainer-owned public client, the setup page asks for an Application (client) ID from a one-time Microsoft Entra app registration. Make it a public client for personal Microsoft accounts; the sign-in asks for `IMAP.AccessAsUser.All`, `SMTP.Send` and `offline_access` and shows the device code to enter in the Microsoft page it opens.
+**Outlook** signs in on Microsoft's own page and uses [Microsoft's supported OAuth route for IMAP and SMTP][microsoft-mail-oauth]. It works with Outlook.com, Hotmail, Live and MSN accounts; Omamail never asks for the Microsoft account password. Until Omamail ships a maintainer-owned public client, the setup page asks for an Application (client) ID from a one-time Microsoft Entra app registration. Make it a public client for personal Microsoft accounts; the sign-in asks for `IMAP.AccessAsUser.All`, `SMTP.Send`, `offline_access` and `openid` and shows the device code to enter in the Microsoft page it opens. Microsoft Graph — sending where the tenant has SMTP off, the calendar — is a second code for `Mail.Send` and `Calendars.ReadWrite`, asked for once, when Microsoft refuses the Graph exchange for want of consent: straight after the sign-in where the mailbox sends through Graph, else from the mailbox's settings (*Allow Microsoft Graph...*).
+
+A **work or school** mailbox (Microsoft 365) is the same sign-in addressed to its own tenant: turn on *Work or school account* on the setup page, and register the client in that tenant, or as multi-tenant. Where the tenant has switched authenticated SMTP off — the common Microsoft 365 default, which fails a send with "SmtpClientAuthentication is disabled" — turn on *Send through Microsoft Graph*: the same message goes to Graph's `sendMail` with a token of Graph's own audience, obtained with the same refresh token, and Graph files the sent copy itself. That needs the `Mail.Send` permission on the registration.
 
 Before signing in, enable IMAP in Outlook.com: **Settings > Mail > Forwarding and IMAP > Let devices and apps use IMAP**, then save. Microsoft disables IMAP by default; OAuth consent alone does not enable mailbox access. See [Microsoft's IMAP setup instructions](https://support.microsoft.com/en-us/outlook/pop-imap-and-smtp-settings-for-outlook-com).
 
@@ -185,8 +208,9 @@ Install it once via [37signals' hey-cli][hey-cli] (the setup page shows
 `curl -fsSL https://hey.com/install-cli | bash`). Omaxian does not ship
 `omarchy-mise-install`. Either way `hey` should land in `~/.local/bin`, which
 is where Omamail looks when it is not already on `PATH`. Then choose **HEY**
-on the setup page and press **Sign in to HEY** — that opens HEY in your
-browser, and nothing else is asked of you.
+on the setup page and press
+**Sign in to HEY** — that opens HEY in your browser, and nothing else is asked
+of you.
 
 The rail is HEY's own: Imbox, New for you, Reply Later, Set Aside, The Feed and
 Paper Trail. **No Sent** — HEY's API has one, but `hey` does not serve it yet:
@@ -227,26 +251,28 @@ server is set.
 
 The sent copy is filed by Omamail rather than left to the server: a message handed to SMTP submission lands nowhere on its own. It goes to the server's own Sent folder, named by the server rather than guessed, and arrives already marked read; a server that reports no Sent folder holds no copy, and the status row says so. One thing worth knowing: a Gmail account read over IMAP has Google file its own copy of anything sent through Gmail's SMTP, so those accounts hold two.
 
-To remove it:
+If you enabled the optional CLI link, first run
+`python3 scripts/backend-runtime.py disable-cli` from the plugin directory.
+Omaxian has no verified uninstall hook to remove that external link for you.
+Then remove the plugin:
 
 ```bash
 omarchy-plugin-remove omamail
 ```
 
-That takes the plugin itself. Nothing it wrote lives inside your Omaxian
-config, so removing those is separate and entirely up to you:
+That removes the plugin and its private runtime. Account data, caches, drafts
+and keyring entries stay in place. Removing those is separate and up to you:
 
 ```bash
 secret-tool clear service omamail    # refresh tokens and JMAP and IMAP passwords
 hey auth logout                      # the HEY session, if you added one
 rm -rf ~/.config/omamail             # the OAuth client and account list
 rm -rf ~/.cache/omamail              # cached mail
-rm -rf ~/.local/state/omamail        # assistant turn state, if any
 rm ~/.local/share/applications/omamail.desktop
 ```
 
 Signing out from inside the app clears the keyring entry on its own. The plugin
-never edits your shell, i3, or theme configuration. The keybinding above
+never edits your shell, i3 or theme configuration. The keybinding above
 and the mailto desktop file are yours to add and yours to remove.
 
 ## Connecting your mailbox
@@ -280,7 +306,8 @@ Right-click does the rest. On a label in the rail: rename it, make a label besid
 
 | Key | What it does |
 | --- | --- |
-| `j` / `k` | Move down / up |
+| `j` / `k`; `Shift+J` / `Shift+K` | Move down / up; scroll the open message down / up |
+| `Right` / `Left` | Open the selected message / return to the list |
 | `Enter` or `o` | Open the selected message |
 | `n` / `p` | Next / previous message in the conversation |
 | `Esc` | Back to the list; close the window from the list |
@@ -322,8 +349,8 @@ A signature is set per mailbox on the settings page, under Writing. It is placed
   its `QGuiApplication`, and a plugin loads long after that.
 
 Remote images in a message body are blocked until you ask for them, and asking
-covers that one message. Qt really does fetch an `<img src="https://…">`, so
-loading a message's pictures fires whatever tracking pixels it carries and tells
+covers that one message. Rust fetches approved images and gives Qt raster data
+URIs. Loading a message's pictures can fire tracking pixels and tell
 the sender when the mail was read — which is why it is a decision rather than a
 default. Images pointed at this machine or at the network around it (loopback,
 private addresses, `.local` names, `file:`) are never fetched at all, however
@@ -339,9 +366,21 @@ and switched from the menu, the user bar at the foot of the rail, or `Alt+A` —
 which opens the same switcher with the keyboard on the mailbox you are in:
 `j`/`k` move, `Enter` or `o` takes one.
 
-The message list, labels and profile are cached per account so switching never
-waits on the network. Message bodies are cached one file per message — a
-thousand of them, evicted least-recently-used.
+The message list, labels and profile are cached per account so cached views
+can appear while a refresh runs. Parsed bodies and preloaded message resources
+share a 256 MiB disk budget across all accounts, with least-recently-used eviction.
+The Rust backend warms the first Inbox page and downloads newly discovered mail
+in the background. Opening a cached message displays it before network
+revalidation completes; a cache miss follows the normal loading path.
+`j` and `k` immediately open the selected row in the reader.
+
+The persistent Rust backend checks signed-in accounts automatically, including
+while the mail window is closed. Each account uses the configured refresh
+interval (120 seconds by default); checks run asynchronously across accounts,
+and repeated checks for the same account are coalesced. The backend sends updated
+counts and previews to the UI. Signing out cancels that account's checks;
+stopping the shell also stops its backend. This does not install a separate
+system service.
 
 ## Where your credentials live
 
@@ -368,17 +407,43 @@ calendars and writes events.
 
 ## Development
 
-Upstream uses `make install` / `make validate` against stock Omarchy. On
-Omaxian, install with the rsync steps above; for checks from this tree:
+Rust sources live in `src/`: `cli/` handles commands, `backend/` handles the
+persistent stdio protocol, and business modules are shared by both. Qt/QML,
+JavaScript and runtime artwork live in `ui/`. UI unit tests are in `ui/tests/`,
+Rust unit tests live with their modules, and `tests/` holds integration tests.
+Rust owns mail transport and shared content processing, query/render caches,
+action reconciliation, the durable outbox and compose recovery. QML keeps editor,
+selection and presentation state. See [backend architecture](docs/BACKEND.md)
+for the method inventory, security boundaries and remaining validation.
 
 ```bash
-omarchy-plugin-check ./community-plugins/omamail
-omarchy-plugin-validate ./community-plugins/omamail
-# optional: sh community-plugins/omamail/tests/test_attachment.sh
+make install          # build/install the local backend, link the plugin, restart shell
+./dev backend         # build the development Rust executable
+./dev run             # build and print shell environment/start instructions
+make validate         # tests, source regressions, qmllint, manifest check
 ```
 
-Upstream contribution notes are in [CONTRIBUTING.md](CONTRIBUTING.md); the
-specification is in [docs/SPEC.md](docs/SPEC.md).
+`make install` installs the compiled release binary at `runtime/bin/omamail`
+inside this checkout, then links the checkout into the Omarchy plugins directory.
+On Omaxian prefer the rsync / `omarchy-plugin-update --from` install path above,
+then install the backend from inside the app (or `scripts/install-backend.sh`).
+Use `make install-backend-local` to build and replace only that binary without
+restarting the shell. Unset `OMAMAIL_BIN` when using the installed runtime.
+
+`OMAMAIL_BIN` is an explicit development override; a running shell must receive
+that environment before constructing the plugin. See
+[the runtime guide](docs/BACKEND-RUNTIME.md) for the restart limitation and the
+publish-before-pin release workflow.
+
+For reproducible synthetic MIME and reader CPU measurements, run
+`python3 benchmarks/mail/run.py --samples 31 --batch 3 --qml` after other builds
+and tests finish. The [benchmark guide](benchmarks/mail/README.md) explains the
+frozen JS baseline, required output parity and measurement limits; these timings
+do not measure mail-server latency or end-to-end inbox loading.
+
+How to send a change — there is no issue tracker — is in
+[CONTRIBUTING.md](CONTRIBUTING.md). Working agreements are in
+[AGENTS.md](AGENTS.md) and the specification is in [docs/SPEC.md](docs/SPEC.md).
 
 Omamail is an independent project and is not affiliated with Google, Microsoft or 37signals. Gmail is a trademark of Google LLC; Outlook is a trademark of Microsoft Corporation; HEY is a trademark of 37signals, LLC.
 
