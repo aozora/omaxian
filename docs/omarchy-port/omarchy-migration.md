@@ -541,7 +541,7 @@ vs `omarchy-quattro/manual/07-hotkeys.md`. `$MOD = Mod4 (Super)`, `$ALT = Mod1`.
 
 ### 9d. i3-only bindings with no Omarchy equivalent — **keep**
 
-`Super+Shift+C` reload · `Ctrl+Shift+R` restart · `Super+Shift+Q` exit ·
+`Super+Shift+C` reload · `Super+Ctrl+Shift+R` restart (not bare Ctrl+Shift+R — that is browser/editor hard-refresh and used to brick Quickshell.I3) · `Super+Shift+Q` exit ·
 `Super+Shift+R` → Resize mode · `Super+Shift+G` → gaps mode · `Super+Y` border toggle ·
 `Super+A`/`Super+D` focus parent/child · `Super+Shift+Space` focus mode_toggle ·
 `Super+Alt+C`/`Super+Alt+P` float move center / to mouse ·

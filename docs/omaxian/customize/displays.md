@@ -79,6 +79,11 @@ On the workspace row of a given bar:
 | Left | Focus that number **on this output**. If it currently lives on the other monitor, i3 **pulls the workspace here**, then focuses it. If it does not exist yet, it is created here. |
 | Shift+left or middle | Super+N behaviour: only focus, even if that jumps to the other monitor |
 
+Clicks talk to i3 via `i3-msg` (with `unset I3SOCK`), not Quickshell’s in-process
+I3 socket. That keeps switching working after an i3 IPC restart even when the
+bar’s highlight freezes. A full logout / log in (or `omarchy-restart-shell`)
+restores live workspace state on the bar.
+
 The square pill is the focused workspace; a second pill is the workspace
 visible on the other output.
 

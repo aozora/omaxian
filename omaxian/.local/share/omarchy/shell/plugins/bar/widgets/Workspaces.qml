@@ -14,6 +14,13 @@ import qs.Ui
 // pulls that workspace onto this output; Shift/middle-click only focuses
 // it (may jump to the other monitor). Keyboard Super+1…0 is still global.
 //
+// Focus commands go through `i3-msg`, not `I3.dispatch` / `ws.activate()`.
+// Quickshell.I3 does not reconnect after an i3 IPC restart (`PeerClosedError`
+// → "IPC connection is not open, ignoring request"), so in-process dispatch
+// can stay dead while the live socket still works. `unset I3SOCK` lets
+// i3-msg use the live `I3_SOCKET_PATH` X property. Use `bash -c` (not `-lc`)
+// so a heavy ~/.bashrc cannot stall the click→switch path.
+//
 // The pill styling (`BarPalette.workspace.*`) was ported over from eww's
 // `.ws-btn` states but never wired into this widget — the upstream T3
 // source it was structurally copied from just swaps the glyph and dims
@@ -50,11 +57,21 @@ BarWidget {
     return /^[A-Za-z0-9._:-]+$/.test(s) ? s : ""
   }
 
+  function i3Quiet(payload) {
+    Quickshell.execDetached([
+      "bash", "-c",
+      "unset I3SOCK; exec i3-msg -q " + Util.shellQuote(payload)
+    ])
+  }
+
   function outputName() {
     var win = (root.QsWindow && root.QsWindow.window) ? root.QsWindow.window : null
     var screen = win ? win.screen : null
     var mon = I3.monitorFor(screen)
-    return mon && mon.name ? root.i3Ident(mon.name) : ""
+    if (mon && mon.name) return root.i3Ident(mon.name)
+    // When Quickshell.I3 is disconnected, monitorFor is null; Qt's screen
+    // name usually still matches the i3/xrandr output (e.g. HDMI-A-0).
+    return screen && screen.name ? root.i3Ident(screen.name) : ""
   }
 
   function focusWorkspace(n, pullHere) {
@@ -66,19 +83,15 @@ BarWidget {
     var onThisOutput = !!(ws && ws.monitor && root.i3Ident(ws.monitor.name) === here)
 
     if (!pull || !here || onThisOutput) {
-      if (ws) {
-        ws.activate()
-        return
-      }
-      I3.dispatch("workspace number " + num)
+      root.i3Quiet("workspace number " + num)
       return
     }
 
     // Click on this bar: focus this output, pull workspace N here if it
     // lives elsewhere (or create it here), then switch to it.
-    I3.dispatch("focus output " + here)
-    I3.dispatch("[workspace=\"" + num + "\"] move workspace to output " + here)
-    I3.dispatch("workspace number " + num)
+    root.i3Quiet("focus output " + here)
+    root.i3Quiet('[workspace="' + num + '"] move workspace to output ' + here)
+    root.i3Quiet("workspace number " + num)
   }
 
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)

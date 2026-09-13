@@ -8,7 +8,7 @@ import qs.Ui
 // i3 binding-mode indicator (polybar-style "[resize on]"). Subscribes to the
 // i3 IPC `mode` event and shows a pill while any non-default mode is active
 // (Resize / Move / Gaps …); collapses to zero width in the default mode.
-// `unset I3SOCK` for the same stale-socket reason as Workspaces.qml.
+// `unset I3SOCK` for the same stale-socket reason as Workspaces.qml's i3-msg path.
 BarWidget {
   id: root
   moduleName: "omaxian.mode"
