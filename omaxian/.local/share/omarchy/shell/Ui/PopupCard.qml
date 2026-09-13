@@ -77,6 +77,11 @@ PopupWindow {
 
   visible: open || card.opacity > 0
   color: "transparent"
+  // Rounded BorderSurface needs real alpha in the corner cutouts. Without
+  // this, Quickshell keeps an opaque square surface and the popup silhouette
+  // stays rectangular behind the rounded border (see QS FAQ "My window
+  // should not be opaque"). Same latch as plugins/bar/Bar.qml.
+  surfaceFormat.opaque: false
   implicitWidth: contentWidth
   implicitHeight: contentHeight
 

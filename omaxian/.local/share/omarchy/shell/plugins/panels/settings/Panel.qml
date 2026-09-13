@@ -74,7 +74,11 @@ Item {
     id: win
     title: root.windowTitle
     visible: root.opened
-    color: Color.popups.background
+    // Transparent host so BorderSurface radiusPopup corners are real alpha
+    // (opaque window color + rounded card = square silhouette, same bug as
+    // Ui/PopupCard before surfaceFormat.opaque: false).
+    color: "transparent"
+    surfaceFormat.opaque: false
     implicitWidth: root.contentWidth
     implicitHeight: root.contentHeight
     minimumSize: Qt.size(Style.space(640), Style.space(420))

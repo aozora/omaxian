@@ -105,6 +105,8 @@ Item {
     // (see comment there). Start closed; open path installs the binding.
     visible: false
     color: "transparent"
+    // See Ui/PopupCard.qml — need alpha so radiusPopup corners punch through.
+    surfaceFormat.opaque: false
     implicitWidth: Math.max(1, root.contentWidth)
     // Floor of 64: scripts/focus-window.py ignores QS windows <= 40px tall
     // (that's the bar strip), so the card must clear that to be found.

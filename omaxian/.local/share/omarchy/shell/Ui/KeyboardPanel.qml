@@ -88,6 +88,9 @@ PopupWindow {
 
   visible: open || card.opacity > 0 || popoutSwitching
   color: "transparent"
+  // See Ui/PopupCard.qml — opaque surfaces leave a square fill behind the
+  // rounded card border.
+  surfaceFormat.opaque: false
   implicitWidth: Math.max(1, contentWidth)
   implicitHeight: Math.max(1, contentHeight)
 

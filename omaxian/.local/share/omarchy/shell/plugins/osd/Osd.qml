@@ -148,6 +148,8 @@ Item {
     id: card
     visible: root.opened
     color: "transparent"
+    // See Ui/PopupCard.qml — opaque surfaces square off rounded OSD cards.
+    surfaceFormat.opaque: false
     implicitWidth: root.cardWidth
     implicitHeight: root.cardHeight
     // Static false: PopupWindow latches grabFocus at create time. ToolTip is

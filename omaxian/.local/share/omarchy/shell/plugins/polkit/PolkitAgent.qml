@@ -271,6 +271,8 @@ Item {
     exclusionMode: ExclusionMode.Ignore
     aboveWindows: true
     focusable: root.dialogVisible
+    // Full-screen ARGB host (scrim + rounded card). Match bar/dock.
+    surfaceFormat.opaque: false
     onVisibleChanged: if (visible) focusGrab.restart()
 
     // X11 focus nudge: a full-screen PanelWindow doesn't reliably receive
