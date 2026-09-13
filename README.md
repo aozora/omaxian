@@ -77,6 +77,11 @@ sudo ./setup.sh          # packages, fonts, session D-Bus
 `setup.sh` is safe to re-run. Useful flags: `--minimal`, `--optional`,
 `--deploy` (runs `install.sh` + `deploy.sh` for you after packages).
 
+Full roles, why the three scripts stay separate, and what to re-run after a
+pull: [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md).
+Optional third-party plugins are **not** part of this path — see
+[`community-plugins/README.md`](community-plugins/README.md).
+
 **Then log out and back in** (not `i3 restart`) so i3 picks up `PATH`.
 Pick the i3 / Omaxian session in your greeter (or start X however you usually do).
 
@@ -349,11 +354,11 @@ and put the omarchy `bin` on `PATH` wherever the session starts.
 
 | Want to…                            | See                                                                                                                                                   |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Understand `setup` / `install` / `deploy` | [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md) — roles, flags, re-run guide; packages live in `setup.sh` |
 | Customize bar / dock / displays     | [`docs/omaxian/customize/`](docs/omaxian/customize/) — [bar](docs/omaxian/customize/bar.md) (incl. floating island), [dock](docs/omaxian/customize/dock.md), [displays](docs/omaxian/customize/displays.md), [settings](docs/omaxian/customize/settings.md) |
-| Install optional community plugins  | [`community-plugins/README.md`](community-plugins/README.md) — opt-in only; not deployed by default                                                   |
+| Install optional community plugins  | [`community-plugins/README.md`](community-plugins/README.md) — opt-in only; not installed by setup/install/deploy                                                   |
 | Understand the port / bump upstream | [`docs/omarchy-port/`](docs/omarchy-port/) — start with [migration](docs/omarchy-port/omarchy-migration.md) and [deltas](docs/omarchy-port/deltas.md) |
 | Tinker with the Quickshell tree     | [`docs/quickshell/`](docs/quickshell/)                                                                                                                |
-| Install extra packages by hand      | `setup.sh` (required / recommended / optional sets)                                                                                                   |
 
 `omarchy-quattro/` is a pinned clone of upstream Omarchy (gitignored). Don't
 edit it. To move to a newer tag:

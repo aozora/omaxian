@@ -28,6 +28,8 @@ Item {
   property bool rightLive: false
   property string error: ""
   property bool open: false
+  // Prefer the live bar PanelWindow (see Ui/CenteredModal).
+  property var anchorWindow: null
   // Full-scale latch points for the dials, smallest first.
   property var scaleStops: [100, 250, 500, 1000, 2500, 5000, 10000]
   property real fullScale: scaleStops[0]
@@ -78,6 +80,7 @@ Item {
   CenteredModal {
     id: modal
     open: root.open
+    anchorWindow: root.anchorWindow
     focusTarget: keyCatcher
     contentWidth: Style.space(520)
     contentHeight: Math.round(content.implicitHeight)

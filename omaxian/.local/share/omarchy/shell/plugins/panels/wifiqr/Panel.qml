@@ -247,6 +247,11 @@ Item {
   CenteredModal {
     id: modal
     open: root.opened
+    anchorWindow: {
+      var bar = root.shell && root.shell.bar
+      if (!bar || typeof bar.panelWindowForScreen !== "function") return null
+      return bar.panelWindowForScreen(Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
+    }
     focusTarget: keyCatcher
     contentWidth: Style.space(320)
     contentHeight: Math.round(content.implicitHeight)

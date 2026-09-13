@@ -735,6 +735,24 @@ Item {
     return items
   }
 
+  // The already-mapped BarPanel for `screen` (or any panel if screen is null /
+  // unmatched). Overlay hosts (CenteredModal) should anchor PopupWindows here
+  // instead of mapping a fresh 1px PanelWindow — on X11 that extra surface is
+  // another _NET_WM_WINDOW_TYPE_DOCK and i3 restacks the real bar + dock.
+  function panelWindowForScreen(screen) {
+    var wanted = screen && screen.name ? String(screen.name) : ""
+    var fallback = null
+    for (var i = 0; i < moduleSlots.length; i++) {
+      var win = slotWindow(moduleSlots[i])
+      if (!win) continue
+      if (!fallback) fallback = win
+      if (!wanted) return win
+      if (win.screen && String(win.screen.name || "") === wanted)
+        return win
+    }
+    return fallback
+  }
+
   function slotScreenName(slot) {
     var window = slotWindow(slot)
     return window && window.screen ? String(window.screen.name || "") : ""

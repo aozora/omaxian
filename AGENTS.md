@@ -20,7 +20,7 @@ Deeper instructions for specific kinds of work live in `agents/skills/`. Read th
 matching guide before starting:
 
 - [`agents/skills/command-metadata.md`](agents/skills/command-metadata.md) - adding or changing commands in `omaxian/.local/share/omarchy/bin/`
-- [`agents/skills/install-scripts.md`](agents/skills/install-scripts.md) - working on `setup.sh`, `install.sh`, or `deploy.sh`
+- [`agents/skills/install-scripts.md`](agents/skills/install-scripts.md) - working on `setup.sh`, `install.sh`, or `deploy.sh` (user reference: [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md))
 - [`agents/skills/shell-dev.md`](agents/skills/shell-dev.md) - editing the Quickshell desktop under `omaxian/.local/share/omarchy/shell/`
 - [`agents/skills/icon-font.md`](agents/skills/icon-font.md) - glyphs in the bar and menu (Omaxian does not ship Omarchy's branded TTF)
 - [`agents/skills/acceptance-tests.md`](agents/skills/acceptance-tests.md) - this port has no ISO/VM acceptance suite; how to smoke-check instead

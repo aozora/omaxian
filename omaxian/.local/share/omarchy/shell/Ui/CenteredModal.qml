@@ -9,14 +9,17 @@ import qs.Commons
 // so its transparent regions stop compositing and paint black. This never
 // maps a full-screen surface.
 //
-//   * `host` is a 1px-tall PanelWindow strip along the screen top. A
-//     top-anchored QS PanelWindow spans the full screen width, giving the
-//     PopupWindow a full-width coordinate space to centre X against; 1px tall,
-//     so picom never treats it as a full-screen surface.
-//   * `card` is a standalone `PopupWindow` (content-sized, `anchor.window:
-//     host`) — the same shape as Ui/PopupCard / the converted KeyboardPanel,
-//     which is what makes `grabFocus` (`Qt::Popup`) actually deliver keyboard
-//     input on X11. Declared as a sibling of `host`, NOT nested inside it.
+//   * Prefer `anchorWindow` (the already-mapped bar PanelWindow). Mapping a
+//     fresh 1px PanelWindow host makes X11 emit another
+//     `_NET_WM_WINDOW_TYPE_DOCK`; i3 restacks/reflows the real bar + dock and
+//     it reads as a one-frame duplicate.
+//   * Fallback `host` is a 1px-tall PanelWindow strip along the screen top
+//     when no bar window is available yet. Same shape as Ui/PopupCard's
+//     anchor space.
+//   * `card` is a standalone `PopupWindow` (content-sized, `anchor.window`
+//     → bar or host) — the same shape as Ui/PopupCard / KeyboardPanel, which
+//     is what makes `grabFocus` (`Qt::Popup`) actually deliver keyboard input
+//     on X11. Declared as a sibling of `host`, NOT nested inside it.
 //
 // Trade-off vs the Wayland original: no full-screen dimming scrim, and no
 // click-in-empty-space dismissal. Escape, re-summoning, and the IPC toggle all
@@ -34,14 +37,22 @@ Item {
   property color background: Color.popups.background
   // Item inside `content` that should take keyboard focus on open.
   property Item focusTarget: null
+  // Prefer the live bar PanelWindow so we never map a second DOCK surface.
+  property var anchorWindow: null
 
   default property alias content: holder.children
 
   signal dismissed()
 
-  readonly property var _screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
+  readonly property var _screen: {
+    if (root.anchorWindow && root.anchorWindow.screen)
+      return root.anchorWindow.screen
+    return Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
+  }
   readonly property real _screenW: _screen ? _screen.width : 0
   readonly property real _screenH: _screen ? _screen.height : 0
+  readonly property var _anchorWindow: root.anchorWindow || host
+  readonly property bool _useFallbackHost: !root.anchorWindow
 
   onOpenChanged: {
     if (root.open) {
@@ -76,11 +87,11 @@ Item {
     }
   }
 
-  // Full-width 1px strip: only there to give `card` a screen-wide window to
-  // anchor + centre against.
+  // Fallback only: full-width 1px strip so `card` has a screen-wide window to
+  // centre against when the bar is not up yet.
   PanelWindow {
     id: host
-    visible: root.open || card.visible
+    visible: root._useFallbackHost && (root.open || card.visible)
     screen: root._screen
     anchors { top: true; left: true; right: true }
     implicitHeight: 1
@@ -101,12 +112,16 @@ Item {
     grabFocus: true
 
     anchor {
-      window: host
+      window: root._anchorWindow
       edges: Edges.Top | Edges.Left
       gravity: Edges.Bottom | Edges.Right
       adjustment: PopupAdjustment.Slide
       rect.width: 1
       rect.height: 1
+      // Bar PanelWindow origin is the screen origin for a top bar, so these
+      // are screen coordinates. Fallback host sits just below the bar strut;
+      // the same formula is slightly low there but only used before the bar
+      // exists.
       rect.x: Math.round(Math.max(0, (root._screenW - card.implicitWidth) / 2))
       rect.y: Math.round(Math.max(0, (root._screenH - card.implicitHeight) / 2))
     }

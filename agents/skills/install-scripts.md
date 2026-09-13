@@ -3,6 +3,11 @@
 Read this before working on `setup.sh`, `install.sh`, `deploy.sh`, or the
 session/user setup they perform.
 
+User-facing reference (roles, flags, re-run guide, why they stay separate):
+[`docs/omaxian/install-scripts.md`](../../docs/omaxian/install-scripts.md).
+Community plugins are outside this path — see
+[`community-plugins/README.md`](../../community-plugins/README.md).
+
 Omaxian has no ISO and no `install/` leaf tree. Three root scripts own setup:
 
 - `setup.sh` (root via sudo) — apt packages, fonts, session D-Bus

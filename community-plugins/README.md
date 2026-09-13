@@ -1,8 +1,19 @@
 # Community plugins (optional)
 
 Omaxian-compatible **third-party** shell plugin ports live here. They are **not**
-installed by `./deploy.sh` or `./install.sh`. Stock desktop code stays under
+installed by the desktop bootstrap scripts. Stock desktop code stays under
 `omaxian/.local/share/omarchy/shell/plugins/`; this tree is opt-in only.
+
+| Script | Installs community plugins? |
+| --- | --- |
+| `setup.sh` (packages / system) | No |
+| `install.sh` (themes / `bin/`) | No |
+| `deploy.sh` (`omaxian/` → `$HOME`) | No |
+
+Desktop install (`setup` → `install` → `deploy`) is documented in
+[`docs/omaxian/install-scripts.md`](../docs/omaxian/install-scripts.md). Use that
+for a fresh machine or after `git pull`; use **this** README only for optional
+ports under `~/.config/omarchy/plugins/`.
 
 Runtime install target (always):
 
@@ -53,6 +64,12 @@ community-plugins/
 | [`omamail`](omamail/)                                           | `omamail`                      | [huacnlee/omamail](https://github.com/huacnlee/omamail) — Gmail/HEY/JMAP/IMAP + Rust backend; Wayland clipboard → Qt clipboard / `xclip` | Ported |
 
 ## Install (opt-in)
+
+Prerequisite: a working Omaxian desktop (`setup.sh` / `install.sh` /
+`deploy.sh` — see
+[`docs/omaxian/install-scripts.md`](../docs/omaxian/install-scripts.md)).
+`omarchy-plugin-check`, `omarchy-plugin-add`, and friends live on `PATH` only
+after `install.sh` (and a login that inherits `$OMARCHY_PATH/bin`).
 
 Plugins run unsandboxed inside `omarchy-shell`. Review the tree before enabling.
 
@@ -126,3 +143,12 @@ plugin is installed under `~/.config/omarchy/plugins/`.
 3. Place the result at `community-plugins/<plugin-id>/` with root `manifest.json`.
 4. Re-run check + validate; add a catalog row above.
 5. Do not wire it into stock `shell.json` or first-party `shell/plugins/`.
+6. Do not add the port to `setup.sh` / `install.sh` / `deploy.sh` — keep it
+   outside `omaxian/` so deploy never copies it into `$HOME`.
+
+## See also
+
+- [`docs/omaxian/install-scripts.md`](../docs/omaxian/install-scripts.md) — when
+  to run `setup.sh`, `install.sh`, `deploy.sh` (desktop only)
+- [`docs/omaxian/plugin-check.md`](../docs/omaxian/plugin-check.md) —
+  `omarchy-plugin-check` reference

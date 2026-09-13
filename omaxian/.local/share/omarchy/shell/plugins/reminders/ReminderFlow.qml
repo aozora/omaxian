@@ -25,6 +25,14 @@ Item {
 
   readonly property string promptText: root.step === "message" ? "Reminder message" : "Remind in minutes"
 
+  // Anchor the card to the live bar PanelWindow so opening does not map a
+  // second DOCK surface (i3 restack flash of bar + dock).
+  readonly property var modalAnchorWindow: {
+    var bar = root.shell && root.shell.bar
+    if (!bar || typeof bar.panelWindowForScreen !== "function") return null
+    return bar.panelWindowForScreen(Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
+  }
+
   function open(payloadJson) {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
@@ -91,6 +99,7 @@ Item {
   CenteredModal {
     id: modal
     open: root.opened
+    anchorWindow: root.modalAnchorWindow
     focusTarget: keyCatcher
     contentWidth: Style.space(340)
     contentHeight: Math.round(prompt.implicitHeight) + Style.space(20)

@@ -246,6 +246,11 @@ Item {
     rightLive: root.running && root.phase === "up"
     error: root.error
     open: root.opened
+    anchorWindow: {
+      var bar = root.shell && root.shell.bar
+      if (!bar || typeof bar.panelWindowForScreen !== "function") return null
+      return bar.panelWindowForScreen(Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
+    }
     onCloseRequested: root.dismiss()
     onRunAgainRequested: root.runSpeedTest()
   }

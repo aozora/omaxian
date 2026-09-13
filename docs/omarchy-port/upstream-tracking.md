@@ -16,7 +16,8 @@ Upstream is **not vendored in this git repo**. `setup.sh` / `install.sh` clone
 `https://github.com/omacom/omarchy` into `omarchy-quattro/` at
 `OMARCHY_UPSTREAM_REF` (default in both scripts). The directory is gitignored
 (only `.gitkeep` is tracked). Never `git add` it. Treat it read-only — never
-edit.
+edit. Script roles and re-run habits:
+[`docs/omaxian/install-scripts.md`](../omaxian/install-scripts.md).
 
 The clone is `--depth 1` and is **left as-is on later runs** if a `.git` is
 already there. Changing the ref env var or the script default does nothing until

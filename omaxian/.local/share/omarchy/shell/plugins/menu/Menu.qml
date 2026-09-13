@@ -1183,6 +1183,11 @@ Item {
   CenteredModal {
     id: panel
     open: root.opened && root.rowsLoaded
+    anchorWindow: {
+      var bar = root.shell && root.shell.bar
+      if (!bar || typeof bar.panelWindowForScreen !== "function") return null
+      return bar.panelWindowForScreen(root._screen)
+    }
     contentWidth: root.cardWidth
     contentHeight: Math.max(64, root.cardHeight)
     padding: root.contentMargin
