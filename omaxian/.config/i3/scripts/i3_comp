@@ -11,23 +11,21 @@ if pgrep -u "$UID" -x picom >/dev/null; then
 	exit 0
 fi
 
-# picom's glx backend + software OpenGL fails to damage-redraw (invisible bar
-# until workspace switch; menus freeze; popups show borders only). That is
-# llvmpipe/softpipe/swrast — not VirGL/Venus guest 3D, which keeps glx.
+# Backend selection. Config defaults to xrender (correct ARGB for QS popups
+# on software GL). Upgrade to glx on real/VirGL GPUs; never use glx with
+# llvmpipe/softpipe/swrast — rounded popup corners become a square fringe.
 # Override anytime with PICOM_BACKEND=xrender|glx.
 picom_backend="${PICOM_BACKEND:-}"
 if [[ -z $picom_backend ]]; then
 	renderer="$(glxinfo -B 2>/dev/null | awk -F': ' '/OpenGL renderer string/{print tolower($2); exit}')"
 	case $renderer in
-		*llvmpipe*|*softpipe*|*swrast*)
+		""|*llvmpipe*|*softpipe*|*swrast*)
 			picom_backend=xrender
+			;;
+		*)
+			picom_backend=glx
 			;;
 	esac
 fi
 
-# Launch picom
-if [[ -n $picom_backend ]]; then
-	picom --config "$DIR"/picom.conf --backend "$picom_backend" &
-else
-	picom --config "$DIR"/picom.conf &
-fi
+picom --config "$DIR"/picom.conf --backend "$picom_backend" &
