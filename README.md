@@ -1,31 +1,6 @@
-<style>
-  	.banner {
-		margin: 0;
-		color: #5fe6d8;
-		font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'SF Mono', 'Menlo', 'Consolas', monospace;
-		/* font-size: clamp(0.68rem, 3.4vw, 1.4rem); */
-		font-size: clamp(0.68rem, 1vw + 0.5rem, 1.4rem);
-		line-height: 1.05;
-		text-shadow: 0 0 22px color-mix(in srgb, #5fe6d8 45%, transparent);
-		white-space: pre;
-
-		@media (max-width: 480px) {
-			font-size: 2vw;
-		}
-	}
-	.banner .x {
-		color: #d70a53;
-		text-shadow: 0 0 22px color-mix(in srgb, #d70a53 55%, transparent);
-	}
-</style>
-
-<div class="banner-wrap">
-  <pre class="banner" role="img" aria-label="OMAXIAN"> ██████  ███    ███  █████  <span class="x">██   ██</span> ██  █████  ███    ██
-██    ██ ████  ████ ██   ██ <span class="x"> ██ ██ </span> ██ ██   ██ ████   ██
-██    ██ ██ ████ ██ ███████ <span class="x">  ███  </span> ██ ███████ ██ ██  ██
-██    ██ ██  ██  ██ ██   ██ <span class="x"> ██ ██ </span> ██ ██   ██ ██  ██ ██
- ██████  ██      ██ ██   ██ <span class="x">██   ██</span> ██ ██   ██ ██   ████</pre>
-</div>
+<p align="center">
+  <img src="./banner.png" alt="OMAXIAN" width="620">
+</p>
 
 # Omaxian
 
