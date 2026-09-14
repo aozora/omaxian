@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import Quickshell
 import qs.Commons
 import qs.Ui
 import "../calendar/Calendar.js" as Calendar
@@ -20,20 +21,6 @@ Rectangle {
   signal closed()
   signal editRequested(string sourceId, var event)
   signal deleteRequested(string sourceId, var event)
-
-  // Omaxian: Qt clipboard instead of a Wayland clipboard CLI.
-  function copyText(text) {
-    clipboardProxy.text = String(text || "")
-    clipboardProxy.selectAll()
-    clipboardProxy.copy()
-    clipboardProxy.deselect()
-  }
-
-  TextEdit {
-    id: clipboardProxy
-    visible: false
-    readOnly: true
-  }
 
   readonly property var source: {
     var sources = controller && controller.availableSources
@@ -98,6 +85,8 @@ Rectangle {
 
   CalendarPalette {
     id: calendarPalette
+    palettePath: root.controller && root.controller.service
+      ? String(root.controller.service.calendarPalettePath || "") : ""
     textColor: root.textColor
     accentColor: root.accentColor
     urgentColor: root.urgentColor
@@ -238,7 +227,7 @@ Rectangle {
           foreground: root.textColor
           accent: root.eventColor
           fontFamily: root.panelFontFamily
-          onClicked: Qt.openUrlExternally(root.meetingLink)
+          onClicked: if (root.controller) root.controller.openExternal(root.meetingLink)
         }
 
         IconTextButton {
@@ -248,7 +237,7 @@ Rectangle {
           foreground: root.textColor
           accent: root.eventColor
           fontFamily: root.panelFontFamily
-          onClicked: Qt.openUrlExternally(root.locationLink)
+          onClicked: if (root.controller) root.controller.openExternal(root.locationLink)
         }
 
         IconTextButton {
@@ -259,7 +248,7 @@ Rectangle {
           foreground: root.textColor
           accent: root.eventColor
           fontFamily: root.panelFontFamily
-          onClicked: Qt.openUrlExternally(root.mapLink)
+          onClicked: if (root.controller) root.controller.openExternal(root.mapLink)
         }
 
         IconTextButton {
@@ -270,8 +259,7 @@ Rectangle {
           foreground: root.textColor
           accent: root.eventColor
           fontFamily: root.panelFontFamily
-          // Qt clipboard (same path as App.copyText): no Wayland clipboard CLI.
-          onClicked: root.copyText(root.locationText)
+          onClicked: if (root.controller) root.controller.copyText(root.locationText)
         }
 
         IconTextButton {
@@ -282,7 +270,7 @@ Rectangle {
           foreground: root.textColor
           accent: root.eventColor
           fontFamily: root.panelFontFamily
-          onClicked: Qt.openUrlExternally(root.providerLink)
+          onClicked: if (root.controller) root.controller.openExternal(root.providerLink)
         }
       }
 

@@ -2,7 +2,7 @@
 
 Email client for the Omaxian bar and shell. Port of
 [huacnlee/omamail](https://github.com/huacnlee/omamail)
-(upstream commit `04ec0f7`, plugin version `0.10.1`).
+(upstream commit `3460ac8`, plugin version `0.10.3`).
 
 Plugin id: `omamail` (unchanged). Optional — not installed by `./deploy.sh`.
 See [`../README.md`](../README.md) for the catalog install pattern.
@@ -14,16 +14,17 @@ keyboard navigation, AI assistance and your desktop theme.
 
 | Upstream (Omarchy) | This port |
 | ------------------ | --------- |
-| Wayland clipboard CLI for address / location copy | Qt clipboard via `copyText` |
+| `Service.copyText` → Wayland clipboard CLI | Qt clipboard in `Service.copyText` |
 | Wayland paste CLI then `xclip` for compose paste | `xclip` only |
 | Hyprland bind example | i3 bind example below |
+| Standalone Qt host under `app/` | Omitted (shell plugin only) |
 | `omarchy-mise-install` for `hey` | [hey-cli](https://github.com/basecamp/hey-cli) / setup-page install line |
 | `omarchy plugin add` / `make install` | rsync into `~/.config/omarchy/plugins/`; later `omarchy-plugin-update --from` |
 
 `FloatingWindow`, `KeyboardPanel`, `secret-tool`, `curl`, and `notify-send` work
 as on Omarchy. File attach uses `omarchy-file-select` when present, otherwise
-`zenity`. Agent instruction files (`.agents/`, `AGENTS.md`) are omitted from
-this tree.
+`zenity`. Agent instruction files (`.agents/`, `AGENTS.md`) and the standalone Qt host
+(`app/`) are omitted from this tree.
 
 ---
 
