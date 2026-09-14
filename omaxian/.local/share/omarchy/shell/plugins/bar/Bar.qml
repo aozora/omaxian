@@ -106,6 +106,12 @@ Item {
   property bool tooltipShown: false
   property int tooltipRequest: 0
   property var activePopout: null
+  // Names of i3 outputs with `"active": true`. Qt/X11 can still expose a
+  // disabled laptop panel (connected, no CRTC) as Quickshell.screens entry,
+  // which spawned a second bar at negative Y — its widgets stayed in the
+  // process-wide clickTargets list and stole hits, so popups opened
+  // off-screen and every bar click looked dead.
+  property var activeOutputNames: []
   property var barDragSource: null
   property var barDragTarget: null
   property var barDragTargetGeometry: null
@@ -1045,12 +1051,16 @@ Item {
   function moduleClickTargetAt(slot, localX, localY) {
     // clickTargets is process-wide. Skip widgets on another BarPanel —
     // mapToItem across X11 windows can false-hit the other monitor's bar.
+    // A null targetWindow must not bypass this: ghost/disabled-output
+    // widgets often lack QsWindow and used to win the hit test.
     var window = root.slotWindow(slot)
     for (var i = clickTargets.length - 1; i >= 0; i--) {
       var target = clickTargets[i]
       if (!moduleTargetClickable(target)) continue
       var targetWindow = root.targetWindow(target)
-      if (window && targetWindow && !root.sameWindow(targetWindow, window)) continue
+      if (window) {
+        if (!targetWindow || !root.sameWindow(targetWindow, window)) continue
+      }
 
       var targetPoint = { x: localX, y: localY }
       try {
@@ -1067,6 +1077,61 @@ Item {
 
     if (moduleTargetClickable(slot.activeItem)) return slot.activeItem
     return null
+  }
+
+  function screenIsActiveOutput(screen) {
+    if (!screen || !screen.name) return false
+    var names = root.activeOutputNames
+    // Until the first i3 probe lands, keep every Qt screen (fail open).
+    if (!names || names.length === 0) return true
+    return names.indexOf(String(screen.name)) !== -1
+  }
+
+  // Screens that should host a BarPanel. Empty probe → all screens.
+  readonly property var barScreens: {
+    var all = Quickshell.screens
+    var _n = all ? all.length : 0
+    var _a = root.activeOutputNames
+    var out = []
+    for (var i = 0; i < _n; i++) {
+      if (root.screenIsActiveOutput(all[i])) out.push(all[i])
+    }
+    return out.length > 0 ? out : all
+  }
+
+  function applyActiveOutputsJson(text) {
+    try {
+      var outs = JSON.parse(String(text || ""))
+      if (!Array.isArray(outs)) return
+      var names = []
+      for (var i = 0; i < outs.length; i++) {
+        var o = outs[i]
+        if (!o || o.active !== true) continue
+        var name = String(o.name || "")
+        if (!name || name === "xroot-0") continue
+        names.push(name)
+      }
+      // Avoid churning Variants when nothing changed.
+      var prev = root.activeOutputNames
+      if (prev && prev.length === names.length) {
+        var same = true
+        for (var j = 0; j < names.length; j++) {
+          if (prev[j] !== names[j]) { same = false; break }
+        }
+        if (same) return
+      }
+      root.activeOutputNames = names
+    } catch (e) {}
+  }
+
+  function popoutOwnerIsOpen(owner) {
+    if (!owner) return false
+    if ("opened" in owner) return owner.opened === true
+    if ("open" in owner) return owner.open === true
+    if ("trayMenuOpen" in owner || "managePopupOpen" in owner)
+      return owner.trayMenuOpen === true || owner.managePopupOpen === true
+    // Unknown owner shape: assume open so the dismiss path still runs once.
+    return true
   }
 
   function pressModuleClickTarget(slot, button, localX, localY, modifiers) {
@@ -1172,6 +1237,30 @@ Item {
       process.running = true
   }
 
+  Process {
+    id: activeOutputsProc
+    command: ["bash", "-c", "unset I3SOCK; exec i3-msg -t get_outputs"]
+    stdout: StdioCollector {
+      onStreamFinished: root.applyActiveOutputsJson(text)
+    }
+  }
+
+  // Output hotplug / lid close: i3 flips `active` without always destroying
+  // the Qt screen, so re-probe periodically and whenever screens change.
+  Timer {
+    id: activeOutputsTimer
+    interval: 2000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.runProcess(activeOutputsProc)
+  }
+
+  Connections {
+    target: Quickshell
+    function onScreensChanged() { root.runProcess(activeOutputsProc) }
+  }
+
   function showTooltip(target, text) {
     clearTooltip()
 
@@ -1256,7 +1345,7 @@ Item {
   }
 
   Variants {
-    model: Quickshell.screens
+    model: root.barScreens
 
     delegate: Component {
       BarPanel {
@@ -1942,10 +2031,19 @@ Item {
         // lands back on the bar (the popup's own transient parent). If any
         // popout is open, a bar click closes it instead of routing through
         // — so re-clicking a widget button toggles its popup shut.
-        if (root.activePopout && "close" in root.activePopout) {
-          root.activePopout.close()
-          mouse.accepted = true
-          return
+        //
+        // Stale claims (close already ran, IPC hide, ghost-bar teardown)
+        // used to leave activePopout set forever: every later click only
+        // called close() again and never reached the widget.
+        if (root.activePopout) {
+          var owner = root.activePopout
+          if (root.popoutOwnerIsOpen(owner) && "close" in owner) {
+            owner.close()
+            if (root.activePopout === owner) root.releasePopout(owner)
+            mouse.accepted = true
+            return
+          }
+          if (root.activePopout === owner) root.releasePopout(owner)
         }
 
         if (!root.pressModuleClickTarget(slot, mouse.button, mouse.x, mouse.y, mouse.modifiers)) mouse.accepted = false

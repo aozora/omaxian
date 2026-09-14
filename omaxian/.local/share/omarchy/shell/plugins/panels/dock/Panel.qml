@@ -36,6 +36,9 @@ Item {
 
   property var pinned: []
   property bool editMode: false
+  // Same inactive-output filter as plugins/bar/Bar.qml — Qt keeps a screen for
+  // a lid-closed / CRTC-off panel, and a dock there is useless / off-screen.
+  property var activeOutputNames: []
 
   // Resolved appearance (from merged settings).
   readonly property bool fullWidth: settings.fullWidth
@@ -354,13 +357,69 @@ Item {
   }
 
   Variants {
-    model: Quickshell.screens
+    model: root.dockScreens
     delegate: Component {
       DockPanel {
         required property var modelData
         screen: modelData
       }
     }
+  }
+
+  readonly property var dockScreens: {
+    var all = Quickshell.screens
+    var _n = all ? all.length : 0
+    var names = root.activeOutputNames
+    if (!names || names.length === 0) return all
+    var out = []
+    for (var i = 0; i < _n; i++) {
+      var s = all[i]
+      if (s && s.name && names.indexOf(String(s.name)) !== -1) out.push(s)
+    }
+    return out.length > 0 ? out : all
+  }
+
+  Process {
+    id: activeOutputsProc
+    command: ["bash", "-c", "unset I3SOCK; exec i3-msg -t get_outputs"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        try {
+          var outs = JSON.parse(String(text || ""))
+          if (!Array.isArray(outs)) return
+          var names = []
+          for (var i = 0; i < outs.length; i++) {
+            var o = outs[i]
+            if (!o || o.active !== true) continue
+            var name = String(o.name || "")
+            if (!name || name === "xroot-0") continue
+            names.push(name)
+          }
+          var prev = root.activeOutputNames
+          if (prev && prev.length === names.length) {
+            var same = true
+            for (var j = 0; j < names.length; j++) {
+              if (prev[j] !== names[j]) { same = false; break }
+            }
+            if (same) return
+          }
+          root.activeOutputNames = names
+        } catch (e) {}
+      }
+    }
+  }
+
+  Timer {
+    interval: 2000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: { if (!activeOutputsProc.running) activeOutputsProc.running = true }
+  }
+
+  Connections {
+    target: Quickshell
+    function onScreensChanged() { if (!activeOutputsProc.running) activeOutputsProc.running = true }
   }
 
   component DockPanel: PanelWindow {

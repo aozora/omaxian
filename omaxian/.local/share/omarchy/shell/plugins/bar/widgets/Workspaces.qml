@@ -82,6 +82,9 @@ BarWidget {
     var pull = pullHere !== false
     var onThisOutput = !!(ws && ws.monitor && root.i3Ident(ws.monitor.name) === here)
 
+    // No named output (or I3/Qt disagree after a lid/dock change): just focus.
+    // Pulling onto a disabled panel ("No output matched") used to leave the
+    // click path looking dead when a ghost bar still claimed an eDP name.
     if (!pull || !here || onThisOutput) {
       root.i3Quiet("workspace number " + num)
       return
@@ -89,9 +92,7 @@ BarWidget {
 
     // Click on this bar: focus this output, pull workspace N here if it
     // lives elsewhere (or create it here), then switch to it.
-    root.i3Quiet("focus output " + here)
-    root.i3Quiet('[workspace="' + num + '"] move workspace to output ' + here)
-    root.i3Quiet("workspace number " + num)
+    root.i3Quiet("focus output " + here + "; [workspace=\"" + num + "\"] move workspace to output " + here + "; workspace number " + num)
   }
 
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)
