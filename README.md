@@ -1,6 +1,31 @@
-<p align="center">
-  <img src="./logo.png" alt="Omaxian" width="440">
-</p>
+<style>
+  	.banner {
+		margin: 0;
+		color: #5fe6d8;
+		font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'SF Mono', 'Menlo', 'Consolas', monospace;
+		/* font-size: clamp(0.68rem, 3.4vw, 1.4rem); */
+		font-size: clamp(0.68rem, 1vw + 0.5rem, 1.4rem);
+		line-height: 1.05;
+		text-shadow: 0 0 22px color-mix(in srgb, #5fe6d8 45%, transparent);
+		white-space: pre;
+
+		@media (max-width: 480px) {
+			font-size: 2vw;
+		}
+	}
+	.banner .x {
+		color: #d70a53;
+		text-shadow: 0 0 22px color-mix(in srgb, #d70a53 55%, transparent);
+	}
+</style>
+
+<div class="banner-wrap">
+  <pre class="banner" role="img" aria-label="OMAXIAN"> ██████  ███    ███  █████  <span class="x">██   ██</span> ██  █████  ███    ██
+██    ██ ████  ████ ██   ██ <span class="x"> ██ ██ </span> ██ ██   ██ ████   ██
+██    ██ ██ ████ ██ ███████ <span class="x">  ███  </span> ██ ███████ ██ ██  ██
+██    ██ ██  ██  ██ ██   ██ <span class="x"> ██ ██ </span> ██ ██   ██ ██  ██ ██
+ ██████  ██      ██ ██   ██ <span class="x">██   ██</span> ██ ██   ██ ██   ████</pre>
+</div>
 
 # Omaxian
 
@@ -40,19 +65,19 @@ Omaxian is not only a backend swap. Several first-party pieces have **no
 upstream counterpart** — they exist because X11/i3/Debian needed them, or
 because a GUI was missing.
 
-| Piece                                                     | What you get                                                                                                                                                                                                                         |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Control Panel** (`Super+Ctrl+O`)                        | One gear on the bar: audio, Bluetooth, wallpaper, theme, and monitors in a single tabbed popup. Omarchy keeps those as separate widgets (the separate widgets are still available).                                                  |
-| **Settings** (`Super+Ctrl+S`, or Menu → Setup → Settings) | A window to edit bar layout/position, dock chrome, widget options, plugin on/off, font/spacing, extra wallpaper folder, and **startup apps**. Omarchy edits the bar by drag gestures (not ported here) and has no equivalent editor. |
-| **Floating island bar**                                   | Optional inset rounded bar chrome (`island` / `islandMargin` / `islandRadius` in Settings → Bar). Same idea as the dock’s non-fullWidth pill; see [`docs/omaxian/customize/bar.md`](docs/omaxian/customize/bar.md). |
-| **Dock**                                                  | A persistent bottom dock (pinned apps, running-app dots, hover magnification). First-party here; upstream’s dock is a separate community plugin (https://github.com/rosakodu/omarchy-dock).                                          |
+| Piece                                                     | What you get                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Control Panel** (`Super+Ctrl+O`)                        | One gear on the bar: audio, Bluetooth, wallpaper, theme, and monitors in a single tabbed popup. Omarchy keeps those as separate widgets (the separate widgets are still available).                                                                                                                                    |
+| **Settings** (`Super+Ctrl+S`, or Menu → Setup → Settings) | A window to edit bar layout/position, dock chrome, widget options, plugin on/off, font/spacing, extra wallpaper folder, and **startup apps**. Omarchy edits the bar by drag gestures (not ported here) and has no equivalent editor.                                                                                   |
+| **Floating island bar**                                   | Optional inset rounded bar chrome (`island` / `islandMargin` / `islandRadius` in Settings → Bar). Same idea as the dock’s non-fullWidth pill; see [`docs/omaxian/customize/bar.md`](docs/omaxian/customize/bar.md).                                                                                                    |
+| **Dock**                                                  | A persistent bottom dock (pinned apps, running-app dots, hover magnification). First-party here; upstream’s dock is a separate community plugin (https://github.com/rosakodu/omarchy-dock).                                                                                                                            |
 | **Display profiles** (`Super+Ctrl+D`)                     | xrandr resolution / on / off / primary / position, with saved layouts per output topology and laptop-lid handling. Workspaces and wallpaper across outputs: [`docs/omaxian/customize/displays.md`](docs/omaxian/customize/displays.md). Omarchy’s monitor panel is brightness + fractional scale (Hyprland), not this. |
-| **SysStats, VPN, apt updates**                            | CPU / GPU / RAM on the bar; a VPN indicator; an apt-upgradable count. None of those are Omarchy bar widgets (upstream updates are Arch `checkupdates`).                                                                              |
-| **Media widget**                                          | MPD shows up next to other MPRIS players via `mpDris2`. It's a modified version of the Omarchy Media Control (https://github.com/MrDemonc/Omarchy-media-control) by  @mrDemonc                                                       |
-| **Help on the bar**                                       | Super+K / the `?` widget — a cheat-sheet of this session’s i3 binds.                                                                                                                                                                 |
-| **`omarchy-plugin-check`**                                | Static check of a community plugin against this X11 port (Wayland/Hyprland/PipeWire/systemd couplings). Upstream only has schema validation.                                                                                         |
-| **Optional community ports**                              | Curated X11/Debian-compatible third-party plugins live in [`community-plugins/`](community-plugins/README.md). Not installed by deploy; opt in via `~/.config/omarchy/plugins/`.                                                      |
-| **Debian / Devuan session**                               | Init-agnostic: systemd Debian uses logind; Devuan / sysvinit get **elogind**. Power/session via `omarchy-host` (`systemctl` → `loginctl` → `shutdown`). PulseAudio *or* PipeWire; `apt` instead of pacman; no `uwsm`. Reminders use `sleep`, not systemd timers; night light is **redshift**, not hyprsunset. |
+| **SysStats, VPN, apt updates**                            | CPU / GPU / RAM on the bar; a VPN indicator; an apt-upgradable count. None of those are Omarchy bar widgets (upstream updates are Arch `checkupdates`).                                                                                                                                                                |
+| **Media widget**                                          | MPD shows up next to other MPRIS players via `mpDris2`. It's a modified version of the Omarchy Media Control (https://github.com/MrDemonc/Omarchy-media-control) by  @mrDemonc                                                                                                                                         |
+| **Help on the bar**                                       | Super+K / the `?` widget — a cheat-sheet of this session’s i3 binds.                                                                                                                                                                                                                                                   |
+| **`omarchy-plugin-check`**                                | Static check of a community plugin against this X11 port (Wayland/Hyprland/PipeWire/systemd couplings). Upstream only has schema validation.                                                                                                                                                                           |
+| **Optional community ports**                              | Curated X11/Debian-compatible third-party plugins live in [`community-plugins/`](community-plugins/README.md). Not installed by deploy; opt in via `~/.config/omarchy/plugins/`.                                                                                                                                       |
+| **Debian / Devuan session**                               | Init-agnostic: systemd Debian uses logind; Devuan / sysvinit get **elogind**. Power/session via `omarchy-host` (`systemctl` → `loginctl` → `shutdown`). PulseAudio *or* PipeWire; `apt` instead of pacman; no `uwsm`. Reminders use `sleep`, not systemd timers; night light is **redshift**, not hyprsunset.          |
 
 The shared Omarchy surface is still there: themes, the command menu, weather,
 clock/calendar, tray, OSD, Wi-Fi QR, speed tests, and the `omarchy-*` CLI.
@@ -111,20 +136,20 @@ i3 or restart Quickshell. QML: log out and back in. Optional binds-only:
 
 **Super** is the Windows key. Press **Super+K** for the full cheat-sheet.
 
-| Key                         | Action                              |
-| --------------------------- | ----------------------------------- |
-| Super+Return                | terminal                            |
-| Super+Space / Alt+F2        | Omarchy menu / run a command        |
-| Super+Esc                   | power menu                          |
-| Super+K                     | keybinding help                     |
-| Alt+Ctrl+T                  | theme picker                        |
-| Super+Ctrl+A / B / W / P    | audio / bluetooth / network / power |
-| Super+Ctrl+O / Super+Ctrl+S | Control Panel / Settings            |
+| Key                         | Action                                                                  |
+| --------------------------- | ----------------------------------------------------------------------- |
+| Super+Return                | terminal                                                                |
+| Super+Space / Alt+F2        | Omarchy menu / run a command                                            |
+| Super+Esc                   | power menu                                                              |
+| Super+K                     | keybinding help                                                         |
+| Alt+Ctrl+T                  | theme picker                                                            |
+| Super+Ctrl+A / B / W / P    | audio / bluetooth / network / power                                     |
+| Super+Ctrl+O / Super+Ctrl+S | Control Panel / Settings                                                |
 | Super+1…0                   | workspaces (global; see [displays](docs/omaxian/customize/displays.md)) |
-| Super+Tab                   | next workspace on this monitor      |
-| Super+Alt+arrows            | move window to adjacent monitor     |
-| Super+Ctrl+D                | display settings                    |
-| Super+Ctrl+C / Super+Ctrl+L | screenshot (region) / lock          |
+| Super+Tab                   | next workspace on this monitor                                          |
+| Super+Alt+arrows            | move window to adjacent monitor                                         |
+| Super+Ctrl+D                | display settings                                                        |
+| Super+Ctrl+C / Super+Ctrl+L | screenshot (region) / lock                                              |
 
 Themes (default on first login: **nebula-ridge**):
 
@@ -352,13 +377,13 @@ and put the omarchy `bin` on `PATH` wherever the session starts.
 
 ## Going further
 
-| Want to…                            | See                                                                                                                                                   |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Understand `setup` / `install` / `deploy` | [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md) — roles, flags, re-run guide; packages live in `setup.sh` |
-| Customize bar / dock / displays     | [`docs/omaxian/customize/`](docs/omaxian/customize/) — [bar](docs/omaxian/customize/bar.md) (incl. floating island), [dock](docs/omaxian/customize/dock.md), [displays](docs/omaxian/customize/displays.md), [settings](docs/omaxian/customize/settings.md) |
-| Install optional community plugins  | [`community-plugins/README.md`](community-plugins/README.md) — opt-in only; not installed by setup/install/deploy                                                   |
-| Understand the port / bump upstream | [`docs/omarchy-port/`](docs/omarchy-port/) — start with [migration](docs/omarchy-port/omarchy-migration.md) and [deltas](docs/omarchy-port/deltas.md) |
-| Tinker with the Quickshell tree     | [`docs/quickshell/`](docs/quickshell/)                                                                                                                |
+| Want to…                                  | See                                                                                                                                                                                                                                                         |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Understand `setup` / `install` / `deploy` | [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md) — roles, flags, re-run guide; packages live in `setup.sh`                                                                                                                              |
+| Customize bar / dock / displays           | [`docs/omaxian/customize/`](docs/omaxian/customize/) — [bar](docs/omaxian/customize/bar.md) (incl. floating island), [dock](docs/omaxian/customize/dock.md), [displays](docs/omaxian/customize/displays.md), [settings](docs/omaxian/customize/settings.md) |
+| Install optional community plugins        | [`community-plugins/README.md`](community-plugins/README.md) — opt-in only; not installed by setup/install/deploy                                                                                                                                           |
+| Understand the port / bump upstream       | [`docs/omarchy-port/`](docs/omarchy-port/) — start with [migration](docs/omarchy-port/omarchy-migration.md) and [deltas](docs/omarchy-port/deltas.md)                                                                                                       |
+| Tinker with the Quickshell tree           | [`docs/quickshell/`](docs/quickshell/)                                                                                                                                                                                                                      |
 
 `omarchy-quattro/` is a pinned clone of upstream Omarchy (gitignored). Don't
 edit it. To move to a newer tag:
