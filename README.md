@@ -4,7 +4,7 @@
 
 # Omaxian
 
-Omaxian is [Omarchy](https://omarchy.org) for **Devuan / Debian + X11/XLibre + i3**.
+Omaxian is a port of [Omarchy](https://omarchy.org) for **Devuan / Debian + X11/XLibre + i3**.
 Same bar, themes, launcher, and `omarchy-*` commands — no Wayland, Hyprland, and no dependency on systemd or other init systems.
 
 You get a top bar (workspaces, clock, media, network, weather, tray, …),
