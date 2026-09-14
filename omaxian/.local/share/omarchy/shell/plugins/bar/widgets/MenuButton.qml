@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Services
 import qs.Ui
@@ -10,6 +9,7 @@ import qs.Ui
 // palette (`omarchy.menu` — apps + commands). Right-click / `runner toggle`
 // is the command runner. Glyph defaults to U+F011B (Archcraft cat); override
 // via shell.json layout settings `icon` / `iconFont`.
+// IPC for launcher/runner is owned by shell.qml (see callBarModule).
 BarWidget {
   id: root
   moduleName: "omaxian.menu"
@@ -42,16 +42,18 @@ BarWidget {
       root.bar.shell.hide("omarchy.menu")
   }
 
-  IpcHandler {
-    target: "launcher"
-    function toggle(): void { root.togglePalette() }
-    function hide(): void { root.hidePalette() }
+  // `launcher` IPC lives on shell.qml (singleton). Per-monitor IpcHandlers
+  // here raced: after a plugin reload the dead instance kept the target and
+  // Super+Space / `$qs launcher` stopped opening the menu while the bar
+  // button still worked.
+  //
+  // Runner popup state is still per MenuButton; shell.qml's `runner` target
+  // fans out via these methods so every screen stays in sync.
+  function ipcToggleRunner() {
+    root.hidePalette()
+    root.runnerOpen = !root.runnerOpen
   }
-  IpcHandler {
-    target: "runner"
-    function toggle(): void { root.hidePalette(); root.runnerOpen = !root.runnerOpen }
-    function hide(): void { root.runnerOpen = false }
-  }
+  function ipcHideRunner() { root.runnerOpen = false }
 
   property QtObject runnerOwner: QtObject { function close() { root.runnerOpen = false } }
 

@@ -1682,6 +1682,46 @@ ShellRoot {
     }
   }
 
+  // ---------------------------------------------------------- menu / bar IPC
+  // Singleton targets for i3 keybinds (`$qs launcher|runner|…`). Do not put
+  // these on per-monitor bar widgets: Quickshell keeps the first registrant,
+  // and after a plugin hot-reload a dead instance can keep the name while the
+  // live bar button still works (shell.toggle / local click).
+
+  function callBarModule(moduleName, method) {
+    if (!shell.bar || typeof shell.bar.moduleWidgets !== "function") return
+    var items = shell.bar.moduleWidgets(moduleName) || []
+    for (var i = 0; i < items.length; i++) {
+      if (items[i] && typeof items[i][method] === "function")
+        items[i][method]()
+    }
+  }
+
+  IpcHandler {
+    target: "launcher"
+
+    function toggle(): void {
+      shell.toggle("omarchy.menu", '{"menu":"root"}')
+    }
+
+    function hide(): void {
+      shell.hide("omarchy.menu")
+    }
+  }
+
+  IpcHandler {
+    target: "runner"
+
+    function toggle(): void {
+      shell.hide("omarchy.menu")
+      shell.callBarModule("omaxian.menu", "ipcToggleRunner")
+    }
+
+    function hide(): void {
+      shell.callBarModule("omaxian.menu", "ipcHideRunner")
+    }
+  }
+
   // ---------------------------------------------------------- shell IPC
 
   IpcHandler {
