@@ -1,0 +1,107 @@
+#!/bin/bash
+# Paste a secret into the focused window.
+#
+# The secret arrives on STDIN and is never an argument: /proc/<pid>/cmdline is
+# world-readable to the same user and `ps` prints it.
+#
+# Derived from Omarchy's omarchy-menu-emoji-insert (MIT, (c) David Heinemeier
+# Hansson) -- the clipboard / paste key / clear shape is its -- with voxtype's
+# delivery lessons added: a configurable paste key and a pre-type delay.
+#
+# Omaxian (X11): Wayland clipboard/type/compositor helpers → xclip/xdotool.
+# xclip has no sensitive/foreground flags; the clipboard is wiped on EXIT after
+# the paste.
+
+set -uo pipefail
+
+# /usr/bin only, never the caller's PATH: `cat` and `xclip` below are handed
+# the secret, and a user-writable directory early in PATH could put a fake of
+# either in front of the real one.
+export PATH=/usr/bin
+
+# True if root owns $1 and every directory above it, and none of them is
+# writable by anyone else -- so only root can have put the file there.
+root_controlled() {
+  local path=$1 owner mode
+  while :; do
+    read -r owner mode < <(stat -c '%u %a' -- "$path" 2>/dev/null) || return 1
+    (( owner == 0 && (8#$mode & 8#022) == 0 )) || return 1
+    [[ $path == / ]] && return 0
+    path=$(dirname -- "$path")
+  done
+}
+
+# The verified absolute path of a /usr/bin program; the caller runs that path.
+# Mirrors system_binary in keepass_agent.py.
+system_binary() {
+  local link="/usr/bin/$1" real
+  [[ -n $1 && $1 != */* && $1 != . && $1 != .. ]] || return 1
+  real=$(readlink -e -- "$link") || return 1
+  [[ -f $real && -x $real ]] || return 1
+  [[ $(stat -c '%u' -- "$link") == 0 ]] || return 1
+  root_controlled /usr/bin && root_controlled "$real" || return 1
+  printf '%s\n' "$real"
+}
+
+xclip=$(system_binary xclip) || { echo "keepass-picker-insert: no root-owned xclip in /usr/bin" >&2; exit 1; }
+xdotool=$(system_binary xdotool) || { echo "keepass-picker-insert: no root-owned xdotool in /usr/bin" >&2; exit 1; }
+
+paste_key="${KEEPASS_PICKER_PASTE_KEY:-shift+Insert}"
+pre_type_delay="${KEEPASS_PICKER_PRE_TYPE_DELAY:-0.15}"
+expect_window="${KEEPASS_PICKER_EXPECT_WINDOW:-}"
+
+# The delay is how long the secret sits in the clipboard before the paste key.
+# The agent clamps it; so does this, in case something else set the variable.
+[[ $pre_type_delay =~ ^([01](\.[0-9]+)?|2(\.0+)?)$ ]] || pre_type_delay=0.15
+
+# The window the caller confirmed the paste for, re-checked here right before
+# the key is pressed: the wait below is exactly when a focus change would
+# otherwise slip through. Unknown counts as moved. Address is an X11 window id
+# from xdotool getactivewindow (decimal string).
+focus_is() {
+  local active
+  [[ -n $expect_window ]] || return 0
+  # Bound: a hung X connection must not block EXIT (or hold a secret).
+  active=$(/usr/bin/timeout 2 "$xdotool" getactivewindow 2>/dev/null) || return 1
+  [[ $active == "$expect_window" ]]
+}
+
+cleared=0
+clip_held=0
+clear_clip() {
+  (( cleared )) && return
+  cleared=1
+  (( clip_held )) || return
+  # Redirect away from the caller's pipes: an xclip child that inherits
+  # captured stdout/stderr would keep a parent `communicate()` waiting forever.
+  printf '' | "$xclip" -selection clipboard -t text/plain >/dev/null 2>&1 || true
+}
+# However this script ends -- a signal, the agent dying, an error below -- the
+# clipboard is wiped so the secret never outlives the paste.
+trap 'clear_clip' EXIT
+trap 'exit 130' INT TERM HUP
+
+focus_is || { echo "keepass-picker-insert: focus moved; nothing pasted" >&2; exit 3; }
+
+secret=$(cat)
+[[ -n $secret ]] || { echo "keepass-picker-insert: nothing on stdin" >&2; exit 1; }
+
+# xclip daemonizes to own the selection; there is no --sensitive flag on X11.
+# Wipe via clear_clip on EXIT (and again after a successful paste).
+printf '%s' "$secret" | "$xclip" -selection clipboard -t text/plain >/dev/null 2>&1
+clip_held=1
+unset secret
+
+# Virtual keyboards / focus restore need a moment; without this the keystroke
+# can land before the target window is listening again.
+sleep "$pre_type_delay"
+
+focus_is || { echo "keepass-picker-insert: focus moved; nothing pasted" >&2; exit 3; }
+
+# Paste rather than type: synthesising characters under non-US keymaps can
+# corrupt a string you cannot see. paste_key is an xdotool key chord
+# (e.g. shift+Insert, ctrl+shift+v).
+"$xdotool" key --clearmodifiers "$paste_key" >/dev/null 2>&1 || true
+
+sleep 0.05
+clear_clip
