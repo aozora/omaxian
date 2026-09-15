@@ -2,7 +2,7 @@
 
 Email client for the Omaxian bar and shell. Port of
 [huacnlee/omamail](https://github.com/huacnlee/omamail)
-(upstream commit `3460ac8`, plugin version `0.10.3`).
+(upstream commit `a5d514c`, plugin version `0.10.4`).
 
 Plugin id: `omamail` (unchanged). Optional — not installed by `./deploy.sh`.
 See [`../README.md`](../README.md) for the catalog install pattern.
