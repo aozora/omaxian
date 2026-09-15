@@ -9,11 +9,19 @@ by `./deploy.sh`. See [`../README.md`](../README.md).
 
 ## Omaxian deltas
 
-`omarchy-plugin-check` reports **compatible** with no code transforms.
 `BarWidget.qml` / `Panel.qml` already use `KeyboardPanel` and
 `omarchy-notification-send`; location writes go through
 `omarchy-weather-location` (shipped with Omaxian); network I/O is via the
 bundled `weather-helper.py` + `curl`.
+
+Port fixes vs upstream:
+
+- `weather-helper.py` — allow group-writable ancestors under `$HOME` (Debian
+  umask `0002` → `775` on `~/.local`); still force `settings/` to `0700` and
+  refuse world-writable path components. Without this, location reads fail and
+  the panel never honors `weather.json`.
+- `Panel.qml` — on a failed location-file read, keep last-good / in-memory
+  state instead of clearing the configured city.
 
 Docs below use Omaxian install paths and **i3** binds instead of Hyprland /
 `omarchy restart shell`.

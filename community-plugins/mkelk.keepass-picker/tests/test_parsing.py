@@ -786,10 +786,14 @@ class OverlayKeepsSecretsOut(unittest.TestCase):
 
     def test_ten_rows_are_shown_and_the_card_can_hold_them(self):
         # Seven made a 2:1 strip. Ten sits near 5:3 and is still one glance.
+        # On X11 the list height is fixed at visibleRows so the CenteredModal
+        # card cannot grow-and-recenter under the pointer (grabFocus dismiss).
         self.assertIn("readonly property int visibleRows: 10", self.src)
-        self.assertIn("Math.min(resultModel.count, root.visibleRows)", self.src)
+        self.assertIn("root.rowHeight * root.visibleRows", self.src)
+        self.assertIn("stickyCardHeight", self.src)
+        self.assertIn("holdDismiss", self.src)
         # The height cap must leave room for them, or the last rows are cut.
-        cap = re.search(r"cardHeight: Math\.min\(\s*Style\.space\((\d+)\)", self.src)
+        cap = re.search(r"liveCardHeight: Math\.min\(\s*Style\.space\((\d+)\)", self.src)
         self.assertIsNotNone(cap)
         self.assertGreaterEqual(int(cap.group(1)), 640)
 

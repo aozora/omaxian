@@ -253,11 +253,11 @@ Panel {
     onExited: function(exitCode) {
       var text = root.locationFileBuf
       root.locationFileBuf = ""
-      if (exitCode !== 0) {
-        root.configuredLocationState = Model.parseLocationFile("")
-        return
-      }
-      root.configuredLocationState = Model.parseLocationFile(text)
+      // Exit 0 covers a successful read and a missing file (empty text).
+      // Non-zero means refuse — keep last-good / in-memory optimistic state
+      // so a helper failure cannot wipe a location the user just committed.
+      if (exitCode === 0)
+        root.configuredLocationState = Model.parseLocationFile(text)
     }
   }
   Timer { id: locationFileDeadline; interval: root.procDeadlineMs; onTriggered: { locationFile.signal(15); locationFileKill.start() } }

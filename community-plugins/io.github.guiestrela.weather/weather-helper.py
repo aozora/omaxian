@@ -28,13 +28,19 @@ ALLOWED_OPEN_HOSTS = frozenset({
 })
 
 
-def _check_directory(fd, label, owner_required=True):
+def _check_directory(fd, label, owner_required=True, require_private=False):
     info = os.fstat(fd)
     if not stat_is_directory(info.st_mode):
         raise OSError("unsafe " + label)
     if owner_required and info.st_uid != os.getuid():
         raise OSError("unsafe " + label)
-    if info.st_mode & 0o022:
+    # World-writable ancestors are always refused. Group-writable is common on
+    # Debian (umask 0002 → 775 under ~/.local); only the private leaf must be
+    # 0700 — see omarchy-plugin-security open_dir_chain guidance.
+    if require_private:
+        if info.st_mode & 0o077:
+            raise OSError("unsafe " + label)
+    elif info.st_mode & 0o002:
         raise OSError("unsafe " + label)
     return fd
 
@@ -54,7 +60,12 @@ def _open_directory(parent_fd, name, create, private=False, owner_required=True)
     try:
         _check_directory(fd, "state directory", owner_required=owner_required)
         if private:
-            os.fchmod(fd, 0o700)
+            info = os.fstat(fd)
+            if info.st_mode & 0o077:
+                os.fchmod(fd, 0o700)
+            _check_directory(
+                fd, "state directory", owner_required=True, require_private=True
+            )
         return fd
     except BaseException:
         os.close(fd)

@@ -206,14 +206,25 @@ Item {
   // better on the screen, and the extra rows are still one glance rather than
   // a scan. Past that, another keystroke beats a longer list.
   readonly property int visibleRows: 10
-  readonly property int listHeight: Math.max(
-    root.rowHeight * 2,
-    Math.min(resultModel.count, root.visibleRows) * root.rowHeight)
-  property int cardHeight: Math.min(
+  // Fixed list height while open. Growing with result count recentres the
+  // CenteredModal card under the pointer and Qt::Popup grabFocus treats that
+  // as an outside click — the picker then closes itself (same failure mode
+  // as omaxian.controlpanel before sticky sizing).
+  readonly property int listHeight: root.rowHeight * root.visibleRows
+  readonly property int liveCardHeight: Math.min(
     Style.space(640),
     root.screenH - Style.gapsOut * 2,
     Math.max(Style.space(150),
              root.chromeHeight + root.listHeight + root.contentMargin * 2))
+  // Grow-only lock once the card has laid out, so chrome/footer changes cannot
+  // shrink-and-recenter either.
+  property int stickyCardHeight: 0
+  property int cardHeight: root.stickyCardHeight > 0
+    ? Math.max(root.stickyCardHeight, root.liveCardHeight)
+    : root.liveCardHeight
+
+  // Survive the opening click / key-release eating the Qt::Popup grab.
+  property bool holdDismiss: false
 
   function open(payloadJson) {
     // Capture the focused window FIRST, then map the modal. On X11 the card
@@ -224,6 +235,7 @@ Item {
     root.unlockOffered = false
     root.totalMatches = 0
     root.shownMatches = 0
+    root.stickyCardHeight = 0
     resultModel.clear()
     root.pendingOpen = true
     targetProc.running = false
@@ -231,15 +243,29 @@ Item {
   }
 
   function finishOpen() {
+    root.holdDismiss = true
+    holdDismissTimer.restart()
     root.opened = true
     root.refresh()
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    Qt.callLater(function() {
+      if (root.opened && root.stickyCardHeight <= 0)
+        root.stickyCardHeight = root.liveCardHeight
+      keyCatcher.forceActiveFocus()
+    })
   }
 
-  function close() { root.opened = false }
+  function close() {
+    root.opened = false
+    root.stickyCardHeight = 0
+    root.holdDismiss = false
+    holdDismissTimer.stop()
+  }
 
   function dismiss() {
     root.opened = false
+    root.stickyCardHeight = 0
+    root.holdDismiss = false
+    holdDismissTimer.stop()
     resultModel.clear()
     root.filterText = ""
     if (root.shell && typeof root.shell.hide === "function")
@@ -531,6 +557,8 @@ Item {
   // the component loaded so unlockProc's callback still has somewhere to land.
   function unlock() {
     root.busy = true
+    root.holdDismiss = false
+    holdDismissTimer.stop()
     root.opened = false
     unlockProc.running = false
     unlockProc.running = true
@@ -538,8 +566,14 @@ Item {
 
   function reopenAfterUnlock() {
     root.busy = false
+    root.holdDismiss = true
+    holdDismissTimer.restart()
     root.opened = true
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    Qt.callLater(function() {
+      if (root.opened && root.stickyCardHeight <= 0)
+        root.stickyCardHeight = root.liveCardHeight
+      keyCatcher.forceActiveFocus()
+    })
   }
 
   function configure() {
@@ -599,6 +633,12 @@ Item {
   }
 
   ListModel { id: resultModel }
+
+  Timer {
+    id: holdDismissTimer
+    interval: 400
+    onTriggered: root.holdDismiss = false
+  }
 
   Timer {
     id: searchDebounce
@@ -673,7 +713,23 @@ Item {
     padding: root.contentMargin
     background: root.background
     borderSpec: root.borderSpec
-    onDismissed: root.dismiss()
+    onDismissed: {
+      // Unlock hides us on purpose (busy). Opening click / resize can clear the
+      // Qt::Popup grab while holdDismiss is set — remount instead of closing.
+      if (root.busy) return
+      if (root.holdDismiss) {
+        Qt.callLater(function() {
+          if (!root.holdDismiss || root.busy) return
+          root.opened = false
+          Qt.callLater(function() {
+            if (root.busy) return
+            root.opened = true
+          })
+        })
+        return
+      }
+      root.dismiss()
+    }
 
       Item {
         id: keyCatcher

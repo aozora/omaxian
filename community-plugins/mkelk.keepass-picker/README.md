@@ -19,6 +19,7 @@ pattern.
 | Compositor `activewindow` probe | `xdotool getactivewindow` (X11 window id) |
 | Wayland sensitive clipboard + type | `xclip` + wipe on EXIT; `xdotool key` |
 | Target captured while layer-shell is up | Target captured **before** the modal maps (X11 steals focus) |
+| Card height follows result count | Fixed `visibleRows` height + sticky size (avoids grabFocus auto-dismiss on grow/recenter) |
 | Hyprland bind / `windows.lua` pinentry rules | i3 bind example below |
 | `omarchy-menu-file` only | Falls back to `find` + `omarchy-menu-select`, then `zenity` |
 
