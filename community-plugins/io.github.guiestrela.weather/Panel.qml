@@ -330,7 +330,9 @@ Panel {
   readonly property var activities: Model.activityForecast(openMeteoCurrent, todayForecast)
   readonly property string reportCountry: areaInfo && areaInfo.country && areaInfo.country[0] ? areaInfo.country[0].value : ""
 
-  readonly property bool useImperial: Model.shouldUseImperial(setting("unit", ""), Qt.locale().name, reportCountry)
+  // Default must match manifest/schema ("metric"). Empty used to mean "auto
+  // from locale/country", which made Settings show °C while en_US still got °F.
+  readonly property bool useImperial: Model.shouldUseImperial(setting("unit", "metric"), Qt.locale().name, reportCountry)
 
   // Auto-refresh interval in minutes; clamped to a sane minimum.
   readonly property int refreshMinutes: Math.max(1, parseInt(setting("refreshMinutes", 15), 10) || 15)

@@ -123,7 +123,7 @@ In `~/.config/omarchy/shell.json`, on the plugin's entry:
 
 | Key | Default | Meaning |
 | --- | ------- | ------- |
-| `unit` | `metric` | `metric` (°C) or `imperial` (°F) |
+| `unit` | `metric` | `metric` (°C) or `imperial` (°F). Unset now follows the schema default (°C), not locale auto-detect. |
 | `refreshMinutes` | `15` | Refresh interval in minutes (1–120) |
 
 Change them in Settings → Bar (widget settings), or edit the plugin entry in
