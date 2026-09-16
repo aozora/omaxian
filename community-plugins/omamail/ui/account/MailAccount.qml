@@ -185,6 +185,9 @@ Item {
   property int resultEstimate: 0
   property bool listLoading: false
   property bool listLoaded: false
+  // Rows the view has been paged to; a reload asks `Model.reloadLimit` for
+  // this many again, not for page one.
+  property int loadedDepth: 0
   property var listHandle: null
   property int listSerial: 0
 
@@ -903,16 +906,17 @@ Item {
     }
     listLoading = true
     var token = append ? nextPageToken : ""
+    var limit = append ? maxMessages : Model.reloadLimit(maxMessages, loadedDepth)
 
     // A typed search accepts ids while the provider is still finding them.
     // Mailbox and label listings have no long-running search phase, so their
     // simpler page-at-once path stays below.
     if (searchQuery !== "" && rawQuery === "") {
-      loadSearchMessages(append, token, serial, keptError)
+      loadSearchMessages(append, token, limit, serial, keptError)
       return
     }
 
-    listHandle = api.listMessages(effectiveQuery, maxMessages, token,
+    listHandle = api.listMessages(effectiveQuery, limit, token,
       function(page, error) {
         if (serial !== root.listSerial) return
         if (error || !page) {
@@ -929,6 +933,7 @@ Item {
           root.listLoaded = true
           if (!append) {
             root.messages = []
+            root.loadedDepth = 0
             // An empty answer is an answer, and it has to reach the cache. Only
             // a non-empty result was ever written back, so a mailbox that had
             // emptied kept its old rows on disk — and cache-first painted them
@@ -975,7 +980,7 @@ Item {
   // read immediately, and those payloads paint without waiting for either the
   // rest of the ids or the slowest metadata request. The final list callback
   // remains authoritative for paging and for when "Checking" may stop.
-  function loadSearchMessages(append, token, serial, preservedError) {
+  function loadSearchMessages(append, token, limit, serial, preservedError) {
     var previewSearch = messages.slice()
     var settledBase = append ? messages.slice() : []
     var liveSummaries = []
@@ -1128,7 +1133,7 @@ Item {
       fetchIds(page.ids)
     }
 
-    listHandle = api.listMessages(effectiveQuery, maxMessages, token,
+    listHandle = api.listMessages(effectiveQuery, limit, token,
       function(page, error) {
         if (serial !== root.listSerial) return
         finalPage = page
@@ -1211,6 +1216,7 @@ Item {
     notificationsPrimed = true
 
     messages = merged
+    loadedDepth = merged.length
     listLoaded = true
     lastError = ""
     if (markSynced !== false) lastSyncedMs = Date.now()
@@ -2407,6 +2413,7 @@ Item {
     clearSelection()
     messages = []
     previewMessages = []
+    loadedDepth = 0
     listLoaded = false
     loadMessages(false)
   }
@@ -2441,6 +2448,7 @@ Item {
     rawLabelId = ""
     clearSelection()
     messages = []
+    loadedDepth = 0
     listLoaded = false
     loadMessages(false)
   }
@@ -2464,6 +2472,7 @@ Item {
       root.rawLabelId = id
       root.clearSelection()
       root.messages = []
+      root.loadedDepth = 0
       root.listLoaded = false
       root.loadMessages(false)
     })
@@ -2538,6 +2547,7 @@ Item {
     pendingActionQuery = ""
     if (auth) auth.logout()
     messages = []
+    loadedDepth = 0
     labels = []
     sendAsAliases = []
     sendAsLoading = false

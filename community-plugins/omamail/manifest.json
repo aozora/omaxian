@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "omamail",
   "name": "Omamail",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "author": "huacnlee",
   "license": "MIT",
   "homepage": "https://huacnlee.github.io/omamail/",
-  "description": "Email client for Omaxian/Omarchy: read, triage, and reply to Gmail, HEY and any JMAP or IMAP mailbox in a native window. Fastmail, iCloud, Outlook, Zoho, Proton Bridge, or your own server — several accounts at once, each with its own inbox and unread count. Keyboard-first, three columns when there is room and one when there is not, and it follows your theme. Meeting invitations are drawn as meetings you can answer, newsletters unsubscribe in one click, and remote images stay blocked until you ask. (Omaxian port: xclip / Qt clipboard instead of Wayland clipboard tools; pinned Rust backend.)",
+  "description": "Email client for Omaxian/Omarchy: read, triage, and reply to Gmail, HEY and any JMAP or IMAP mailbox in a native window. Fastmail, iCloud, Outlook, Zoho, Proton Bridge, or your own server \u2014 several accounts at once, each with its own inbox and unread count. Keyboard-first, three columns when there is room and one when there is not, and it follows your theme. Meeting invitations are drawn as meetings you can answer, newsletters unsubscribe in one click, and remote images stay blocked until you ask. (Omaxian port: xclip / Qt clipboard instead of Wayland clipboard tools; pinned Rust backend.)",
   "kinds": [
     "service",
     "bar-widget",

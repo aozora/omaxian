@@ -1,6 +1,6 @@
 [package]
 name = "omamail"
-version = "0.10.4"
+version = "0.10.5"
 edition = "2024"
 publish = false
 
@@ -25,6 +25,7 @@ unicode-normalization = "0.1"
 futures-util = "0.3"
 libc = "0.2"
 mailparse = "0.17"
+encoding_rs = "0.8"
 regex = "1"
 quick-xml = "0.38"
 base64 = "0.22"
@@ -33,6 +34,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 rustls-native-certs = "0.8"
 zeroize = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { version = "3", features = ["OSX_10_15"] }

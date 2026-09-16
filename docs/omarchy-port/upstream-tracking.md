@@ -80,7 +80,7 @@ first, then replace.
    Deleting files but leaving `.git` (or only bumping the ref) is a no-op.
 
 4. Pin the new ref in **both** `setup.sh` and `install.sh` (`OMARCHY_UPSTREAM_REF`,
-   currently `v4.0.3`). Then:
+   currently `v4.0.4`). Then:
 
    ```
    OMARCHY_UPSTREAM_REF=<new-tag-or-sha> ./install.sh

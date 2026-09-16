@@ -135,6 +135,19 @@ note: [v4_0_3.md](v4_0_3.md).
 | Hermes / OpenClaw / T3 / Perplexity / Muse / Cursor-CLI installers + menu AI rows | Arch `omarchy-install-ai-*` / `omarchy-pkg-*` | **not ported.** Port menu overlay stays stripped of Install/Remove AI trees. | — | — | |
 | `config/kitty` / `etc/xdg/kitty` | `allow_remote_control socket-only` | **done** in `omaxian/.config/kitty/kitty.conf`. Archcraft `i3/kitty/` dropped; `i3_term` / `i3_music` use that path. | — | **converged** | Upstream moved system defaults to `/etc/xdg/kitty`; Omaxian keeps a full user conf. |
 
+## 4.0.4 (2026-09-16)
+
+Upstream tag **v4.0.4** (`OMARCHY_UPSTREAM_REF`). Quirk: `omarchy-quattro/version`
+still reads `4.0.0.alpha` — trust the git tag / `describe`. Release is
+**linux-omarchy** kernel + matching DKMS headers + Limine defaults. Impact
+note: [v4_0_4.md](v4_0_4.md).
+
+| File | Upstream | omaxian | Transform | Status | Notes |
+|---|---|---|---|---|---|
+| `shell/` (entire tree) | unchanged vs v4.0.3 | **no port work** — byte-identical to previous pin | — | — | Confirmed with `diff -rq` against a v4.0.3 snapshot. |
+| `bin/omarchy-install-gaming-xbox-controllers` | small update | **not ported** (Arch gaming) | — | — | Sole `bin/` difference in the tag range. |
+| `install/hardware/*`, Limine, kernel migrations / tests | Arch ISO path | **not ported** | — | — | |
+
 ## 2026-09-03 follow-up (post 4.0.2)
 
 | File | Upstream | omaxian | Transform | Status | Notes |

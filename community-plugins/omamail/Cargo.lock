@@ -1309,11 +1309,12 @@ dependencies = [
 
 [[package]]
 name = "omamail"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "base64",
  "chrono",
  "clap",
+ "encoding_rs",
  "futures-util",
  "hickory-resolver",
  "libc",
