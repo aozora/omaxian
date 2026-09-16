@@ -62,6 +62,7 @@ community-plugins/
 | [`jmaeder.swissweather`](jmaeder.swissweather/)                 | `jmaeder.swissweather`         | [omarchy-swissweather](https://github.com/jmaeder/omarchy-swissweather) — MeteoSwiss bar weather; QML compatible as-is                     | Ported |
 | [`io.github.guiestrela.weather`](io.github.guiestrela.weather/) | `io.github.guiestrela.weather` | [guiestrela/weather](https://github.com/guiestrela/weather) — Better Weather (Open-Meteo / wttr.in / RainViewer); helper accepts Debian `775` ancestors under `$HOME` | Ported |
 | [`mkelk.keepass-picker`](mkelk.keepass-picker/)                 | `mkelk.keepass-picker`         | [keepass-picker](https://github.com/mkelk/keepass-picker) — KeePassXC paste picker; T1 CenteredModal, `xclip`/`xdotool`                     | Ported |
+| [`omaxian-speaker-calibrator`](omaxian-speaker-calibrator/) | `omaxian-speaker-calibrator` | [omarchy-speaker-calibrator](https://github.com/thefreshoffice/omarchy-speaker-calibrator) — speaker PEQ; PipeWire filter-chain → PulseAudio DSP daemon + apt | Ported |
 | [`omamail`](omamail/)                                           | `omamail`                      | [huacnlee/omamail](https://github.com/huacnlee/omamail) — Gmail/HEY/JMAP/IMAP + Rust backend; Wayland clipboard → Qt clipboard / `xclip` | Ported |
 
 ## Install (opt-in)

@@ -1,0 +1,2568 @@
+#!/usr/bin/python3
+"""Guided, measurement-gated PulseAudio speaker calibration for Omaxian."""
+
+import argparse
+import contextlib
+import datetime as dt
+import json
+import os
+import re
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# Reading and writing anything another process could have replaced first.
+from calibration_io import (  # noqa: E402
+    MAX_DESCRIPTION_BYTES,
+    UnsafeFile,
+    read_text_bounded,
+    secure_directory,
+    write_atomic,
+)
+
+# The measurement and fitting code pulls in NumPy and SciPy, a fifth of a
+# second every time the process starts.  Reading the status, listing devices
+# and flipping any switch need none of it, and those are the calls the panel
+# makes constantly, so the import waits until something actually measures.
+DSP_NAMES = (
+    "LEVEL_SEARCH_ABORT_STATUSES", "SweepSpec", "analyse_capture",
+    "analyse_level_probe", "build_measurement_signal",
+    "combine_microphone_measurements", "level_after_clipping",
+    "level_search_advice", "parse_mic_calibration", "read_pcm16_wave_channels",
+    "search_measurement_level", "write_pcm16_wave",
+)
+OPTIMIZER_NAMES = (
+    "apply_refinement", "optimize_peq", "refinement_residual", "verification_report",
+)
+
+
+# Measuring needs numpy and scipy.  Omarchy does not ship either, so on a
+# fresh machine they are simply absent, and everything except measuring works
+# without them: the panel, the switches, the status.  They are named here so
+# the panel can offer to install them instead of letting a press of Calibrate
+# end in a stack trace.
+MEASUREMENT_PACKAGES = ("python3-numpy", "python3-scipy")
+GRAPH_PACKAGES = ("python3-lilv", "lsp-plugins-lv2")
+# The filter chain ends in an LV2 limiter.  Omarchy pacstraps this package from
+# its own list, so it is normally present; the check is here so that removing
+# it by hand gives a button rather than a dead end.
+LIMITER_PACKAGE = "lsp-plugins-lv2"
+def _limiter_probe():
+    for base in ("/usr/lib/lv2", "/usr/lib/x86_64-linux-gnu/lv2", "/usr/local/lib/lv2"):
+        candidate = Path(base) / "lsp-plugins.lv2" / "limiter_stereo.ttl"
+        if candidate.exists():
+            return candidate
+    return Path("/usr/lib/lv2/lsp-plugins.lv2/limiter_stereo.ttl")
+
+
+LIMITER_PROBE = _limiter_probe()
+
+
+def measurement_support():
+    """Whether this machine can measure yet, and what it needs if not."""
+    missing = []
+    for module, package in zip(("numpy", "scipy"), MEASUREMENT_PACKAGES):
+        try:
+            __import__(module)
+        except Exception:
+            missing.append(package)
+    if not LIMITER_PROBE.exists():
+        missing.append(LIMITER_PACKAGE)
+    return {
+        "available": not missing,
+        "missing": missing,
+        "packages": list(MEASUREMENT_PACKAGES) + [LIMITER_PACKAGE],
+        "command": "sudo apt install -y " + " ".join(missing or
+                                                 list(MEASUREMENT_PACKAGES)),
+    }
+
+
+def install_measurement_support():
+    """Install what measuring needs, in a terminal the user can watch."""
+    support = measurement_support()
+    if support["available"]:
+        return {**support, "started": False,
+                "message": "Measurement support is already installed."}
+    started = run(
+        ["omarchy-launch-floating-terminal-with-presentation", support["command"]],
+        check=False,
+    ).returncode == 0
+    if not started:
+        raise SystemExit(
+            "Could not open a terminal for the installation. Run this yourself:\n"
+            f"  {support['command']}"
+        )
+    return {
+        **support, "started": True,
+        "message": ("Installing " + " and ".join(support["missing"])
+                    + " from Omarchy's own packages in a terminal window. "
+                    "When it finishes, press Calibrate."),
+    }
+
+
+def load_dsp():
+    """Bind the measurement and fitting names; called only when they are used."""
+    if "np" in globals():
+        return
+    support = measurement_support()
+    if not support["available"]:
+        raise SystemExit(
+            "Measuring needs " + " and ".join(support["missing"])
+            + ", which this machine does not have yet. The panel can install "
+            "them for you, or run:\n  " + support["command"]
+        )
+    import numpy
+    import calibration_dsp
+    import calibration_optimizer
+    globals()["np"] = numpy
+    for name in DSP_NAMES:
+        globals()[name] = getattr(calibration_dsp, name)
+    for name in OPTIMIZER_NAMES:
+        globals()[name] = getattr(calibration_optimizer, name)
+
+
+# Kept as plain numbers so nothing has to be imported to read them; the tests
+# check they still match what the sweep actually defaults to.
+RATE = 48_000
+EXTERNAL_SPEAKER_LEVEL_DBFS = -27.0
+RECORD_LEAD_SECONDS = 1.0
+INTERNAL_SPEAKER_LEVEL_DBFS = -12.0
+# Before the long sweeps, a short two-sided sweep is played at a quiet level,
+# the microphone peak is measured, and the level is moved toward the target so
+# the real measurement neither clips nor sinks into the room noise.  Bounds and
+# the first probe are relative to the sink's default sweep level.
+LEVEL_PROBE_SPEC = dict(
+    seconds=0.4, repeats=1, pre_silence=0.1, block_gap=0.05, response_tail=0.15
+)
+# The lead must exceed the probe's background window (0.3 s) by more than
+# pw-record's start-up time, so the opening of every recording is room sound.
+LEVEL_PROBE_LEAD_SECONDS = 0.8
+LEVEL_PROBE_TAIL_SECONDS = 0.25
+LEVEL_SEARCH_ATTEMPTS = 4
+LEVEL_SEARCH_START_OFFSET_DB = -12.0
+LEVEL_SEARCH_BOUNDS_DB = (-24.0, 6.0)
+
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+DATA = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "omaxian-speaker-calibrator"
+RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "omaxian-speaker-calibrator"
+DSP_SOCKET = RUNTIME / "dsp.sock"
+DSP_PID = RUNTIME / "dsp.pid"
+LOUDNESS_PID = RUNTIME / "loudness.pid"
+NULL_MODULE_STATE = DATA / "null-sink-module"
+PREVIOUS_DEFAULT_STATE = DATA / "previous-default-sink"
+PROFILE = DATA / "active-profile.json"
+PROPOSAL = DATA / "proposed-profile.json"
+# The profile that the last install replaced, kept so the two can be swapped
+# in and out for a listening comparison.  Graphs are regenerated from a
+# profile's filters whenever it is activated, so only the profile is kept.
+PREVIOUS_PROFILE = DATA / "previous-profile.json"
+COMPARE_STATE = DATA / "compare-state.json"
+# The verification plays through the corrected output, so its capture must
+# never land on the calibration capture: refitting an already-corrected
+# recording would correct the sound twice.
+VERIFICATION = DATA / "verification.json"
+# The last answer to "what is playing", so the panel can draw itself before
+# the real query has finished.  Never read back by this program: it is written
+# here and read by the panel, which then refreshes over the top of it.
+STATUS_CACHE = DATA / "status-cache.json"
+# One measurement kept per kind of microphone, so the two can be compared.
+MICROPHONE_ARCHIVE = DATA / "microphone-archive"
+# Where two microphones are compared: shape only, so a difference in
+# sensitivity between them does not read as a difference in the speakers.
+MICROPHONE_ALIGN_BAND_HZ = (250.0, 1000.0)
+# A device names itself.  A USB microphone's product string is whatever its
+# firmware says, so it is text from outside kept in a file and then drawn in
+# the shell: long enough to wreck a row, and there is no reason to store more
+# than fits one.
+DEVICE_LABEL_LIMIT = 120
+# The analysis grid is under two hundred points.  This is only a ceiling, so a
+# file that has been rewritten cannot ask the panel to draw a million.
+MICROPHONE_CURVE_LIMIT = 4096
+
+
+# The panel puts a verdict into a section heading, and a heading is drawn by
+# a shell component the plugin cannot pin to plain text.  The value comes from
+# a file at a predictable name, so it is checked against the words this code
+# actually produces rather than passed through.
+VERDICTS = ("pass", "warning", "fail", "inconclusive")
+
+
+def safe_verdict(value):
+    """One of the words this produces, or None."""
+    return value if value in VERDICTS else None
+
+
+# PipeWire reports a description of "(null)" for a node that has none, and it
+# should never be shown to anybody as if it were a name.
+PLACEHOLDER_LABELS = {"(null)", "null", "none", "unknown"}
+
+
+def short_label(value, limit=DEVICE_LABEL_LIMIT):
+    """A device's own name, made safe to put in front of the shell.
+
+    Length is not the only problem.  These names reach a button's label and
+    the panel's heading, and both are drawn by shell components the plugin
+    cannot pin to plain text, so Qt decides for itself whether the string is
+    markup.  A name containing a tag would be rendered as one, and rich text
+    fetches whatever an image tag points at.  The three characters that begin
+    markup come out, along with anything non-printing.
+    """
+    if not isinstance(value, str):
+        return None
+    stripped = "".join(
+        " " if character in "<>&" else character
+        for character in value
+        if character.isprintable() or character in " \t"
+    )
+    trimmed = " ".join(stripped.split())
+    if not trimmed or trimmed.strip().lower() in PLACEHOLDER_LABELS:
+        return None
+    return trimmed[:limit]
+VERIFICATION_SWEEPS = DATA / "verification-sweeps.wav"
+VERIFICATION_RECORDING = DATA / "verification.wav"
+SERVICE = "omaxian-speaker-dsp"
+VIRTUAL_SINK = "omaxian_speaker_tuning"
+
+
+DSP_SCRIPT = Path(__file__).resolve().parent / "speaker-dsp.py"
+
+def plugin_version():
+    try:
+        manifest = json.loads(
+            # Root owns this when the plugin is installed system-wide, and it
+            # sits next to this file either way.
+            read_text_bounded(Path(__file__).resolve().parent / "manifest.json",
+                              missing_ok=False, allow_root=True))
+        return str(manifest.get("version", "unknown"))
+    except (OSError, ValueError):
+        return "unknown"
+
+
+def run(args, *, check=True, capture=False):
+    return subprocess.run(args, check=check, text=True,
+                          capture_output=capture)
+
+
+def pactl_json(kind):
+    proc = run(["pactl", "-f", "json", "list", kind], capture=True)
+    return json.loads(proc.stdout)
+
+
+def bass_enhancer_status():
+    """Whether the psychoacoustic bass add-on is installed and usable."""
+    for base in BASS_ENHANCER_SEARCH_PATHS:
+        directory = Path(base)
+        if not directory.is_dir():
+            continue
+        for bundle in sorted(directory.iterdir()):
+            if not bundle.is_dir():
+                continue
+            text = ""
+            for turtle in sorted(bundle.glob("*.ttl")):
+                try:
+                    # Installed by a package manager, so root owns it.
+                    chunk = read_text_bounded(
+                        turtle, MAX_DESCRIPTION_BYTES, errors="ignore",
+                        allow_root=True)
+                    text += chunk or ""
+                except (OSError, UnsafeFile):
+                    continue
+            if BASS_ENHANCER_URI not in text:
+                continue
+            missing = [
+                port for port in BASS_ENHANCER_PORTS
+                if f'lv2:symbol "{port}"' not in text
+            ]
+            return {
+                "available": not missing,
+                "installed": True,
+                "usable": not missing,
+                "package": BASS_ENHANCER_PACKAGE,
+                "path": str(bundle),
+                "missing_ports": missing,
+            }
+    return {
+        "available": False,
+        "installed": False,
+        "usable": False,
+        "package": BASS_ENHANCER_PACKAGE,
+        "path": None,
+        "missing_ports": [],
+    }
+
+
+
+def package_installed(package):
+    """True when dpkg knows the package as installed."""
+    result = run(["dpkg-query", "-W", "-f=${Status}", package], check=False, capture=True)
+    return result.returncode == 0 and "install ok installed" in result.stdout
+
+
+def package_repository(package):
+    """Debian suite name from apt-cache, or None when the package is unknown."""
+    result = run(["apt-cache", "show", package], check=False, capture=True)
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    for line in result.stdout.splitlines():
+        if line.lower().startswith("suite:") or line.lower().startswith("archive:"):
+            return line.split(":", 1)[1].strip()
+    return "debian"
+
+
+def bass_enhancer_install_command():
+    """Install Deep bass from Debian packages (no source build)."""
+    return f"sudo apt install -y {BASS_ENHANCER_PACKAGE}", package_repository(BASS_ENHANCER_PACKAGE)
+
+
+def runtime_dir():
+    secure_directory(RUNTIME)
+    return RUNTIME
+
+
+def _pid_alive(pid_path, argv0_hint):
+    try:
+        raw = read_text_bounded(pid_path, limit=64)
+    except OSError:
+        return False
+    if not raw:
+        return False
+    try:
+        pid = int(raw.strip().splitlines()[0])
+    except ValueError:
+        return False
+    cmdline = Path(f"/proc/{pid}/cmdline")
+    try:
+        text = cmdline.read_bytes().decode("utf-8", "replace")
+    except OSError:
+        return False
+    return argv0_hint in text.replace("\0", " ")
+
+
+def dsp_request(payload, timeout=5.0):
+    """JSON request to the DSP daemon socket; None when unreachable."""
+    import socket
+    import struct
+    if not DSP_SOCKET.exists():
+        return None
+    raw = json.dumps(payload).encode("utf-8")
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(str(DSP_SOCKET))
+        sock.sendall(struct.pack("!I", len(raw)) + raw)
+        header = sock.recv(4)
+        if len(header) < 4:
+            return None
+        (length,) = struct.unpack("!I", header)
+        if length > 1 << 20:
+            return None
+        data = b""
+        while len(data) < length:
+            chunk = sock.recv(length - len(data))
+            if not chunk:
+                return None
+            data += chunk
+        sock.close()
+        return json.loads(data.decode("utf-8"))
+    except (OSError, ValueError, TimeoutError):
+        return None
+
+
+def dsp_running():
+    return _pid_alive(DSP_PID, "speaker-dsp.py") or (
+        dsp_request({"cmd": "ping"}) or {}
+    ).get("ok") is True
+
+
+def loudness_tracker_path():
+    return Path(__file__).resolve().parent / LOUDNESS_TRACKER
+
+
+def loudness_running():
+    return _pid_alive(LOUDNESS_PID, "loudness-tracker.py")
+
+
+def _write_pidfile(path, pid):
+    runtime_dir()
+    write_atomic(path, f"{pid}\n")
+
+
+def start_loudness_tracker():
+    """Detach the volume follower if it is not already running."""
+    if loudness_running():
+        return
+    runtime_dir()
+    proc = subprocess.Popen(
+        ["/usr/bin/python3", "-s", str(loudness_tracker_path())],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    _write_pidfile(LOUDNESS_PID, proc.pid)
+
+
+def stop_loudness_tracker():
+    if not LOUDNESS_PID.exists():
+        return
+    try:
+        pid = int(read_text_bounded(LOUDNESS_PID, limit=64).strip())
+    except (OSError, ValueError, TypeError, AttributeError):
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+    for _ in range(20):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            break
+        time.sleep(0.1)
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    try:
+        LOUDNESS_PID.unlink()
+    except OSError:
+        pass
+
+
+def forget_loudness_tracker():
+    stop_loudness_tracker()
+
+
+def loudness_toggle():
+    """Switch volume-following loudness compensation on or off."""
+    profile = load_profile(PROFILE)
+    if profile is None:
+        raise SystemExit("Calibrate the speakers first; there is nothing to compensate.")
+    wanted = "off" if profile.get("loudness_compensation") == "on" else "on"
+    profile["loudness_compensation"] = wanted
+    write_atomic(PROFILE, json.dumps(profile, indent=2) + "\n")
+
+    # The sound changes here, before anything slow is asked of systemd.  Only
+    # the compensator and the gain that pays its attenuation back move, so
+    # this is a handful of milliseconds.
+    fit = profile.get("fit") or {}
+    controls = loudness_controls(
+        sink_volume_db(listening_sink(profile)), wanted == "on",
+        fit.get("input_gain_linear", 1.0))
+    if apply_controls_live(controls):
+        method = "live"
+    else:
+        method = activate_profile(profile)
+
+    if wanted == "on":
+        start_loudness_tracker()
+    else:
+        stop_loudness_tracker()
+    return {
+        "loudness_compensation": wanted,
+        "tracker": "starting" if wanted == "on" else "stopping",
+        "method": method,
+        "message": ("Loudness compensation on, following the volume"
+                    if wanted == "on" else "Loudness compensation off"),
+    }
+
+
+def bass_enhancer_state():
+    """Add-on status, including where it would come from if it is missing.
+
+    Asking the package database costs a subprocess and only answers a question
+    that matters while nothing is installed, so it is skipped once it is.
+    """
+    status = bass_enhancer_status()
+    if status["installed"]:
+        return status
+    return {
+        **status,
+        "source": package_repository(BASS_ENHANCER_PACKAGE) or "debian",
+    }
+
+
+def install_bass_enhancer():
+    """Start the add-on's installation in a terminal the user can watch."""
+    status = bass_enhancer_status()
+    if status["installed"]:
+        return {**status, "started": False,
+                "message": "The bass add-on is already installed."}
+    command, repository = bass_enhancer_install_command()
+    started = run(
+        ["omarchy-launch-floating-terminal-with-presentation", command],
+        check=False,
+    ).returncode == 0
+    if not started:
+        raise SystemExit(
+            "Could not open a terminal for the installation. Run this yourself:\n"
+            f"  {command}"
+        )
+    return {
+        **status,
+        "started": True,
+        "command": command,
+        "source": repository or "debian",
+        "message": (
+            f"Installing {BASS_ENHANCER_PACKAGE} with apt in a terminal window. "
+            "When it finishes, switch Deep bass on again."
+        ),
+    }
+
+
+def parse_sink_volume_db(text):
+    """The loudest channel's volume in dB from what pactl prints.
+
+    The reading looks like "front-left: 36044 /  55% / -15.58 dB", with the
+    number and its unit as separate words, and one group per channel.  The
+    loudest is the one to follow: it is what sets how loud the speakers are.
+    """
+    levels = [
+        float(value)
+        for value, unit in zip(text.split(), text.split()[1:])
+        if unit.rstrip(",") == "dB" and _is_number(value)
+    ]
+    return max(levels) if levels else 0.0
+
+
+def _is_number(value):
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
+
+
+def sink_volume_db(name):
+    """The output's current volume in dB, or 0 when it cannot be read."""
+    result = run(["pactl", "get-sink-volume", name], check=False, capture=True)
+    if result.returncode != 0:
+        return 0.0
+    return parse_sink_volume_db(result.stdout)
+
+
+def is_physical_sink(name):
+    """True for a real output device, never the calibrated sink in front of one."""
+    return str(name).startswith("alsa_output.") and str(name) != VIRTUAL_SINK
+
+
+def listening_sink(profile=None):
+    """The sink whose volume says how loud the speakers actually are.
+
+    Not this filter's own.  The volume keys deliberately resolve through a DSP
+    sink to the device behind it, so that the keys move real loudness and the
+    processing keeps seeing full-scale input; this filter's volume therefore
+    never moves, and reading it reports full volume however quiet the room is.
+    Following it would leave the contour flat at every setting, which is what
+    it did.
+    """
+    if profile is None:
+        profile = load_profile(PROFILE)
+    name = ((profile or {}).get("speaker") or {}).get("name")
+    return name or VIRTUAL_SINK
+
+
+def physical_sinks():
+    """Only real outputs are offered, so a calibration cannot measure itself."""
+    return [item for item in pactl_json("sinks") if is_physical_sink(item.get("name", ""))]
+
+
+def is_measurement_microphone(name):
+    """True for a capture device that can describe a speaker.
+
+    The speaker side already refuses anything that is not a real output; this
+    is the same rule for the other end.  A Bluetooth headset offers a source,
+    but its microphone runs over HFP or HSP: mono, eight to sixteen kilohertz,
+    with automatic gain and noise suppression applied inside the headset. It
+    cannot measure a loudspeaker, and a measurement taken through one would be
+    fitted to the headset's processing rather than to the speakers.
+    """
+    return str(name).startswith("alsa_input.")
+
+
+def microphones():
+    return [item for item in pactl_json("sources")
+            if not item.get("name", "").endswith(".monitor")
+            and is_measurement_microphone(item.get("name", ""))]
+
+
+def unusable_microphones():
+    """Capture devices deliberately left out, so the panel can say why."""
+    return [label(item) for item in pactl_json("sources")
+            if not item.get("name", "").endswith(".monitor")
+            and not is_measurement_microphone(item.get("name", ""))]
+
+
+def channel_count(item):
+    spec = item.get("sample_specification") or item.get("sample_spec") or ""
+    found = re.search(r"(\d+)ch", str(spec))
+    return int(found.group(1)) if found else 1
+
+
+def devices_payload():
+    def public(item, kind):
+        name = item["name"]
+        return {
+            "name": name,
+            # A device names itself, and some do it with ragged spacing.
+            "description": short_label(label(item)) or label(item),
+            "channels": channel_count(item),
+            "kind": kind,
+            "internal": name.startswith(("alsa_input.pci-", "alsa_output.pci-")),
+        }
+    return {
+        "sinks": [public(item, "speaker") for item in physical_sinks()],
+        "microphones": [public(item, "microphone") for item in microphones()],
+    }
+
+
+def label(item):
+    return item.get("description") or item.get("properties", {}).get("device.description") or item["name"]
+
+
+def select(items, title, predicate=None):
+    choices = [item for item in items if predicate is None or predicate(item)]
+    if not choices:
+        raise SystemExit(f"No matching {title.lower()} found.")
+    print(f"\n{title}")
+    for index, item in enumerate(choices, 1):
+        print(f"  {index}. {label(item)}\n     {item['name']}")
+    while True:
+        answer = input(f"Select 1-{len(choices)}: ").strip()
+        if answer.isdigit() and 1 <= int(answer) <= len(choices):
+            return choices[int(answer) - 1]
+
+
+# The graph always has the same nodes, in this order per channel, so that any
+# profile can be applied to the running filter by updating its controls instead
+# of restarting the PipeWire client, which would drop the sink and stop every
+# player attached to it.  Unused sections are transparent: a peaking or shelf
+# biquad at 0 dB is unity.
+# The optional psychoacoustic bass add-on.  A small speaker cannot move enough
+# air to make a low note at all; this plays that note's harmonics instead and
+# the ear supplies the fundamental it never heard.  It is a separate package,
+# so the plugin works without it and only ever asks.
+BASS_ENHANCER_URI = "https://chadmed.au/bankstown"
+BASS_ENHANCER_PACKAGE = "bankstown-lv2"
+# The one upstream revision the add-on is built from when no repository
+# carries it: release 1.1.0, named by the full hash of its commit and of its
+# tree.  The PKGBUILD and the build script under BASS_ENHANCER_BUILD_DIR name
+# the same revision, and a test keeps the three in step.
+BASS_ENHANCER_VERSION = "1.1.0"
+BASS_ENHANCER_COMMIT = "e9829c9bccf5ed73768135c0ddd506f5a6690f9e"
+BASS_ENHANCER_TREE = "a8bbbb026af98053656283aed1801be3032c0876"
+BASS_ENHANCER_BUILD_DIR = "bass-enhancer"  # unused on Omaxian; apt installs bankstown-lv2
+BASS_ENHANCER_SEARCH_PATHS = (
+    "/usr/lib/lv2", "/usr/local/lib/lv2", str(Path.home() / ".lv2"),
+)
+# Every port the generated graph refers to.  If the installed build does not
+# have all of them it is not the plugin this was written against, and it is
+# left out rather than risking a filter chain that will not load.
+BASS_ENHANCER_PORTS = (
+    "in_l", "in_r", "out_l", "out_r",
+    "bypass", "amt", "floor", "ceil", "final_hp", "sat_second", "sat_third", "blend",
+)
+# Settings from the Asahi Linux MacBook tunings, which use the same plugin on
+# speakers of much the same size.  The two frequency limits are not fixed:
+# they follow the measured knee, so the harmonics land where this speaker can
+# actually play them.  The plugin clamps them to 250 Hz.
+BASS_ENHANCER_AMOUNT = 1.45
+BASS_ENHANCER_SECOND = 1.3
+BASS_ENHANCER_THIRD = 1.75
+BASS_ENHANCER_BLEND = 1.0
+BASS_ENHANCER_FLOOR_HZ = 20.0
+BASS_ENHANCER_MAX_HZ = 250.0
+
+# Volume-dependent loudness compensation.  The ear loses bass and, less so,
+# treble as the level drops, which is why quiet music sounds thin.  The LSP
+# compensator applies the equal-loudness contour for a given listening level;
+# it is already a dependency, so nothing new has to be installed.
+LOUDNESS_URI = "http://lsp-plug.in/plugins/lv2/loud_comp_stereo"
+LOUDNESS_STANDARD = 4.0        # ISO 226:2023
+LOUDNESS_MODE = 1.0            # IIR: minimum phase, so it adds no latency
+LOUDNESS_APPROX = 2.0
+# Its volume control is where the listening level goes, and it attenuates by
+# that much as well as choosing the contour.  The attenuation has to be paid
+# back somewhere downstream of the plugin: its own input gain looks like the
+# obvious place and is not, because the plugin works out how much to
+# compensate from the level it sees, so gain in front of it is read as the
+# music being loud again and cancels the contour exactly.  Measured at 60 Hz
+# against 1500 Hz, the contour is worth +25 dB of bass at -20 dB with unity
+# input and -1 dB with the input gain that matches it.  The make-up therefore
+# goes on the limiter's input gain, which is past the compensator.
+#
+# Full volume is the reference: at 0 dB nothing is compensated and nothing is
+# paid back.  That is also what keeps this safe, because the make-up is
+# exactly the attenuation the volume control already applied, so the level
+# arriving at the limiter is the same as it would be at full volume however
+# far down the contour goes.
+#
+# The floor is where the make-up stops growing, and it has to be a real limit
+# rather than a backstop.  Every decibel of contour is a decibel of make-up
+# handed to the limiter, and the contour's bass lift rides on top of that: at
+# -36 dB the compensator was being given +36 dB of gain, and the limiter
+# audibly caught the bass.  Past -30 the warmth barely moves anyway, +4.6 dB
+# against +6.1 dB at -42, so the depth was buying artefacts rather than sound.
+LOUDNESS_FLOOR_DB = -18.0
+# How much deeper than the volume reading to take the listening level.  The
+# reading understates how quiet it really is, because a laptop speaker at full
+# scale is already well short of the level the contour is calibrated against,
+# so the same setting earns more compensation than the number alone suggests.
+#
+# It is never more than the volume has actually come down.  That keeps full
+# volume untouched, where there is no headroom for a boost at all, and keeps
+# what the contour lifts inside the headroom the attenuation just freed: the
+# lift in the band this speaker can play grows at about a seventh of the
+# contour's depth, so it stays comfortably under the room the volume made.
+LOUDNESS_EXTRA_DEPTH_DB = 12.0
+# How much of the contour's attenuation the make-up pays back.  Not all of it:
+# the contour also lifts the bass, and on music that is real energy, so paying
+# the midband back in full made songs two to three decibels louder with the
+# compensation on and pushed their bass transients into the limiter.  Paying
+# back this share keeps the loudness roughly where it was and leaves the
+# limiter the headroom the lift needs.
+LOUDNESS_MAKEUP_SHARE = 0.85
+LOUDNESS_SERVICE = "omaxian-speaker-loudness"
+LOUDNESS_TRACKER = "loudness-tracker.py"
+
+PEAKING_SLOTS = 12
+DEFAULT_HIGHPASS_HZ = 55.0
+# A high-pass section is switched off by moving it below the audible band
+# rather than by removing it, so the graph keeps its fixed shape and a profile
+# with fewer stages can still be applied to the running filter.
+PARKED_HIGHPASS_HZ = 10.0
+SECTION_LABELS = {
+    "hp": "bq_highpass",
+    "ls": "bq_lowshelf",
+    "bs": "bq_lowshelf",
+    "p": "bq_peaking",
+    "hs": "bq_highshelf",
+    # A plain gain, used to centre the stereo image when that is measurable.
+    "bal": "linear",
+}
+
+
+def graph_sections():
+    """Section names per channel, in signal order.
+
+    ``ls`` and ``hs`` are the optimizer's shelves; ``bs`` is the full-bass
+    option's shelf, kept separate so both can be present at once.
+    """
+    return (
+        ["hp1", "hp2", "ls", "bs"]
+        + [f"p{slot}" for slot in range(1, PEAKING_SLOTS + 1)]
+        + ["hs", "bal"]
+    )
+
+
+def fit_sections(fit_payload):
+    """(peaking list, low shelf, high shelf, bass shelf) from a fit payload."""
+    filters = fit_payload.get("filters")
+    if filters is None:
+        peaking = list(zip(
+            fit_payload.get("centers_hz", []),
+            fit_payload.get("q", []),
+            fit_payload.get("gains_db", []),
+        ))
+        low_shelf = high_shelf = None
+    else:
+        peaking = [
+            (item["frequency_hz"], item["q"], item["gain_db"])
+            for item in filters if item.get("type", "peaking") == "peaking"
+        ]
+        low_shelf = next((item for item in filters if item.get("type") == "lowshelf"), None)
+        high_shelf = next((item for item in filters if item.get("type") == "highshelf"), None)
+    # Profiles from 0.10.0 stored the full-bass shelf as "low_shelf".
+    bass = fit_payload.get("bass_shelf")
+    if bass is None and low_shelf is None:
+        bass = fit_payload.get("low_shelf")
+    return peaking, low_shelf, high_shelf, bass
+
+
+def _shelf_controls(controls, name, shelf, default_hz):
+    shelf = shelf or {}
+    controls[f"{name}:Freq"] = float(shelf.get("frequency_hz", default_hz))
+    controls[f"{name}:Q"] = float(shelf.get("q", 0.707))
+    controls[f"{name}:Gain"] = float(shelf.get("gain_db", 0.0))
+
+
+def highpass_settings(fit_payload):
+    """(corner, q, stages) of the protective high-pass, with old defaults."""
+    highpass = fit_payload.get("highpass") or {}
+    corner = float(highpass.get(
+        "frequency_hz", fit_payload.get("highpass_hz", DEFAULT_HIGHPASS_HZ)
+    ))
+    q = float(highpass.get("q", 0.707))
+    stages = int(highpass.get("stages", fit_payload.get("highpass_stages", 2)))
+    return corner, q, max(1, min(2, stages))
+
+
+def loudness_level_db(sink_volume_db):
+    """The listening level the contour is chosen for, in dB below full volume.
+
+    How loud full volume is in the room is not known here, so it is taken as
+    the reference and left alone; how far the volume has come down from it is
+    known, and is taken as understating the case by up to
+    ``LOUDNESS_EXTRA_DEPTH_DB``.
+    """
+    volume = float(sink_volume_db)
+    extra = min(LOUDNESS_EXTRA_DEPTH_DB, max(0.0, -volume))
+    return float(np_free_clip(volume - extra, LOUDNESS_FLOOR_DB, 0.0))
+
+
+def loudness_controls(sink_volume_db, enabled, input_gain_linear=1.0):
+    """Compensator settings for the level the speakers are playing at.
+
+    ``volume`` carries the listening level, which selects the contour and
+    attenuates by the same amount.  Its own ``input`` gain stays at unity:
+    the plugin reads the level in front of it to decide how much to
+    compensate, so paying the attenuation back there would tell it the music
+    is loud and leave a contour worth nothing.  It is paid back on the
+    limiter instead, which the signal reaches after the compensator.
+    """
+    level = loudness_level_db(sink_volume_db) if enabled else 0.0
+    makeup = 10.0 ** (-level * LOUDNESS_MAKEUP_SHARE / 20.0)
+    return {
+        "loudcomp:enabled": 1.0 if enabled else 0.0,
+        "loudcomp:volume": level,
+        "loudcomp:input": 1.0,
+        "loudcomp:std": LOUDNESS_STANDARD,
+        "loudcomp:mode": LOUDNESS_MODE,
+        "loudcomp:approx": LOUDNESS_APPROX,
+        "limiter:g_in": round(float(input_gain_linear) * makeup, 6),
+    }
+
+
+def np_free_clip(value, low, high):
+    """A clamp that costs no import; the fast paths must stay light."""
+    return max(low, min(high, value))
+
+
+def bass_enhancer_controls(corner_hz, deep_bass):
+    """Controls for the bass add-on, tuned to where this speaker gives up."""
+    limit = float(min(BASS_ENHANCER_MAX_HZ, max(10.0, corner_hz)))
+    return {
+        "bass:bypass": 0.0 if deep_bass else 1.0,
+        "bass:amt": BASS_ENHANCER_AMOUNT if deep_bass else 0.0,
+        "bass:floor": BASS_ENHANCER_FLOOR_HZ,
+        # Harmonics are made from what lies below the knee and kept above it,
+        # which is the only place the speaker can reproduce them.
+        "bass:ceil": limit,
+        "bass:final_hp": limit,
+        "bass:sat_second": BASS_ENHANCER_SECOND,
+        "bass:sat_third": BASS_ENHANCER_THIRD,
+        "bass:blend": BASS_ENHANCER_BLEND,
+    }
+
+
+def graph_controls(fit_payload, *, bass_enhancer=None, deep_bass=False,
+                   loudness_compensation=False, sink_volume_db=0.0):
+    """Every control of the fixed-shape graph, for both channels, in order."""
+    if bass_enhancer is None:
+        bass_enhancer = bass_enhancer_status()["usable"]
+    peaking, low_shelf, high_shelf, bass = fit_sections(fit_payload)
+    if len(peaking) > PEAKING_SLOTS:
+        raise ValueError(
+            f"The graph has {PEAKING_SLOTS} parametric slots; this fit needs {len(peaking)}."
+        )
+    corner, highpass_q, stages = highpass_settings(fit_payload)
+    controls = {}
+    for side in ("l", "r"):
+        for index in (1, 2):
+            controls[f"hp{index}_{side}:Freq"] = (
+                corner if index <= stages else PARKED_HIGHPASS_HZ
+            )
+            controls[f"hp{index}_{side}:Q"] = highpass_q
+        _shelf_controls(controls, f"ls_{side}", low_shelf, 100.0)
+        _shelf_controls(controls, f"bs_{side}", bass, 100.0)
+        for slot in range(1, PEAKING_SLOTS + 1):
+            if slot <= len(peaking):
+                frequency, q, gain = peaking[slot - 1]
+            else:
+                frequency, q, gain = 1000.0, 1.0, 0.0
+            controls[f"p{slot}_{side}:Freq"] = float(frequency)
+            controls[f"p{slot}_{side}:Q"] = float(q)
+            controls[f"p{slot}_{side}:Gain"] = float(gain)
+        _shelf_controls(controls, f"hs_{side}", high_shelf, 8000.0)
+        gain_db = float((fit_payload.get("channel_trim") or {}).get(f"{'left' if side == 'l' else 'right'}_db", 0.0))
+        controls[f"bal_{side}:Mult"] = round(10.0 ** (gain_db / 20.0), 6)
+        controls[f"bal_{side}:Add"] = 0.0
+    if bass_enhancer:
+        controls.update(bass_enhancer_controls(corner, deep_bass))
+    # Last, because the compensation's make-up rides on the limiter's input
+    # gain and needs the calibrated value to build on.
+    controls.update(loudness_controls(
+        sink_volume_db, loudness_compensation, fit_payload["input_gain_linear"]))
+    return controls
+
+
+def _number(value):
+    return f"{float(value):.4f}".rstrip("0").rstrip(".") or "0"
+
+
+def filter_config(sink, fit_payload, *, bass_enhancer=None, deep_bass=False,
+                  loudness_compensation=False, sink_volume_db=0.0):
+    if bass_enhancer is None:
+        bass_enhancer = bass_enhancer_status()["usable"]
+    controls = graph_controls(
+        fit_payload, bass_enhancer=bass_enhancer, deep_bass=deep_bass,
+        loudness_compensation=loudness_compensation, sink_volume_db=sink_volume_db,
+    )
+    nodes, links, inputs, outputs = [], [], [], []
+    for side, port in (("l", "l"), ("r", "r")):
+        chain = []
+        for section in graph_sections():
+            name = f"{section}_{side}"
+            kind = section.rstrip("0123456789")
+            label = SECTION_LABELS[kind]
+            if kind == "bal":
+                settings = (
+                    f'"Mult" = {_number(controls[f"{name}:Mult"])} '
+                    f'"Add" = {_number(controls[f"{name}:Add"])}'
+                )
+            else:
+                settings = f'"Freq" = {_number(controls[f"{name}:Freq"])} "Q" = {_number(controls[f"{name}:Q"])}'
+                if kind != "hp":
+                    settings += f' "Gain" = {_number(controls[f"{name}:Gain"])}'
+            nodes.append(
+                f'{{ type = builtin name = {name} label = {label} control = {{ {settings} }} }}'
+            )
+            chain.append(name)
+        # The compensator lifts what the ear loses at low level; the
+        # high-pass after it still throws away whatever the speaker cannot
+        # play, so the lift only survives where it can be heard.
+        links.append(f'{{ output = "loudcomp:out_{port}" input = "{chain[0]}:In" }}')
+        if bass_enhancer:
+            # The add-on has to see the low notes before anything takes them
+            # away, so it comes first and feeds the compensator.
+            links.append(f'{{ output = "bass:out_{port}" input = "loudcomp:in_{port}" }}')
+            inputs.append(f'"bass:in_{port}"')
+        else:
+            inputs.append(f'"loudcomp:in_{port}"')
+        for before, after in zip(chain, chain[1:]):
+            links.append(f'{{ output = "{before}:Out" input = "{after}:In" }}')
+        links.append(f'{{ output = "{chain[-1]}:Out" input = "limiter:in_{port}" }}')
+        outputs.append(f'"limiter:out_{port}"')
+    if bass_enhancer:
+        settings = " ".join(
+            f'"{name.split(":", 1)[1]}" = {_number(value)}'
+            for name, value in bass_enhancer_controls(
+                controls["bass:ceil"], controls["bass:bypass"] < 0.5
+            ).items()
+        )
+        nodes.insert(0, f'''{{ type = lv2 name = bass
+      plugin = "{BASS_ENHANCER_URI}"
+      control = {{ {settings} }}
+    }}''')
+    loudness = " ".join(
+        f'"{name.split(":", 1)[1]}" = {_number(value)}'
+        for name, value in controls.items() if name.startswith("loudcomp:")
+    )
+    nodes.insert(0, f'''{{ type = lv2 name = loudcomp
+      plugin = "{LOUDNESS_URI}"
+      control = {{ {loudness} }}
+    }}''')
+    input_gain = controls["limiter:g_in"]
+    nodes.append(f'''{{ type = lv2 name = limiter
+      plugin = "http://lsp-plug.in/plugins/lv2/limiter_stereo"
+      control = {{ "alr" = 0 "boost" = 0 "g_in" = {input_gain:.6f} "th" = 0.891 }}
+    }}''')
+    indented_nodes = "\n          ".join(nodes)
+    indented_links = "\n          ".join(links)
+    return f'''# Generated by Omaxian Speaker Calibrator. Boosts require reliable broad deficits and matching headroom.
+context.modules = [
+  {{ name = libpipewire-module-filter-chain args = {{
+    node.description = "Calibrated Speakers — Protected"
+    media.name = "Calibrated Speakers — Protected"
+    filter.graph = {{
+      nodes = [
+          {indented_nodes}
+      ]
+      links = [
+          {indented_links}
+      ]
+      inputs = [ {' '.join(inputs)} ]
+      outputs = [ {' '.join(outputs)} ]
+    }}
+    audio.channels = 2
+    audio.position = [ FL FR ]
+    capture.props = {{ node.name = "{VIRTUAL_SINK}" media.class = Audio/Sink }}
+    playback.props = {{
+      node.name = "{VIRTUAL_SINK}_output"
+      node.passive = true
+      target.object = "{sink}"
+      node.dont-move = true
+      node.dont-fallback = true
+      node.linger = true
+    }}
+  }} }}
+]
+'''
+
+
+def backup(path):
+    if path.exists():
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        destination = DATA / "backups" / f"{path.name}.{stamp}"
+        secure_directory(destination.parent)
+        shutil.copy2(path, destination)
+
+
+def sink_description(name):
+    """A readable name for any output, including ones this never calibrates.
+
+    Bluetooth and HDMI outputs are not candidates for a calibration, so they
+    are absent from the device list, but the panel still has to be able to say
+    where the sound went.
+    """
+    if not name:
+        return None
+    for item in pactl_json("sinks"):
+        if item.get("name") == name:
+            return item.get("description") or name
+    return name
+
+
+def use_calibrated_output():
+    """Send the sound back through the calibration.
+
+    Plugging in headphones or connecting a speaker moves the default output,
+    which takes the filter out of the path.  Nothing is broken when that
+    happens and nothing is changed behind the user's back; this is the way
+    back, asked for.
+    """
+    if not any(item.get("name") == VIRTUAL_SINK for item in pactl_json("sinks")):
+        raise SystemExit("The calibrated output is not running; install a calibration first.")
+    move_apps(VIRTUAL_SINK)
+    return {**status_payload(), "message": "Sound is going through the calibration again."}
+
+
+def move_apps(target):
+    run(["pactl", "set-default-sink", target])
+    for stream in pactl_json("sink-inputs"):
+        props = stream.get("properties", {})
+        if props.get("application.name") and props.get("application.name") != "EasyEffects":
+            run(["pactl", "move-sink-input", str(stream["index"]), target], check=False)
+
+
+def compare_state():
+    try:
+        state = json.loads(read_text_bounded(COMPARE_STATE) or '')
+    except (OSError, ValueError):
+        state = {}
+    if state.get("active") not in ("current", "previous"):
+        state["active"] = "current"
+    state["bypass"] = bool(state.get("bypass", False))
+    return state
+
+
+def write_compare_state(state):
+    write_atomic(COMPARE_STATE, json.dumps(state) + "\n")
+
+
+def transparent_controls(bass_enhancer=None, level_match_db=0.0):
+    """Controls that make the running graph pass audio through unchanged.
+
+    The high-pass sections drop to 10 Hz, every gain goes to 0 dB and the bass
+    add-on is bypassed, so what is left is the speaker as it was; only the
+    -1 dBFS ceiling remains.  ``level_match_db`` turns that plain sound down
+    to the loudness the correction plays at, so switching between them is a
+    question about tone rather than about volume.
+    """
+    controls = graph_controls(
+        {"filters": [], "input_gain_linear": 10.0 ** (float(level_match_db) / 20.0)},
+        bass_enhancer=bass_enhancer, deep_bass=False,
+    )
+    for name in list(controls):
+        if name.startswith("hp") and name.endswith(":Freq"):
+            controls[name] = 10.0
+    return controls
+
+
+def profile_summary(path):
+    """A short label for a saved profile, or None when there is none."""
+    try:
+        profile = json.loads(read_text_bounded(path) or '')
+    except (OSError, ValueError):
+        return None
+    fit = profile.get("fit") or {}
+    created = str(profile.get("created_at", ""))[:16].replace("T", " ")
+    # The microphone comes right after the date: with one profile per kind of
+    # microphone, that is the word that tells the two apart.
+    kind = microphone_kind(profile)
+    return {
+        "created_at": profile.get("created_at"),
+        "microphone_kind": kind,
+        "label": f"{created} · {MICROPHONE_KIND_LABELS[kind]} · "
+                 f"{fit.get('filter_count', 0)} filters · "
+                 f"{VOICING_LABELS.get(profile.get('voicing'), 'neutral')} · "
+                 f"{BASS_LABELS.get(profile.get('bass'), 'normal bass')} · "
+                 f"{LOUDNESS_LABELS.get(profile.get('loudness'), 'protected')}",
+        "voicing": profile.get("voicing", "neutral"),
+        "bass": profile.get("bass", "normal"),
+        "loudness": profile.get("loudness", "protected"),
+        "plugin_version": profile.get("plugin_version"),
+    }
+
+
+def keep_previous_profile():
+    """Set aside the profile being listened to, for comparison with the next one."""
+    if PROFILE.exists() and compare_state()["active"] == "current":
+        shutil.copy2(PROFILE, PREVIOUS_PROFILE)
+    # When the previous profile was playing, it stays "previous": that is the
+    # sound the new install will be compared against.
+    write_compare_state({"active": "current", "bypass": False})
+
+
+
+def service_active():
+    return dsp_running()
+
+
+def tuning_node_id():
+    """Compatibility shim: daemon presence as a truthy token."""
+    return "dsp" if dsp_running() else None
+
+
+def live_controls(node_id=None):
+    """The running DSP graph's controls by name."""
+    response = dsp_request({"cmd": "get_controls"})
+    if not response or not response.get("ok"):
+        return {}
+    return {str(k): float(v) for k, v in (response.get("controls") or {}).items()}
+
+
+def write_controls(node_id, controls):
+    """Push controls to the DSP daemon without a readback."""
+    response = dsp_request({"cmd": "set_controls", "controls": {
+        str(k): float(v) for k, v in controls.items()
+    }})
+    return bool(response and response.get("ok"))
+
+
+def apply_controls_live(controls):
+    """Update the running filter in place; False when it must be restarted."""
+    if not dsp_running():
+        return False
+    current = live_controls()
+    if current and any(name not in current for name in controls):
+        # Older/empty graph — restart to load the full control set.
+        if len(current) < 8:
+            return False
+    if not write_controls(None, controls):
+        return False
+    after = live_controls()
+    for name, value in controls.items():
+        try:
+            readback = float(after[name])
+        except (KeyError, TypeError, ValueError):
+            return False
+        if abs(readback - float(value)) > 1e-3 * max(1.0, abs(float(value))):
+            return False
+    return True
+
+
+def null_sink_monitor():
+    return f"{VIRTUAL_SINK}.monitor"
+
+
+def ensure_null_sink():
+    """Load the virtual sink apps play into; remember the module index."""
+    sinks = pactl_json("sinks")
+    if any(item.get("name") == VIRTUAL_SINK for item in sinks):
+        return True
+    result = run(
+        [
+            "pactl", "load-module", "module-null-sink",
+            f"sink_name={VIRTUAL_SINK}",
+            "sink_properties=device.description=Calibrated Speakers",
+        ],
+        check=False, capture=True,
+    )
+    if result.returncode != 0:
+        return False
+    module_id = (result.stdout or "").strip()
+    secure_directory(DATA, repair_contents=True)
+    if module_id.isdigit():
+        write_atomic(NULL_MODULE_STATE, module_id + "\n")
+    return any(item.get("name") == VIRTUAL_SINK for item in pactl_json("sinks"))
+
+
+def unload_null_sink():
+    module_id = None
+    try:
+        raw = read_text_bounded(NULL_MODULE_STATE, limit=64)
+        if raw:
+            module_id = raw.strip()
+    except OSError:
+        pass
+    if module_id and module_id.isdigit():
+        run(["pactl", "unload-module", module_id], check=False)
+    else:
+        # Fall back: find by name argument.
+        result = run(["pactl", "list", "modules", "short"], check=False, capture=True)
+        for line in (result.stdout or "").splitlines():
+            if "module-null-sink" in line and VIRTUAL_SINK in line:
+                run(["pactl", "unload-module", line.split()[0]], check=False)
+                break
+    try:
+        NULL_MODULE_STATE.unlink()
+    except OSError:
+        pass
+
+
+def stop_dsp_daemon():
+    response = dsp_request({"cmd": "shutdown"})
+    if DSP_PID.exists():
+        try:
+            pid = int(read_text_bounded(DSP_PID, limit=64).strip())
+            os.kill(pid, signal.SIGTERM)
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        for _ in range(30):
+            if not dsp_running():
+                break
+            time.sleep(0.1)
+        try:
+            if DSP_PID.exists():
+                pid = int(read_text_bounded(DSP_PID, limit=64).strip())
+                os.kill(pid, signal.SIGKILL)
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        try:
+            DSP_PID.unlink()
+        except OSError:
+            pass
+    return response
+
+
+def start_dsp_daemon(physical_sink):
+    """Start the userspace DSP if needed and push current controls later."""
+    runtime_dir()
+    if not ensure_null_sink():
+        raise SystemExit("Could not create the calibrated null sink.")
+    if dsp_running():
+        return
+    if not DSP_SCRIPT.is_file():
+        raise SystemExit(f"Missing DSP daemon script: {DSP_SCRIPT}")
+    proc = subprocess.Popen(
+        [
+            "/usr/bin/python3", "-s", str(DSP_SCRIPT),
+            null_sink_monitor(), physical_sink,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    _write_pidfile(DSP_PID, proc.pid)
+    for _ in range(40):
+        if dsp_running() and dsp_request({"cmd": "ping"}):
+            return
+        if proc.poll() is not None:
+            break
+        time.sleep(0.1)
+    raise SystemExit("The DSP daemon did not start; check PulseAudio and python3-lilv.")
+
+
+@contextlib.contextmanager
+def added_sound_silenced():
+    """Mute everything that invents sound while the filters are measured.
+
+    The bass add-on makes harmonics that were never in the signal, and the
+    loudness compensator bends the response by an amount that depends on the
+    volume knob.  Neither is something a linear model of the filters
+    predicts, so a check that left them running would measure them as error
+    exactly where they act, and feeding that back would have the optimizer
+    cut away what they had just added.  Only their own controls are touched,
+    so the filters under test are untouched.
+    """
+    node_id = tuning_node_id() if service_active() else None
+    if node_id is None:
+        yield False
+        return
+    live = live_controls(node_id)
+    running, quiet = {}, {}
+
+    enhancer = {name: value for name, value in live.items() if name.startswith("bass:")}
+    if enhancer and enhancer.get("bass:bypass", 1.0) < 0.5:
+        running.update(enhancer)
+        quiet.update({**enhancer, "bass:bypass": 1.0, "bass:amt": 0.0})
+
+    compensation = {
+        name: value for name, value in live.items() if name.startswith("loudcomp:")
+    }
+    if compensation and compensation.get("loudcomp:enabled", 0.0) >= 0.5:
+        # The make-up that pays back the contour's attenuation lives on the
+        # limiter, so silencing the contour has to take that back off too, or
+        # the speaker would be measured louder than it plays.
+        makeup = 10.0 ** (-float(compensation.get("loudcomp:volume", 0.0)) / 20.0)
+        gain = float(live.get("limiter:g_in", 1.0))
+        running.update(compensation)
+        running["limiter:g_in"] = gain
+        quiet.update({**compensation, "loudcomp:enabled": 0.0,
+                      "loudcomp:volume": 0.0, "loudcomp:input": 1.0,
+                      "limiter:g_in": round(gain / makeup, 6)})
+
+    if not quiet or not apply_controls_live(quiet):
+        yield False
+        return
+    try:
+        yield True
+    finally:
+        apply_controls_live(running)
+
+
+
+@contextlib.contextmanager
+def correction_silenced():
+    """Flatten the running filter while the raw speakers are measured.
+
+    Sweeps are played straight at the physical device, which already bypasses
+    the filter chain, but that relies on the stream landing where it was
+    aimed.  Flattening the filter as well makes a calibration measure the bare
+    speakers even if the stream is routed through the correction, so a profile
+    can never be fitted to a sound that was already corrected.  The previous
+    control values are restored afterwards, without restarting the tuning.
+    """
+    node_id = tuning_node_id() if service_active() else None
+    if node_id is None or compare_state()["bypass"]:
+        yield False
+        return
+    # Flattened, not level-matched: a calibration measures the speaker as it
+    # is, and an attenuation here would be measured as the speaker being quiet.
+    wanted = set(transparent_controls())
+    live = live_controls(node_id)
+    saved = {name: value for name, value in live.items() if name in wanted}
+    if len(saved) != len(wanted) or not apply_controls_live(transparent_controls()):
+        # The filter could not be flattened, so leave it alone and rely on the
+        # stream target; the measurement records that this happened.
+        yield False
+        return
+    try:
+        yield True
+    finally:
+        apply_controls_live(saved)
+
+
+
+def activate_profile(profile):
+    """Make the running tuning play this profile, live when possible."""
+    fit = profile.get("fit") or {}
+    enhancer = bass_enhancer_status()["usable"]
+    deep_bass = profile.get("deep_bass") == "on" and enhancer
+    compensation = profile.get("loudness_compensation") == "on"
+    # Volume for loudness: virtual sink is the user-facing default.
+    volume = sink_volume_db(VIRTUAL_SINK if service_active() else listening_sink(profile))
+    controls = graph_controls(
+        fit, bass_enhancer=enhancer, deep_bass=deep_bass,
+        loudness_compensation=compensation, sink_volume_db=volume,
+    )
+    state = compare_state()
+    if state["bypass"]:
+        state["bypass"] = False
+        write_compare_state(state)
+    if service_active() and apply_controls_live(controls):
+        return "live"
+    restart_tuning(profile, controls)
+    return "restart"
+
+
+def restart_tuning(profile=None, controls=None):
+    profile = profile or load_profile(PROFILE)
+    if profile is None:
+        raise SystemExit("No calibration profile to start.")
+    physical = profile["speaker"]["name"]
+    # Remember prior default once.
+    try:
+        if not PREVIOUS_DEFAULT_STATE.exists():
+            current = run(["pactl", "get-default-sink"], check=False, capture=True).stdout.strip()
+            if current and current != VIRTUAL_SINK:
+                secure_directory(DATA, repair_contents=True)
+                write_atomic(PREVIOUS_DEFAULT_STATE, current + "\n")
+    except OSError:
+        pass
+    stop_dsp_daemon()
+    start_dsp_daemon(physical)
+    fit = profile.get("fit") or {}
+    enhancer = bass_enhancer_status()["usable"]
+    if controls is None:
+        controls = graph_controls(
+            fit,
+            bass_enhancer=enhancer,
+            deep_bass=profile.get("deep_bass") == "on" and enhancer,
+            loudness_compensation=profile.get("loudness_compensation") == "on",
+            sink_volume_db=sink_volume_db(VIRTUAL_SINK),
+        )
+    if not write_controls(None, controls):
+        raise SystemExit("DSP daemon started but refused the profile controls.")
+    for _ in range(30):
+        if any(item.get("name") == VIRTUAL_SINK for item in pactl_json("sinks")):
+            move_apps(VIRTUAL_SINK)
+            return
+        time.sleep(0.25)
+    raise SystemExit("The calibrated sink did not appear.")
+
+
+def install_profile(profile, graph=None):
+    if not LIMITER_PROBE.exists():
+        raise SystemExit(
+            f"The filter chain needs {LIMITER_PACKAGE}, which this machine does "
+            "not have. The panel can install it for you, or run:\n"
+            f"  sudo apt install -y {LIMITER_PACKAGE}"
+        )
+    # Graph hosting needs lilv even when LV2 plugins are present.
+    try:
+        import lilv  # noqa: F401
+    except ImportError:
+        raise SystemExit(
+            "The PulseAudio DSP daemon needs python3-lilv. Install it with:\n"
+            "  sudo apt install -y python3-lilv"
+        )
+    secure_directory(DATA, repair_contents=True)
+    keep_previous_profile()
+    write_atomic(PROFILE, json.dumps(profile, indent=2) + "\n")
+    return activate_profile(profile)
+
+
+def ensure_running():
+    """Re-arm the DSP after login when a profile is still installed."""
+    profile = load_profile(PROFILE)
+    if profile is None:
+        return {"running": False, "message": "No profile installed."}
+    if not service_active():
+        restart_tuning(profile)
+    move_apps(VIRTUAL_SINK)
+    if (profile.get("loudness_compensation") == "on"
+            and not loudness_running()):
+        start_loudness_tracker()
+    return {"running": True, "sink": VIRTUAL_SINK}
+
+
+def load_profile(path):
+    try:
+        profile = json.loads(read_text_bounded(path) or '')
+    except (OSError, ValueError):
+        return None
+    if not profile.get("fit") or not profile.get("speaker", {}).get("name"):
+        return None
+    return profile
+
+
+def compare_payload():
+    state = compare_state()
+    return {
+        "available": load_profile(PREVIOUS_PROFILE) is not None
+        and load_profile(PROFILE) is not None,
+        "active": state["active"],
+        "bypass": state["bypass"],
+        "level_match_db": bypass_level_match(playing_profile()),
+        "current": profile_summary(PROFILE),
+        "previous": profile_summary(PREVIOUS_PROFILE),
+    }
+
+
+def playing_profile():
+    """The profile that should be audible now, per the compare state."""
+    state = compare_state()
+    target = PREVIOUS_PROFILE if state["active"] == "previous" else PROFILE
+    return load_profile(target) or load_profile(PROFILE)
+
+
+def bypass_level_match(profile):
+    """Attenuation for the plain speakers, matched to the correction's loudness."""
+    fit = (profile or {}).get("fit") or {}
+    if "loudness_loss_db" not in fit:
+        # A profile from before the loudness of a correction was measured.
+        return 0.0
+    # From the light module rather than the optimizer: the panel asks for this
+    # on every status read, and the optimizer would load numpy to answer it.
+    from calibration_levels import bypass_level_match_db
+    return bypass_level_match_db(fit)
+
+
+def bypass_toggle():
+    """Switch the running graph between unity and the playing profile, live."""
+    state = compare_state()
+    profile = playing_profile()
+    if profile is None:
+        raise SystemExit("No calibration is installed, so there is nothing to switch off.")
+    match = bypass_level_match(profile)
+    if not state["bypass"]:
+        method = "live"
+        flat = transparent_controls(level_match_db=match)
+        if not (service_active() and apply_controls_live(flat)):
+            # The running graph has an older shape, so its controls cannot be
+            # zeroed by name.  Activating the profile regenerates the graph in
+            # the current shape (restarting once); then unity can be applied.
+            method = activate_profile(profile)
+            if not apply_controls_live(transparent_controls(level_match_db=match)):
+                raise SystemExit(
+                    "Could not switch the calibration off; the tuning was restarted with it on."
+                )
+        state = compare_state()
+        state["bypass"] = True
+        write_compare_state(state)
+    else:
+        # activate_profile clears the bypass flag itself.
+        method = activate_profile(profile)
+    payload = compare_payload()
+    payload["method"] = method
+    payload["level_match_db"] = match
+    return payload
+
+
+def compare_toggle():
+    """Play the other of the two most recent profiles, live when possible."""
+    state = compare_state()
+    state["active"] = "previous" if state["active"] == "current" else "current"
+    target = load_profile(PREVIOUS_PROFILE if state["active"] == "previous" else PROFILE)
+    if target is None:
+        raise SystemExit("No previous profile to compare with; install a second profile first.")
+    state["bypass"] = False
+    write_compare_state(state)
+    payload = compare_payload()
+    payload["method"] = activate_profile(target)
+    payload["bypass"] = False
+    return payload
+
+
+def analyze_recording(
+    recording, channel, schedule, measurement_spec, *, internal_mic, calibration
+):
+    load_dsp()
+    captures = read_pcm16_wave_channels(recording, measurement_spec.rate)
+    recorded_channels = captures.shape[1]
+    if channel == "all":
+        if not internal_mic:
+            raise ValueError("All-channel mode is reserved for built-in microphone arrays.")
+        input_channels = list(range(recorded_channels))
+        measurements = [
+            analyse_capture(
+                captures[:, input_channel],
+                schedule,
+                measurement_spec,
+                record_lead_seconds=RECORD_LEAD_SECONDS,
+                internal_mic=True,
+                calibration=None,
+            )
+            for input_channel in input_channels
+        ]
+        measurement = combine_microphone_measurements(measurements, input_channels)
+    else:
+        if channel < 0 or channel >= recorded_channels:
+            raise ValueError(
+                f"Microphone has {recorded_channels} channel(s), not channel {channel + 1}."
+            )
+        measurement = analyse_capture(
+            captures[:, channel],
+            schedule,
+            measurement_spec,
+            record_lead_seconds=RECORD_LEAD_SECONDS,
+            internal_mic=internal_mic,
+            calibration=calibration,
+        )
+        for curve in measurement.get("validation_curves", []):
+            curve["input_channel"] = channel
+    measurement["microphone_channels"] = recorded_channels
+    measurement["microphone_channel"] = channel
+    return measurement
+
+
+def default_sweep_level(sink_name):
+    """Built-in speakers get a louder sweep than external outputs."""
+    if sink_name.startswith("alsa_output.pci-"):
+        return INTERNAL_SPEAKER_LEVEL_DBFS
+    return EXTERNAL_SPEAKER_LEVEL_DBFS
+
+
+def record_while_playing(
+    sink_name, mic_name, channels, program, recording, lead_seconds, tail_seconds
+):
+    """Record the microphone while a program plays on the selected sink."""
+    recorder = subprocess.Popen([
+        "pw-record", f"--target={mic_name}", f"--rate={RATE}",
+        f"--channels={channels}", "--format=s16", str(recording)])
+    try:
+        time.sleep(lead_seconds)
+        run(["pw-play", f"--target={sink_name}", str(program)])
+        time.sleep(tail_seconds)
+    finally:
+        recorder.send_signal(signal.SIGINT)
+        recorder.wait(timeout=5)
+
+
+def playing_applications():
+    """Names of applications with an unpaused playback stream right now."""
+    names = []
+    try:
+        streams = pactl_json("sink-inputs")
+    except (subprocess.CalledProcessError, ValueError, OSError):
+        return names
+    for stream in streams:
+        if stream.get("corked") or stream.get("mute"):
+            continue
+        properties = stream.get("properties", {})
+        name = properties.get("application.name") or properties.get("media.name")
+        if name and name not in ("pw-play", "pw-record", "(null)") and name not in names:
+            names.append(name)
+    return names
+
+
+def find_measurement_level(sink_name, mic_name, channel, channels, level_sink=None):
+    """Probe the speaker/microphone pair and choose the sweep level."""
+    load_dsp()
+    default_level = default_sweep_level(level_sink or sink_name)
+    probe_program = DATA / "level-probe.wav"
+    probe_recording = DATA / "level-probe-recording.wav"
+
+    def run_probe(level_dbfs):
+        spec = SweepSpec(level_dbfs=level_dbfs, **LEVEL_PROBE_SPEC)
+        program, _ = build_measurement_signal(spec)
+        write_pcm16_wave(probe_program, program, RATE)
+        record_while_playing(
+            sink_name, mic_name, channels, probe_program, probe_recording,
+            LEVEL_PROBE_LEAD_SECONDS, LEVEL_PROBE_TAIL_SECONDS,
+        )
+        captures = read_pcm16_wave_channels(probe_recording, RATE)
+        if channel != "all":
+            if channel < 0 or channel >= captures.shape[1]:
+                raise ValueError(
+                    f"Microphone has {captures.shape[1]} channel(s), not channel {channel + 1}."
+                )
+            captures = captures[:, [channel]]
+        return analyse_level_probe(captures, RATE)
+
+    search = search_measurement_level(
+        run_probe,
+        start_level_dbfs=default_level + LEVEL_SEARCH_START_OFFSET_DB,
+        bounds=(
+            default_level + LEVEL_SEARCH_BOUNDS_DB[0],
+            default_level + LEVEL_SEARCH_BOUNDS_DB[1],
+        ),
+        attempts=LEVEL_SEARCH_ATTEMPTS,
+    )
+    search["default_level_dbfs"] = default_level
+    if search["status"] in LEVEL_SEARCH_ABORT_STATUSES:
+        warnings, guidance = level_search_advice(search)
+        playing = playing_applications()
+        if playing:
+            guidance.append("Currently playing audio: " + ", ".join(playing) + ".")
+        raise ValueError(" ".join(warnings + guidance))
+    return search
+
+
+def capture_measurement(
+    sink_name, mic_name, channel, mic_cal_file=None, *,
+    level_sink=None, sweeps=None, recording=None,
+):
+    load_dsp()
+    """Find a safe level, play the Phase 1 program, capture it, and analyze it.
+
+    ``level_sink`` names the output the level default should be taken from,
+    which differs from the played sink when measuring through the calibrated
+    sink that fronts it.
+    """
+    channels = next(
+        (channel_count(item) for item in microphones() if item["name"] == mic_name), 1
+    )
+    secure_directory(DATA, repair_contents=True)
+    level_search = find_measurement_level(
+        sink_name, mic_name, channel, channels, level_sink=level_sink
+    )
+    sweeps = sweeps or DATA / "calibration-sweeps.wav"
+    recording = recording or DATA / "measurement.wav"
+    calibration = parse_mic_calibration(mic_cal_file)
+    level = level_search["selected_level_dbfs"]
+    # The probe is a fraction of the length of the real sweep, so a resonance
+    # has less time to ring up during it.  If the full capture clips anyway,
+    # one quieter retry costs less than a rejected measurement.
+    for attempt in range(2):
+        measurement_spec = SweepSpec(level_dbfs=level)
+        program, schedule = build_measurement_signal(measurement_spec)
+        write_pcm16_wave(sweeps, program, RATE)
+        record_while_playing(
+            sink_name, mic_name, channels, sweeps, recording, RECORD_LEAD_SECONDS, 0.75
+        )
+        measurement = analyze_recording(
+            recording,
+            channel,
+            schedule,
+            measurement_spec,
+            internal_mic=mic_name.startswith("alsa_input.pci-"),
+            calibration=calibration,
+        )
+        metrics = measurement["quality"]["metrics"]
+        if metrics["clipped_samples"] == 0 or attempt == 1:
+            break
+        retry = level_after_clipping(
+            level, metrics["maximum_accepted_peak_dbfs"], level_search["level_bounds_dbfs"][0]
+        )
+        if retry >= level:
+            break
+        level_search = dict(level_search, selected_level_dbfs=round(retry, 2),
+                            status="retried-after-clipping", confirmed=False)
+        level = retry
+    attach_level_search(measurement, level_search)
+    return measurement
+
+
+def attach_level_search(measurement, level_search):
+    """Record the level search and surface an unsettled search as guidance."""
+    if not level_search:
+        return
+    measurement["level_search"] = level_search
+    warnings, guidance = level_search_advice(level_search)
+    quality = measurement["quality"]
+    quality["warnings"] = list(dict.fromkeys(quality["warnings"] + warnings))
+    quality["guidance"] = list(dict.fromkeys(quality["guidance"] + guidance))
+    if quality["accepted"]:
+        quality["verdict"] = "warning" if quality["warnings"] else "pass"
+
+
+VOICING_LABELS = {"neutral": "flat", "warm": "warm"}
+LOUDNESS_LABELS = {"protected": "protected", "balanced": "balanced", "matched": "matched"}
+BASS_LABELS = {"normal": "normal bass", "full": "full bass"}
+MICROPHONE_KIND_LABELS = {"internal": "internal mic", "external": "external mic"}
+
+
+def profile_from_measurement(
+    sink, mic, channel, voicing, measurement, loudness="protected", bass="normal",
+    channel_trim="off",
+):
+    load_dsp()
+    quality = measurement["quality"]
+    internal_mic = mic["name"].startswith("alsa_input.pci-")
+    fit_payload = None
+    if quality["accepted"]:
+        fit_payload = optimize_peq(
+            measurement,
+            voicing,
+            internal_mic=internal_mic,
+            loudness=loudness,
+            bass=bass,
+            channel_trim=channel_trim,
+        )
+    profile = {
+        "schema_version": 5,
+        "plugin_version": plugin_version(),
+        "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "speaker": {"name": sink["name"], "description": label(sink)},
+        "microphone": {
+            "name": mic["name"],
+            "description": label(mic),
+            "channel": channel,
+            "internal": internal_mic,
+            "calibration_file": measurement["microphone_calibration"]["path"]
+                if measurement["microphone_calibration"] else None,
+        },
+        "voicing": voicing,
+        "loudness": loudness,
+        "bass": bass,
+        "channel_trim": channel_trim,
+        # Carried across refits so switching voicing does not lose them.
+        "deep_bass": (load_profile(PROFILE) or {}).get("deep_bass", "off"),
+        "loudness_compensation":
+            (load_profile(PROFILE) or {}).get("loudness_compensation", "off"),
+        "safety": {
+            "eq_max_db": fit_payload["maximum_allowed_boost_db"] if fit_payload else 0,
+            "eq_min_db": fit_payload["cut_limit_db"] if fit_payload else 0,
+            "per_filter_min_db": fit_payload["per_filter_cut_limit_db"] if fit_payload else 0,
+            "highpass_hz": fit_payload["highpass_hz"] if fit_payload else DEFAULT_HIGHPASS_HZ,
+            "highpass_stages": fit_payload["highpass_stages"] if fit_payload else 2,
+            "limiter_ceiling_dbfs": -1,
+            "input_trim_db": -fit_payload["headroom_db"] if fit_payload else -1,
+            "makeup_gain_db": fit_payload["makeup_db"] if fit_payload else 0,
+            "boost_policy": "Cuts are preferred; any boost must be broad, reliable, and improve a held-out repeat.",
+            "loudness_policy": "Make-up gain pays back part of the loudness the cuts removed, never more than 6 dB; the -1 dBFS limiter absorbs the peaks.",
+            "bass_policy": "Full bass is a +3 dB low shelf at the measured knee, paid for by input trim like any boost.",
+        },
+        "measurement": measurement,
+        "quality": quality,
+        "fit": fit_payload,
+    }
+    write_atomic(PROPOSAL, json.dumps(profile, indent=2) + "\n")
+    archive_measurement(profile)
+    return profile
+
+
+def microphone_kind(profile):
+    """Which microphone made this: the built-in array, or a measuring one."""
+    return "internal" if (profile.get("microphone") or {}).get("internal") else "external"
+
+
+def archive_measurement(profile):
+    """Keep this measurement so the two microphones can be put side by side.
+
+    Only the curve is kept, not the recording: a few kilobytes rather than
+    megabytes, and the comparison is about shape.  Each kind of microphone has
+    one slot, so measuring again with the same kind replaces it.
+    """
+    import numpy as np
+
+    measurement = profile.get("measurement") or {}
+    frequencies = measurement.get("frequency_hz") or []
+    channels = measurement.get("channels") or []
+    if len(frequencies) < 2 or not channels:
+        return None
+    responses = np.asarray(
+        [channel["response_db"] for channel in channels], dtype=float
+    )
+    # The median across speakers, so one bad channel cannot define the curve.
+    combined = np.median(responses, axis=0)
+    grid = np.asarray(frequencies, dtype=float)
+    band = ((grid >= MICROPHONE_ALIGN_BAND_HZ[0])
+            & (grid <= MICROPHONE_ALIGN_BAND_HZ[1]))
+    if np.any(band):
+        combined = combined - float(np.median(combined[band]))
+    uncertainty = np.mean(
+        np.asarray([channel.get("uncertainty_db") or [] for channel in channels],
+                   dtype=float),
+        axis=0,
+    ) if all(channel.get("uncertainty_db") for channel in channels) else None
+
+    mic = profile.get("microphone") or {}
+    record = {
+        "kind": microphone_kind(profile),
+        "created_at": profile.get("created_at"),
+        "microphone": short_label(mic.get("description")),
+        "calibration_file": bool(mic.get("calibration_file")),
+        "frequency_hz": [round(float(value), 2) for value in grid],
+        "response_db": [round(float(value), 3) for value in combined],
+        "uncertainty_db": ([round(float(value), 3) for value in uncertainty]
+                           if uncertainty is not None else None),
+        "verdict": safe_verdict((profile.get("quality") or {}).get("verdict")),
+        "speaker": short_label((profile.get("speaker") or {}).get("description")),
+    }
+    try:
+        write_atomic(MICROPHONE_ARCHIVE / f"{record['kind']}.json",
+                     json.dumps(record) + "\n")
+    except OSError:
+        return None
+    return record
+
+
+def backfill_archive():
+    """Fill an empty slot from a profile that already exists.
+
+    The archive was added after the fact, so somebody who measured before it
+    existed would otherwise have nothing to compare until they measured twice
+    more.  Only slots that are missing are written, so a real measurement is
+    never replaced by an older profile.
+    """
+    for path in (PROFILE, PREVIOUS_PROFILE):
+        profile = load_profile(path)
+        if not profile:
+            continue
+        kind = microphone_kind(profile)
+        if (MICROPHONE_ARCHIVE / f"{kind}.json").exists():
+            continue
+        archive_measurement(profile)
+
+
+def valid_microphone_record(record):
+    """A stored curve, or None if it is not the shape this wrote.
+
+    The file is the plugin's own, but it sits at a predictable name under the
+    data directory, so what comes back is checked rather than trusted: two
+    equal-length arrays of finite numbers, no more points than the analysis
+    grid could ever hold, and labels cut to a row.
+    """
+    if not isinstance(record, dict):
+        return None
+    frequencies = record.get("frequency_hz")
+    response = record.get("response_db")
+    if not isinstance(frequencies, list) or not isinstance(response, list):
+        return None
+    if not 2 <= len(frequencies) <= MICROPHONE_CURVE_LIMIT:
+        return None
+    if len(response) != len(frequencies):
+        return None
+    for series in (frequencies, response):
+        for value in series:
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                return None
+            if value != value or value in (float("inf"), float("-inf")):
+                return None
+    record["microphone"] = short_label(record.get("microphone"))
+    record["speaker"] = short_label(record.get("speaker"))
+    record["verdict"] = safe_verdict(record.get("verdict"))
+    return record
+
+
+def microphone_comparison():
+    """Both archived measurements, and where they disagree.
+
+    A built-in microphone sits inside the case, inches from one driver and
+    behind whatever the lid is made of; a measuring microphone sits where the
+    listener does.  Where the two disagree, the built-in one is describing its
+    own position rather than the sound arriving at the ear.
+    """
+    backfill_archive()
+    records = {}
+    for kind in ("internal", "external"):
+        try:
+            raw = read_text_bounded(MICROPHONE_ARCHIVE / f"{kind}.json")
+        except OSError:
+            raw = None
+        if raw:
+            try:
+                records[kind] = valid_microphone_record(json.loads(raw))
+            except ValueError:
+                pass
+    records = {kind: record for kind, record in records.items() if record}
+    payload = {
+        "internal": records.get("internal"),
+        "external": records.get("external"),
+        "bands": [],
+        "available": len(records) == 2,
+    }
+    if not payload["available"]:
+        return payload
+
+    import numpy as np
+
+    grid = np.asarray(records["external"]["frequency_hz"], dtype=float)
+    external = np.asarray(records["external"]["response_db"], dtype=float)
+    internal = np.interp(
+        grid,
+        np.asarray(records["internal"]["frequency_hz"], dtype=float),
+        np.asarray(records["internal"]["response_db"], dtype=float),
+    )
+    difference = internal - external
+    for label, low, high in (("bass", 80.0, 250.0), ("midrange", 250.0, 2000.0),
+                             ("presence", 2000.0, 6000.0), ("treble", 6000.0, 16000.0)):
+        window = (grid >= low) & (grid < high)
+        if not np.any(window):
+            continue
+        payload["bands"].append({
+            "band": label,
+            "low_hz": low,
+            "high_hz": high,
+            "difference_db": round(float(np.mean(difference[window])), 2),
+        })
+    worst = max(payload["bands"], key=lambda entry: abs(entry["difference_db"]),
+                default=None)
+    payload["worst"] = worst
+    payload["rms_difference_db"] = round(float(np.sqrt(np.mean(difference ** 2))), 2)
+    return payload
+
+
+def build_profile(
+    sink, mic, channel, voicing, mic_cal_file=None, loudness="protected", bass="normal",
+    channel_trim="off",
+):
+    if not is_physical_sink(sink["name"]):
+        raise SystemExit(
+            "A calibration must measure a real speaker output, never the calibrated "
+            "one, or the correction would be fitted on top of itself."
+        )
+    with correction_silenced() as silenced:
+        measurement = capture_measurement(
+            sink["name"], mic["name"], channel, mic_cal_file
+        )
+    measurement["measured_through"] = {
+        "sink": sink["name"],
+        "corrected": False,
+        "correction_silenced_during_measurement": bool(silenced),
+    }
+    return profile_from_measurement(
+        sink, mic, channel, voicing, measurement, loudness, bass, channel_trim
+    )
+
+
+def reanalyze_saved_capture(
+    voicing=None, channel_override=None, loudness=None, bass=None, channel_trim=None
+):
+    """Re-run current analysis and optimization on the last capture, without sound."""
+    load_dsp()
+    recording = DATA / "measurement.wav"
+    if not PROPOSAL.exists() or not recording.exists():
+        raise SystemExit("No saved capture and proposal are available to reanalyze.")
+    previous = json.loads(read_text_bounded(PROPOSAL) or '')
+    sink = previous["speaker"]
+    mic = previous["microphone"]
+    channel = parse_channel_selection(
+        channel_override if channel_override is not None else mic.get("channel", 0)
+    )
+    # The saved capture was recorded at whatever level the search chose, so
+    # the level must come from the saved measurement, not from the sink type.
+    previous_measurement = previous.get("measurement", {})
+    if (previous_measurement.get("measured_through") or {}).get("corrected"):
+        raise SystemExit(
+            "The saved capture was recorded through the correction, so it cannot be "
+            "refitted. Calibrate again."
+        )
+    saved_level = previous_measurement.get("sweep", {}).get("level_dbfs")
+    measurement_spec = SweepSpec(
+        level_dbfs=float(saved_level) if saved_level is not None
+        else default_sweep_level(sink["name"])
+    )
+    _, schedule = build_measurement_signal(measurement_spec)
+    calibration_path = mic.get("calibration_file")
+    calibration = parse_mic_calibration(calibration_path) if calibration_path else None
+    measurement = analyze_recording(
+        recording,
+        channel,
+        schedule,
+        measurement_spec,
+        internal_mic=mic["name"].startswith("alsa_input.pci-"),
+        calibration=calibration,
+    )
+    attach_level_search(measurement, previous_measurement.get("level_search"))
+    # A refit re-reads the raw capture, so anything learned from a check has to
+    # be put back or changing the voicing would silently undo it.
+    refinement = previous_measurement.get("refinement")
+    if refinement and refinement.get("residual_db"):
+        measurement = apply_refinement(
+            measurement,
+            np.interp(
+                np.log(np.asarray(measurement["frequency_hz"], dtype=float)),
+                np.log(np.asarray(previous_measurement["frequency_hz"], dtype=float)),
+                np.asarray(refinement["residual_db"], dtype=float),
+            ),
+        )
+        measurement["refinement"] = refinement
+    return profile_from_measurement(
+        sink, mic, channel, voicing or previous.get("voicing", "neutral"), measurement,
+        loudness or previous.get("loudness", "protected"),
+        bass or previous.get("bass", "normal"),
+        channel_trim or previous.get("channel_trim", "off"),
+    )
+
+
+def parse_channel_selection(value):
+    if isinstance(value, str) and value.lower() == "all":
+        return "all"
+    try:
+        return int(value)
+    except (TypeError, ValueError) as error:
+        raise SystemExit("Microphone channel must be a zero-based number or 'all'.") from error
+
+
+def calibrate_noninteractive(
+    sink_name, mic_name, channel, voicing, mic_cal_file=None, loudness="protected",
+    bass="normal", channel_trim="off",
+):
+    sink = next((item for item in physical_sinks() if item["name"] == sink_name), None)
+    mic = next((item for item in microphones() if item["name"] == mic_name), None)
+    if sink is None or mic is None:
+        raise SystemExit("Selected audio device is no longer available.")
+    channel = parse_channel_selection(channel)
+    channels = channel_count(mic)
+    internal_mic = mic["name"].startswith("alsa_input.pci-")
+    if channel == "all" and not internal_mic:
+        raise SystemExit("All-channel mode is available only for built-in microphone arrays.")
+    if channel != "all" and (channel < 0 or channel >= channels):
+        raise SystemExit(f"Microphone channel must be between 1 and {channels}.")
+    try:
+        return build_profile(
+            sink, mic, channel, voicing, mic_cal_file, loudness, bass, channel_trim
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+
+
+def install_proposal():
+    if not PROPOSAL.exists():
+        raise SystemExit("No measured proposal is available.")
+    profile = json.loads(read_text_bounded(PROPOSAL) or '')
+    return install_now(profile)
+
+
+def install_now(profile):
+    if not profile.get("quality", {}).get("accepted") or not profile.get("fit"):
+        raise SystemExit("This measurement failed its quality checks and cannot be installed.")
+    profile["activation"] = install_profile(profile)
+    profile["installed"] = True
+    return profile
+
+
+def install_if_accepted(profile):
+    """Install a fresh profile when it passed, otherwise return it unchanged."""
+    if profile.get("quality", {}).get("accepted") and profile.get("fit"):
+        return install_now(profile)
+    profile["installed"] = False
+    return profile
+
+
+def load_verification():
+    """The stored verification, marked stale when the profile has moved on."""
+    try:
+        report = json.loads(read_text_bounded(VERIFICATION) or '')
+    except (OSError, ValueError):
+        return None
+    if not isinstance(report, dict):
+        return None
+    profile = load_profile(PROFILE)
+    created = profile.get("created_at") if profile else None
+    report["stale"] = report.get("profile_created_at") != created
+    # The panel puts this one in a section heading, which the shell draws.
+    report["verdict"] = safe_verdict(report.get("verdict"))
+    return report
+
+
+def deep_bass_toggle():
+    """Switch the bass add-on on or off, live, without refitting."""
+    status = bass_enhancer_status()
+    if not status["usable"]:
+        if status["installed"]:
+            raise SystemExit(
+                "The installed bass add-on is missing controls this expects "
+                f"({', '.join(status['missing_ports'])}), so it was left out."
+            )
+        return install_bass_enhancer()
+    profile = load_profile(PROFILE)
+    if profile is None:
+        raise SystemExit("Calibrate the speakers first; there is nothing to add bass to.")
+    wanted = "off" if profile.get("deep_bass") == "on" else "on"
+    profile["deep_bass"] = wanted
+    write_atomic(PROFILE, json.dumps(profile, indent=2) + "\n")
+    method = activate_profile(profile)
+    return {**status, "started": False, "deep_bass": wanted, "method": method,
+            "message": ("Deep bass on" if wanted == "on" else "Deep bass off")}
+
+
+def refine_from_check():
+    """Fold what the check measured back into the raw estimate and fit again."""
+    load_dsp()
+    profile = load_profile(PROFILE)
+    if profile is None:
+        raise SystemExit("No calibration is installed to improve.")
+    check = load_verification()
+    if check is None:
+        raise SystemExit("Check the calibration first; there is nothing to learn from yet.")
+    if check.get("stale"):
+        raise SystemExit(
+            "The last check was of a different profile. Check this one first."
+        )
+    if not check.get("measurement_quality", {}).get("accepted"):
+        raise SystemExit(
+            "The last check did not measure cleanly, so it cannot be used to improve "
+            "anything. Run it again in a quiet room."
+        )
+    measurement = profile["measurement"]
+    frequencies = np.asarray(measurement["frequency_hz"], dtype=float)
+    residual = refinement_residual(check, frequencies)
+    refined = apply_refinement(measurement, residual)
+
+    previous = measurement.get("refinement") or {}
+    total = np.asarray(
+        previous.get("residual_db") or np.zeros(frequencies.size), dtype=float
+    ) + residual
+    refined["refinement"] = {
+        "iterations": int(previous.get("iterations", 0)) + 1,
+        "residual_db": np.round(total, 3).tolist(),
+        "last_step_db": np.round(residual, 3).tolist(),
+        "largest_step_db": round(float(np.max(np.abs(residual))), 2),
+        "from_check_at": check.get("checked_at"),
+    }
+    mic = profile["microphone"]
+    return profile_from_measurement(
+        profile["speaker"], mic, mic.get("channel", 0), profile.get("voicing", "neutral"),
+        refined, profile.get("loudness", "protected"), profile.get("bass", "normal"),
+        profile.get("channel_trim", "off"),
+    )
+
+
+def verify_calibration():
+    """Measure through the corrected output and compare it with the fit.
+
+    Always with the microphone the calibration was made with, on the same
+    channels and through the same correction file.  A check with another
+    microphone measures the difference between two microphones, not between
+    the speakers and the plan, so there is no way to ask for one.
+    """
+    load_dsp()
+    profile = load_profile(PROFILE)
+    if profile is None:
+        raise SystemExit("No calibration is installed, so there is nothing to check.")
+    if not service_active():
+        raise SystemExit("The tuning is not running; switch the calibration on first.")
+    if compare_state()["bypass"]:
+        raise SystemExit(
+            "The calibration is switched off, so a check would measure the plain "
+            "speakers. Switch it on and try again."
+        )
+    if not any(item.get("name") == VIRTUAL_SINK for item in pactl_json("sinks")):
+        raise SystemExit("The calibrated output is not present; switch the calibration on first.")
+
+    mic = profile["microphone"]
+    if not any(item["name"] == mic["name"] for item in microphones()):
+        raise SystemExit(
+            "The check needs the microphone this calibration was made with "
+            f"({label(mic)}), and it is not connected."
+        )
+    channel = parse_channel_selection(mic.get("channel", 0))
+    calibration_file = mic.get("calibration_file")
+    # The one measurement that is deliberately made through the correction,
+    # but never through the add-on that invents frequencies.
+    with added_sound_silenced() as muted:
+        measurement = capture_measurement(
+            VIRTUAL_SINK, mic["name"], channel, calibration_file,
+            # The level default belongs to the real speakers behind the filter.
+            level_sink=profile["speaker"]["name"],
+            sweeps=VERIFICATION_SWEEPS, recording=VERIFICATION_RECORDING,
+        )
+    measurement["measured_through"] = {
+        "sink": VIRTUAL_SINK, "corrected": True, "bass_enhancer_muted": bool(muted),
+    }
+    quality = measurement["quality"]
+    channels = measurement.get("channels", [])
+    snr = (
+        np.min(np.vstack([
+            np.asarray(item["snr_db"], dtype=float) for item in channels if "snr_db" in item
+        ]), axis=0).tolist()
+        if channels and all("snr_db" in item for item in channels) else None
+    )
+    report = verification_report(
+        measurement["frequency_hz"],
+        measurement["level_dbfs"],
+        snr,
+        profile["fit"],
+        profile["measurement"]["frequency_hz"],
+    )
+    report.update({
+        "bass_enhancer_muted": measurement["measured_through"]["bass_enhancer_muted"],
+        "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "profile_created_at": profile.get("created_at"),
+        "profile_label": profile_summary(PROFILE)["label"] if PROFILE.exists() else None,
+        "plugin_version": plugin_version(),
+        "measurement_quality": quality,
+        "level_search": measurement.get("level_search"),
+        "stale": False,
+    })
+    if not quality["accepted"]:
+        report["verdict"] = "inconclusive"
+        report["notes"] = [
+            "The check itself did not measure cleanly, so it says nothing about the "
+            "calibration."
+        ] + list(quality["failures"])
+    write_atomic(VERIFICATION, json.dumps(report, indent=2) + "\n")
+    return report
+
+
+def archived_microphones():
+    """Which kinds of microphone have a measurement kept, without the curves.
+
+    The status is read on every panel refresh, so this stays a couple of names
+    and dates; the curves themselves are asked for only when they are drawn.
+    """
+    found = {}
+    for kind in ("internal", "external"):
+        try:
+            raw = read_text_bounded(MICROPHONE_ARCHIVE / f"{kind}.json")
+        except OSError:
+            continue
+        if not raw:
+            continue
+        try:
+            record = json.loads(raw)
+        except ValueError:
+            continue
+        found[kind] = {
+            "microphone": short_label(record.get("microphone")),
+            "created_at": short_label(record.get("created_at"), 40),
+            "verdict": safe_verdict(record.get("verdict")),
+            "calibrated": bool(record.get("calibration_file")),
+        }
+    return found
+
+
+def cached_status():
+    """The last status this plugin wrote, for drawing the panel immediately.
+
+    Read here rather than in the panel: the panel is the shell, and a file at
+    a predictable name under the data directory is something any process
+    running as this user can replace with a symlink or a pipe.  Anything
+    unreadable, oversized or not the shape written is simply absent, because
+    a stale panel is better than a wrong one.
+    """
+    try:
+        payload = json.loads(read_text_bounded(STATUS_CACHE) or "")
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) and payload.get("service") else {}
+
+
+def status_payload():
+    profile = load_profile(PROFILE)
+    proposal = load_profile(PROPOSAL)
+    active = "active" if service_active() else "inactive"
+    default = run(["pactl", "get-default-sink"], check=False, capture=True).stdout.strip()
+    compare = compare_payload()
+    payload = {"service": active, "defaultSink": default or "unknown",
+            # The fallback is a node name, which the device also chooses.
+            "defaultSinkDescription": (short_label(sink_description(default))
+                                       or short_label(default)
+                                       or "the calibrated output"),
+            "calibratedSink": VIRTUAL_SINK,
+            "profile": profile, "proposal": proposal,
+            "enabled": active == "active" and default == VIRTUAL_SINK,
+            "bypass": compare["bypass"],
+            "compare": compare,
+            "verification": load_verification(),
+            "bassEnhancer": bass_enhancer_state(),
+            "deepBass": (profile or {}).get("deep_bass", "off"),
+            "loudnessCompensation": (profile or {}).get("loudness_compensation", "off"),
+            "loudnessTracker": "running" if loudness_running() else "stopped",
+            "microphones": archived_microphones(),
+            "unusableMicrophones": [short_label(name) for name in unusable_microphones()],
+            "measurementSupport": measurement_support()}
+    try:
+        write_atomic(STATUS_CACHE, json.dumps(payload) + "\n")
+    except OSError:
+        pass
+    return payload
+
+
+def choose_mic():
+    all_mics = microphones()
+    print("\nMicrophone type:\n  1. Built-in microphone\n  2. External/USB calibration microphone\n  3. Show all microphones")
+    kind = input("Select 1-3: ").strip()
+    if kind == "1":
+        predicate = lambda item: item["name"].startswith("alsa_input.pci-")
+    elif kind == "2":
+        predicate = lambda item: item["name"].startswith("alsa_input.usb-")
+    else:
+        predicate = None
+    return select(all_mics, "Recording microphone", predicate)
+
+
+def wizard():
+    print("Omaxian Speaker Calibrator\n===========================")
+    print("This prioritizes cuts. Small boosts require a broad, reliable deficit and matching input headroom.")
+    sink = select(physical_sinks(), "Physical speaker output")
+    mic = choose_mic()
+    channels = channel_count(mic)
+    channel = 0
+    if channels > 1:
+        if mic["name"].startswith("alsa_input.pci-"):
+            answer = input(
+                f"Use [a]ll {channels} built-in microphones (recommended), "
+                f"or choose 1-{channels}? [a]: "
+            ).strip().lower()
+            if answer.isdigit() and 1 <= int(answer) <= channels:
+                channel = int(answer) - 1
+            else:
+                channel = "all"
+        else:
+            answer = input(f"Microphone channel 1-{channels} [1]: ").strip()
+            if answer.isdigit() and 1 <= int(answer) <= channels:
+                channel = int(answer) - 1
+    print("\nVoicing:\n  Flat: balanced with more clarity; may sound a little brighter."
+          "\n  Warm: softer and less sharp; comfortable for long listening.")
+    answer = input("Choose [f]lat (recommended) or [w]arm? [f]: ").strip().lower()
+    voicing = "warm" if answer.startswith("w") else "neutral"
+    print("\nBass:\n  Normal: the measured correction only."
+          "\n  Full: a +3 dB low shelf at the speaker's knee, paid for by input trim.")
+    answer = input("Choose [n]ormal (recommended) or [f]ull? [n]: ").strip().lower()
+    bass = "full" if answer.startswith("f") else "normal"
+    print("\nLoudness:\n  Protected: cleanest; the cuts make the speaker a little quieter."
+          "\n  Balanced: half of the lost loudness is added back."
+          "\n  Matched: as loud as before; the limiter works harder at high volume.")
+    answer = input("Choose [p]rotected (recommended), [b]alanced, or [m]atched? [p]: ").strip().lower()
+    loudness = "matched" if answer.startswith("m") else (
+        "balanced" if answer.startswith("b") else "protected"
+    )
+    mic_cal_file = None
+    if not mic["name"].startswith("alsa_input.pci-"):
+        mic_cal_file = input("Microphone calibration file (optional): ").strip() or None
+    print("\nPlacement:")
+    if mic["name"].startswith("alsa_input.pci-"):
+        print("  Leave the laptop open on a hard surface and do not move it.")
+    else:
+        print("  Place the mic on-axis at normal listening distance, centered between speakers.")
+    print("  Pause music/video, keep the room quiet, and use 50-70% hardware volume.")
+    print("  A short level check runs first and sets the sweep level automatically.")
+    input("Press Enter when ready. The level check and repeated left/right sweeps take about 30 seconds...")
+    try:
+        profile = build_profile(sink, mic, channel, voicing, mic_cal_file, loudness, bass)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    quality = profile["quality"]
+    metrics = quality["metrics"]
+    print(f"\nMeasurement quality: {quality['verdict'].upper()}")
+    level_search = profile["measurement"].get("level_search")
+    if level_search:
+        print(f"  Sweep level: {level_search['selected_level_dbfs']:+.1f} dBFS "
+              f"after {len(level_search['attempts'])} probe(s), {level_search['status']}")
+    print(f"  Broadband prominence: {metrics['minimum_broadband_prominence_db']:.1f} dB")
+    print(f"  Repeatability: {metrics['worst_repeatability_db']:.1f} dB")
+    print(f"  Stable broad response: {metrics['minimum_stable_band_percent']:.0f}%")
+    print(f"  Clock drift: {metrics['clock_drift_ppm']:+.0f} ppm")
+    for issue in quality["failures"] + quality["warnings"]:
+        print(f"  - {issue}")
+    if not quality["accepted"]:
+        for advice in quality["guidance"]:
+            print(f"  Retry: {advice}")
+        print("\nNo installable profile was generated.")
+        return
+    fit_payload = profile["fit"]
+    gains = fit_payload["gains_db"]
+    print("\nProposed protected filters:")
+    for item in fit_payload["filters"]:
+        print(f"  {item['type']:9s} {item['frequency_hz']:7.1f} Hz  Q {item['q']:4.2f}  "
+              f"{item['gain_db']:6.2f} dB")
+    highpass = fit_payload.get("highpass") or {}
+    if highpass:
+        knee = highpass.get("knee_hz")
+        print(f"  High-pass: {highpass['frequency_hz']:.0f} Hz, "
+              f"{'2nd' if highpass['stages'] == 1 else '4th'} order"
+              + (f" (measured knee {knee:.0f} Hz)" if knee else " (no knee found)"))
+    if fit_payload.get("bass_shelf"):
+        shelf = fit_payload["bass_shelf"]
+        print(f"  Bass shelf: {shelf['gain_db']:+.1f} dB below {shelf['frequency_hz']:.0f} Hz")
+    print(f"  Input headroom: {fit_payload['headroom_db']:.2f} dB")
+    print(f"  Loudness lost to cuts: {fit_payload['loudness_loss_db']:.1f} dB; "
+          f"make-up {fit_payload['makeup_db']:+.1f} dB ({fit_payload['loudness_mode']})")
+    print(f"  Target-fit error: {fit_payload['weighted_rmse_before_db']:.2f} → "
+          f"{fit_payload['weighted_rmse_after_db']:.2f} dB")
+    print(f"  Background level: {metrics['background_dbfs']:.1f} dBFS")
+    if input("Install and enable this profile? [Y/n]: ").strip().lower() not in ("n", "no"):
+        install_profile(profile)
+        print("\nProfile installed. The calibrated sink is now the default output.")
+    else:
+        print("Profile was measured but not installed.")
+
+
+def status():
+    payload = status_payload()
+    profile = payload["profile"]
+    print(f"Service: {payload['service']}\nDefault output: {payload['defaultSink']}")
+    check = payload.get("verification")
+    if check:
+        errors = check["target_error_db"]
+        print(f"Last check: {check['verdict'].upper()}"
+              + (" (stale, the profile changed since)" if check.get("stale") else "")
+              + f" · off plan by {check['model_error_db']['rms']:.1f} dB"
+              + f" · target error {errors['before']:.1f} → {errors['measured']:.1f} dB")
+    compare = payload["compare"]
+    if payload.get("bypass"):
+        print("Calibration is switched off (bypassed); run 'bypass-toggle' to switch it on.")
+    if compare["available"]:
+        playing = compare[compare["active"]]
+        print(f"Playing: {compare['active']} profile"
+              + (f" ({playing['label']})" if playing else "")
+              + " · run 'compare-toggle' to hear the other one")
+    if profile:
+        print(f"Speaker: {profile['speaker']['description']}\nMicrophone: {profile['microphone']['description']}")
+        gains = profile.get("fit", {}).get("gains_db") if profile.get("fit") else None
+        voicing = VOICING_LABELS.get(profile.get("voicing"), "neutral")
+        loudness = LOUDNESS_LABELS.get(profile.get("loudness"), "protected")
+        bass = BASS_LABELS.get(profile.get("bass"), "normal bass")
+        print(f"Voicing: {voicing}\nBass: {bass}\nLoudness: {loudness}\n"
+              f"Gains: {gains or 'not installable'}")
+    else:
+        print("No saved calibration profile.")
+
+
+def disable():
+    profile = load_profile(PROFILE)
+    target = profile["speaker"]["name"] if profile else None
+    forget_loudness_tracker()
+    stop_dsp_daemon()
+    unload_null_sink()
+    if target:
+        move_apps(target)
+    else:
+        try:
+            previous = read_text_bounded(PREVIOUS_DEFAULT_STATE, limit=256)
+            if previous:
+                move_apps(previous.strip())
+        except OSError:
+            pass
+    print("Speaker calibration disabled." + (f" Output restored to {target}." if target else ""))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command")
+    for name in ("wizard", "status", "status-json", "status-cache-json",
+                 "microphone-comparison-json", "use-calibrated-output",
+                 "devices-json", "install-proposal",
+                 "disable", "compare-toggle", "bypass-toggle",
+                 "ensure-running"):
+        sub.add_parser(name)
+    for name in ("deep-bass-toggle", "install-bass-enhancer",
+                 "install-measurement-support", "loudness-toggle"):
+        sub.add_parser(name)
+    sub.add_parser("verify-json")
+    refine = sub.add_parser("refine-json")
+    refine.add_argument("--install", action="store_true",
+                        help="install and play the improved profile")
+    calibrate = sub.add_parser("calibrate-json")
+    calibrate.add_argument("--sink", required=True)
+    calibrate.add_argument("--mic", required=True)
+    calibrate.add_argument("--channel", default="0")
+    calibrate.add_argument("--voicing", choices=("warm", "neutral"), default="neutral")
+    calibrate.add_argument("--loudness", choices=("protected", "balanced", "matched"),
+                           default="protected")
+    calibrate.add_argument("--bass", choices=("normal", "full"), default="normal")
+    calibrate.add_argument("--channel-trim", choices=("off", "auto"), default="off")
+    calibrate.add_argument("--mic-cal-file")
+    calibrate.add_argument("--install", action="store_true",
+                           help="install and play the result when it passes")
+    reanalyze = sub.add_parser("reanalyze-saved-json")
+    reanalyze.add_argument("--voicing", choices=("warm", "neutral"))
+    reanalyze.add_argument("--loudness", choices=("protected", "balanced", "matched"))
+    reanalyze.add_argument("--bass", choices=("normal", "full"))
+    reanalyze.add_argument("--channel-trim", choices=("off", "auto"))
+    reanalyze.add_argument("--channel")
+    reanalyze.add_argument("--install", action="store_true",
+                           help="install and play the result when it passes")
+    args = parser.parse_args()
+    command = args.command or "wizard"
+    if command == "devices-json":
+        print(json.dumps(devices_payload()))
+    elif command == "status-json":
+        print(json.dumps(status_payload()))
+    elif command == "status-cache-json":
+        print(json.dumps(cached_status()))
+    elif command == "use-calibrated-output":
+        print(json.dumps(use_calibrated_output()))
+    elif command == "microphone-comparison-json":
+        print(json.dumps(microphone_comparison()))
+    elif command == "calibrate-json":
+        profile = calibrate_noninteractive(
+            args.sink, args.mic, args.channel, args.voicing, args.mic_cal_file,
+            args.loudness, args.bass, args.channel_trim,
+        )
+        print(json.dumps(install_if_accepted(profile) if args.install else profile))
+    elif command == "reanalyze-saved-json":
+        profile = reanalyze_saved_capture(
+            args.voicing, args.channel, args.loudness, args.bass, args.channel_trim
+        )
+        print(json.dumps(install_if_accepted(profile) if args.install else profile))
+    elif command == "install-proposal":
+        print(json.dumps(install_proposal()))
+    elif command == "compare-toggle":
+        print(json.dumps(compare_toggle()))
+    elif command == "bypass-toggle":
+        print(json.dumps(bypass_toggle()))
+    elif command == "verify-json":
+        print(json.dumps(verify_calibration()))
+    elif command == "deep-bass-toggle":
+        print(json.dumps(deep_bass_toggle()))
+    elif command == "loudness-toggle":
+        print(json.dumps(loudness_toggle()))
+    elif command == "install-measurement-support":
+        print(json.dumps(install_measurement_support()))
+    elif command == "install-bass-enhancer":
+        print(json.dumps(install_bass_enhancer()))
+    elif command == "refine-json":
+        profile = refine_from_check()
+        print(json.dumps(install_if_accepted(profile) if args.install else profile))
+    else:
+        {"wizard": wizard, "status": status, "disable": disable}[command]()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+        raise SystemExit(130)

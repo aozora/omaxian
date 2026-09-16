@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian-speaker-calibrator",
+  "name": "Speaker Calibrator",
+  "version": "1.0.2-omaxian.1",
+  "author": "Michael de By (Omaxian port)",
+  "license": "MIT",
+  "description": "Measure with one or many microphones and generate adaptive, repeat-validated, protected parametric speaker tuning (PulseAudio port).",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Speaker Calibrator",
+    "description": "Calibrate the speakers in one step, with Loudness and Make-it-louder toggles; advanced details on request.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
