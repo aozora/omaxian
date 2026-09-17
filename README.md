@@ -17,8 +17,8 @@ Porting notes and file-by-file diffs live in [`docs/omarchy-port/`](docs/omarchy
 ## Gallery
 
 <p align="center">
-  <a href="https://youtu.be/WAva_IHAPWA">
-    <img src="https://img.youtube.com/vi/WAva_IHAPWA/sddefault.jpg" alt="Omaxian demo video" width="620">
+  <a href="https://www.youtube.com/watch?v=-JV9oh1XsAU">
+    <img src="https://img.youtube.com/vi/-JV9oh1XsAU/sddefault.jpg" alt="Omaxian demo video" width="620">
   </a>
 </p>
 
