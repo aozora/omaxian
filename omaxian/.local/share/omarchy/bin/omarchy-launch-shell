@@ -145,6 +145,12 @@ run_shell() {
 
 compositor_alive() {
 	local attempt
+	# PeerClosedError leaves I3SOCK pointing at a dead path. i3-msg prefers
+	# $I3SOCK over the live X property, so a stale value looks like "i3 is
+	# gone" and we skip relaunch while the session is still up. Drop it and
+	# re-resolve before probing (same pattern as omarchy-session-is-i3).
+	unset I3SOCK
+	resolve_i3sock || true
 	for attempt in 1 2 3; do
 		i3-msg -t get_version >/dev/null 2>&1 && return 0
 		(( attempt < 3 )) && sleep 0.5
@@ -174,7 +180,10 @@ while true; do
 	(( terminating )) && exit 0
 	(( status == 0 )) && exit 0
 
-	compositor_alive || exit 0
+	if ! compositor_alive; then
+		logmsg "omarchy-launch-shell: compositor gone — not relaunching"
+		exit 0
+	fi
 
 	if (( SECONDS - window_started > 60 )); then
 		attempts=0
