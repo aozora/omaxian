@@ -102,10 +102,38 @@ omarchy-shell shell listPlugins | jq length   # → ~37
 pgrep -x quickshell                      # one process
 ```
 
-Re-run `./deploy.sh` after `git pull`. On a live i3 session it pauses picom,
-freezes shell file-reload, and rsyncs (no truncate). It does **not** reload
-i3 or restart Quickshell. QML: log out and back in. Optional binds-only:
-`i3-msg reload`.
+---
+
+## Update
+
+From the same clone you installed from, most updates are just:
+
+```sh
+cd ~/projects/omaxian
+git pull
+./install.sh       # refresh themes, default/, and omarchy-* commands
+./deploy.sh        # refresh i3, Quickshell, and other home configs
+```
+
+Then **log out and back in** so Quickshell and the session pick up the new
+tree. `deploy.sh` on a live i3 session pauses picom and freezes shell
+file-reload; it does **not** reload i3 or restart Quickshell. After it
+returns, optional binds-only: `i3-msg reload`.
+
+**When to also run `sudo ./setup.sh`:** skip it for a normal update (bar, themes,
+commands, i3 configs). Run it again only if this release needs a **new apt
+package** on the machine — for example a new tool Omaxian now calls, updated
+bundled fonts, or a change to the privileged `omarchy-dns` helper. If you are
+unsure, check the release notes / commit message for apt or `setup.sh` changes;
+re-running `setup.sh` is safe but usually unnecessary.
+
+`~/.config/omarchy/shell.json` (Settings / bar layout) is left alone if it
+already exists. Optional community plugins are **not** updated by these
+scripts — use `omarchy-plugin-update` or see
+[`community-plugins/README.md`](community-plugins/README.md).
+
+When to re-run which script:
+[`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md#what-to-re-run-when).
 
 ---
 
