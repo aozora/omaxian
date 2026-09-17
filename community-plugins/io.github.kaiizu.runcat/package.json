@@ -1,0 +1,10 @@
+{
+  "name": "running-cat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RunCat-style CPU cat for the Omarchy bar",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/model.test.mjs"
+  }
+}

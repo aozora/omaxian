@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.kaiizu.runcat",
+  "name": "Running Cat",
+  "version": "1.0.0",
+  "author": "dan",
+  "license": "GPL-3.0",
+  "description": "A cat that runs along the bar at a speed set by CPU load and sleeps when the machine is idle. Inspired by RunCat for macOS, gnome-runcat and CatWalk.",
+  "repository": "https://github.com/kaiizu/runningcat",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Running Cat",
+    "description": "An animated cat whose running speed follows CPU usage: it strolls when idle, sprints under load, and sleeps below the idle threshold. The monochrome SVG frames are tinted with the bar's foreground color, so the cat follows the theme. Left click runs btop; right click cycles cat / cat + % / %; the wheel nudges the sprite size.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "interval": 2,
+      "busyCycleMs": 250,
+      "idleCycleMs": 1100,
+      "curve": 2,
+      "smooth": true,
+      "smoothMs": 500,
+      "idleThreshold": 0,
+      "invertSpeed": false,
+      "display": "cat",
+      "size": 22,
+      "fontRatio": 0.45,
+      "fontSize": 0,
+      "spriteColor": "",
+      "clickCommand": "${OMARCHY_PATH:-$HOME/.local/share/omarchy}/shell/scripts/sysmon.sh",
+      "cpuCommand": "",
+      "framesDir": "",
+      "idleFramesDir": ""
+    },
+    "schema": [
+      {
+        "key": "interval",
+        "type": "integer",
+        "label": "Sample interval (seconds)",
+        "min": 1,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 2,
+        "description": "How often CPU usage is read. The default /proc/stat source spawns no processes."
+      },
+      {
+        "key": "busyCycleMs",
+        "type": "integer",
+        "label": "Cycle at 100% CPU (ms)",
+        "min": 16,
+        "max": 5000,
+        "step": 10,
+        "defaultValue": 250,
+        "description": "Time for the cat to complete one full run cycle when the CPU is maxed out. Lower is faster."
+      },
+      {
+        "key": "idleCycleMs",
+        "type": "integer",
+        "label": "Cycle at 0% CPU (ms)",
+        "min": 16,
+        "max": 20000,
+        "step": 50,
+        "defaultValue": 1100,
+        "description": "Time for one full cycle when the CPU is idle. The speed between the two ends eases along the curve."
+      },
+      {
+        "key": "curve",
+        "type": "number",
+        "label": "Speed curve exponent",
+        "min": 0.1,
+        "max": 8,
+        "step": 0.1,
+        "defaultValue": 2,
+        "description": "2 matches RunCat. Higher keeps the cat slow until load really climbs; 1 is linear."
+      },
+      {
+        "key": "smooth",
+        "type": "boolean",
+        "label": "Smooth speed changes",
+        "defaultValue": true,
+        "description": "Eases the running speed toward each new reading instead of snapping to it."
+      },
+      {
+        "key": "smoothMs",
+        "type": "integer",
+        "label": "Smoothing time constant (ms)",
+        "min": 0,
+        "max": 5000,
+        "step": 50,
+        "defaultValue": 500,
+        "description": "How long the exponential average takes to absorb a new reading. Larger is lazier."
+      },
+      {
+        "key": "idleThreshold",
+        "type": "integer",
+        "label": "Idle threshold (%)",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "defaultValue": 0,
+        "description": "Below this CPU percentage the cat sleeps instead of running. 0 keeps it running except on a true zero."
+      },
+      {
+        "key": "invertSpeed",
+        "type": "boolean",
+        "label": "Invert speed",
+        "defaultValue": false,
+        "description": "The cat runs faster when the CPU is idle. It always stays awake while inverted."
+      },
+      {
+        "key": "display",
+        "type": "enum",
+        "label": "Display",
+        "options": [
+          "cat",
+          "both",
+          "percent"
+        ],
+        "defaultValue": "cat",
+        "description": "cat — the sprite alone; both — sprite and CPU percentage; percent — the figure alone. Right click cycles this from the bar."
+      },
+      {
+        "key": "size",
+        "type": "integer",
+        "label": "Sprite size (px)",
+        "min": 8,
+        "max": 32,
+        "step": 1,
+        "defaultValue": 22,
+        "description": "The scroll wheel resizes the sprite; the percentage follows it through fontRatio. The bundled cat art fills about 60% of this box, so 22 draws a cat roughly 13px tall."
+      },
+      {
+        "key": "fontRatio",
+        "type": "number",
+        "label": "Percentage size vs sprite",
+        "min": 0.15,
+        "max": 1.2,
+        "step": 0.05,
+        "defaultValue": 0.45,
+        "description": "The percentage size as a fraction of the sprite box, so the two keep their proportion at any size. 0.45 gives a 10px number beside a 22px cat."
+      },
+      {
+        "key": "fontSize",
+        "type": "integer",
+        "label": "Percentage size (px)",
+        "min": 0,
+        "max": 24,
+        "step": 1,
+        "defaultValue": 0,
+        "description": "0 follows the sprite through fontRatio. Set a value to pin the number at a fixed size; scrolling the widget re-ties it to the cat."
+      },
+      {
+        "key": "spriteColor",
+        "type": "string",
+        "label": "Sprite color",
+        "defaultValue": "",
+        "description": "Empty follows the bar's foreground color, so the cat tracks the theme. Any #rrggbb value fixes the tint."
+      },
+      {
+        "key": "clickCommand",
+        "type": "string",
+        "label": "Left click runs",
+        "defaultValue": "${OMARCHY_PATH:-$HOME/.local/share/omarchy}/shell/scripts/sysmon.sh",
+        "description": "Empty disables the left-click action. Default opens btop/htop via Omaxian's sysmon helper."
+      },
+      {
+        "key": "cpuCommand",
+        "type": "string",
+        "label": "Custom CPU command",
+        "defaultValue": "",
+        "description": "A command that prints a CPU percentage. Empty reads /proc/stat directly."
+      },
+      {
+        "key": "framesDir",
+        "type": "string",
+        "label": "Custom sprite folder",
+        "defaultValue": "",
+        "description": "Folder of numbered frames (0.svg, 1.svg, ... or .png). Empty uses the bundled cat."
+      },
+      {
+        "key": "idleFramesDir",
+        "type": "string",
+        "label": "Custom idle sprite folder",
+        "defaultValue": "",
+        "description": "Frames for the sleeping pose. A single frame stays still; several cycle at the idle speed."
+      }
+    ]
+  }
+}
