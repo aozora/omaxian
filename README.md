@@ -16,6 +16,10 @@ Porting notes and file-by-file diffs live in [`docs/omarchy-port/`](docs/omarchy
 
 ## Gallery
 
+<p align="center">
+  <video src="gallery/omaxian-hd-no-audio.mp4" controls width="620"></video>
+</p>
+
 <table>
   <tr>
     <td align="center" width="33%"><img src="gallery/menu-nebula-ridge.png" alt="Menu" width="100%"/><br/><sub>Menu</sub></td>
