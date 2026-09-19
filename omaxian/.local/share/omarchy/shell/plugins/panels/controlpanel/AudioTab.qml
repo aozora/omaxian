@@ -29,6 +29,9 @@ Item {
   // URL-only loads (empty pane, no icon-side failure).
   property QtObject bar: null
   property bool active: false
+  // Injected by Control Panel's setSource map (hold-open during theme/wallpaper
+  // fan-out). Unused here; must exist or Loader rejects the initial props.
+  property var requestHoldOpen: null
 
   readonly property var sink: Audio.defaultAudioSink
   readonly property var source: Audio.defaultAudioSource

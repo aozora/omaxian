@@ -27,6 +27,9 @@ Item {
   // see AudioTab.qml for the rationale.
   property QtObject bar: null
   property bool active: false
+  // Injected by Control Panel's setSource map; unused here but required so
+  // Loader initial props do not fail (see AudioTab.qml).
+  property var requestHoldOpen: null
 
   // address -> "connecting" | "disconnecting" | "forgetting"
   property var pendingActions: ({})
