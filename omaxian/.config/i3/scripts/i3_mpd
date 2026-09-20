@@ -19,7 +19,7 @@ fi
 
 # Pulse/PipeWire may not be ready the moment i3 autostart runs.
 for _ in {1..20}; do
-	pactl info &>/dev/null && break
+	timeout 1 pactl info &>/dev/null && break
 	sleep 0.25
 done
 

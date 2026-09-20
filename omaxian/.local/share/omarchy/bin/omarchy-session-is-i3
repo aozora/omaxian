@@ -6,11 +6,20 @@
 # Quickshell host never comes up under XFCE (or other full DEs), even if a
 # leftover I3SOCK or xdg-autostart path tries to start it.
 
-# Full desktop environments must never host the omaxian shell.
-blob="${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_DESKTOP:-}:${DESKTOP_SESSION:-}:${GDMSESSION:-}"
-case "${blob,,}" in
-	*xfce*|*gnome*|*kde*|*plasma*|*mate*|*cinnamon*|*lxqt*|*budgie*|*lxde*)
-		exit 1
+# i3_autostart exports XDG_CURRENT_DESKTOP=i3 from inside the running i3, so it
+# is authoritative. Without it, the login-manager variables can still name a DE
+# (xfce4-session with i3 as its WM, a stale DESKTOP_SESSION) and would veto a
+# real i3 session, leaving it with no shell. Otherwise: full desktop
+# environments must never host the omaxian shell.
+case ":${XDG_CURRENT_DESKTOP,,}:" in
+	*:i3:*) ;;
+	*)
+		blob="${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_DESKTOP:-}:${DESKTOP_SESSION:-}:${GDMSESSION:-}"
+		case "${blob,,}" in
+			*xfce*|*gnome*|*kde*|*plasma*|*mate*|*cinnamon*|*lxqt*|*budgie*|*lxde*)
+				exit 1
+				;;
+		esac
 		;;
 esac
 

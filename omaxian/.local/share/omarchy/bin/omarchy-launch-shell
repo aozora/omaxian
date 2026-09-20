@@ -74,7 +74,9 @@ mkdir -p "$LOCK_DIR"
 exec 8>"$LOCK_FILE"
 if ! flock -n 8; then
 	# Another copy holds the lock. If it is actually serving IPC, stay out.
-	if timeout 2 omarchy-shell -q shell ping >/dev/null 2>&1; then
+	# Do not use omarchy-shell -q: -q exits 0 when IPC is down, which
+	# skipped reclaim and left a locked-but-dead desktop with no bar.
+	if timeout 2 omarchy-shell shell ping >/dev/null 2>&1; then
 		echo "omarchy-launch-shell: already running (lock held, shell ping ok) — exiting" >&2
 		exit 0
 	fi
@@ -94,11 +96,21 @@ if ! flock -n 8; then
 	sleep 0.2
 	fuser -k -KILL "$LOCK_FILE" >/dev/null 2>&1 || true
 	sleep 0.2
-	# Re-open and take the lock for real.
+	# Drop a stale lock inode if the holder is gone but flock still fails
+	# (survives across logout on Devuan/elogind and blocked a new bar until
+	# reboot). Then re-open and take the lock for real.
+	rm -f "$LOCK_FILE"
 	exec 8>"$LOCK_FILE"
 	if ! flock -w 5 8; then
-		echo "omarchy-launch-shell: still locked after reclaim — giving up" >&2
-		exit 1
+		echo "omarchy-launch-shell: still locked after reclaim — forcing" >&2
+		fuser -k -KILL "$LOCK_FILE" >/dev/null 2>&1 || true
+		sleep 0.2
+		rm -f "$LOCK_FILE"
+		exec 8>"$LOCK_FILE"
+		if ! flock -w 5 8; then
+			echo "omarchy-launch-shell: still locked after force — giving up" >&2
+			exit 1
+		fi
 	fi
 fi
 echo "$$" >"$LOCK_DIR/launch-shell.pid"
@@ -139,9 +151,13 @@ run_shell() {
 	# Process substitution keeps $! as quickshell's pid (for stop/wait).
 	# Timestamps still land per-line once QS flushes; prefer that over
 	# poisoning the session launch environment.
+	# fd 8 (the single-instance flock) is closed for quickshell and for the
+	# log-prefix process: both, and every app quickshell spawns, would
+	# otherwise inherit it and keep the lock held after this supervisor dies —
+	# the "lock held but shell dead" state the next login has to reclaim.
 	QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
-		quickshell -n -p "$CONFIG_DIR" \
-		> >(prefix_ts >>"$LOG") 2>&1 &
+		quickshell -n -p "$CONFIG_DIR" 8>&- \
+		> >(prefix_ts >>"$LOG" 8>&-) 2>&1 &
 	shell_pid=$!
 
 	local status

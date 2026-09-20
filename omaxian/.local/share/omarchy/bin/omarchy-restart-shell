@@ -80,7 +80,10 @@ picom_alive() {
 }
 
 shell_ping_ok() {
-  omarchy-shell -q shell ping >/dev/null 2>&1
+  # Never use omarchy-shell -q here: -q exits 0 even when the shell is
+  # down, so "wait until gone" never completes and restart aborts with
+  # "old shell still alive" while leaving the bar dead.
+  omarchy-shell shell ping >/dev/null 2>&1
 }
 
 shell_procs_alive() {
@@ -194,7 +197,10 @@ done
 rm -f "$PID_FILE"
 
 if (( ! shell_gone )); then
-  log "FAILED — old shell still alive after kill; not starting a second copy"
+  why=""
+  shell_procs_alive && why+="procs "
+  shell_ping_ok && why+="ping "
+  log "FAILED — old shell still alive after kill (${why:-unknown}); not starting a second copy"
   log "FAILED — leaving session as-is and restoring picom (see $LOG)"
   exit 1
 fi
@@ -230,7 +236,7 @@ setsid nohup env \
   ${XDG_RUNTIME_DIR:+XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"} \
   ${DBUS_SESSION_BUS_ADDRESS:+DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"} \
   ${DISPLAY:+DISPLAY="$DISPLAY"} \
-  omarchy-launch-shell >>"$LOG" 2>&1 &
+  omarchy-launch-shell >>"$LOG" 2>&1 9>&- &
 
 ready=0
 for n in $(seq 1 80); do

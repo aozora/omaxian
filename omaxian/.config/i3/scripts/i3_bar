@@ -1,16 +1,106 @@
 #!/usr/bin/env bash
-## Launch the Quickshell "omarchy-shell" host. The QS plugin-host bar
-## (plugins/bar) is the visible bar. polybar was retired in Phase 8 and its
-## config removed. The invisible LocalHost Bar/ popup host was retired
-## 2026-08-31 (all widgets are now plugins/bar/widgets/).
+## Ensure the Quickshell "omarchy-shell" host is running in this i3 session.
+## The QS plugin-host bar (plugins/bar) is the visible bar. polybar was retired
+## in Phase 8. Idempotent: safe to call from i3_autostart, display-watch, and a
+## delayed login retry. Never starts under XFCE / other DEs.
 ## See docs/omarchy-port/phase-8.md.
 
 : "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
 case ":$PATH:" in *":$OMARCHY_PATH/bin:"*) ;; *) export PATH="$OMARCHY_PATH/bin:$PATH" ;; esac
 
-# Omaxian shell is i3-only — never launch under XFCE or another DE.
-if ! omarchy-session-is-i3 2>/dev/null; then
-	echo "i3_bar: not an i3 session — skipping omarchy-launch-shell" >&2
+LOG="${HOME}/.local/state/omarchy/shell.log"
+if [[ -z ${XDG_RUNTIME_DIR:-} && -d /run/user/$UID ]]; then
+	export XDG_RUNTIME_DIR=/run/user/$UID
+fi
+LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/omarchy-$UID"
+PID_FILE="$LOCK_DIR/launch-shell.pid"
+RESTART_LOCK="$LOCK_DIR/restart-shell.lock"
+ENSURE_LOCK="$LOCK_DIR/i3-bar.lock"
+NOTIFIED_STAMP="$LOCK_DIR/i3-bar.notified"
+mkdir -p "$(dirname "$LOG")" "$LOCK_DIR"
+
+log() {
+	printf '%s i3_bar: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG" >&2
+}
+
+# A shell that cannot start leaves a desktop with no bar and no hint why, so
+# log it and raise one desktop notification (throttled: several passes run per
+# login and each would otherwise repeat it).
+fail_visibly() {
+	log "FAILED — $*"
+	if [[ ! -e $NOTIFIED_STAMP ]] || [[ -n $(find "$NOTIFIED_STAMP" -mmin +10 2>/dev/null) ]]; then
+		: >"$NOTIFIED_STAMP" 2>/dev/null || true
+		timeout 5 omarchy-notification-send -u critical "Omaxian shell did not start" "$* — log: $LOG" >/dev/null 2>&1 || true
+	fi
+	exit 1
+}
+
+# Real IPC probe — never use omarchy-shell -q (that exits 0 when the shell is
+# down and would skip launch on every login).
+shell_ping_ok() {
+	timeout 2 omarchy-shell shell ping >/dev/null 2>&1
+}
+
+supervisor_live() {
+	local p
+	[[ -f $PID_FILE ]] || return 1
+	p="$(cat "$PID_FILE" 2>/dev/null || true)"
+	[[ ${p:-} =~ ^[0-9]+$ ]] || return 1
+	kill -0 "$p" 2>/dev/null
+}
+
+restart_in_progress() {
+	[[ -f $RESTART_LOCK ]] || return 1
+	# Non-blocking: if someone holds the restart flock, stay out of the way.
+	exec 7<>"$RESTART_LOCK" 2>/dev/null || return 1
+	if flock -n 7; then
+		flock -u 7
+		exec 7>&-
+		return 1
+	fi
+	exec 7>&-
+	return 0
+}
+
+wait_for_ping() {
+	local n
+	for n in $(seq 1 "$1"); do
+		shell_ping_ok && return 0
+		sleep 0.25
+	done
+	return 1
+}
+
+# Wait up to $1 seconds for IPC while a supervisor still owns the launch. A cold
+# QML load (no cache, VM, many plugins) can take far longer than 15 s; killing a
+# shell that is merely slow restarts the load and it never comes up. Bail out
+# early only once the supervisor is gone (it spent its own relaunch budget).
+wait_for_slow_start() {
+	local limit=$1 start=$SECONDS dead_since=-1
+	while (( SECONDS - start < limit )); do
+		shell_ping_ok && return 0
+		if supervisor_live; then
+			dead_since=-1
+		else
+			(( dead_since < 0 )) && dead_since=$SECONDS
+			(( SECONDS - dead_since >= 10 )) && return 1
+		fi
+		sleep 0.25
+	done
+	return 1
+}
+
+# Wait briefly for i3 IPC (cold login can race xsession → i3 → autostart).
+i3_ready=0
+for _n in $(seq 1 50); do
+	if omarchy-session-is-i3 2>/dev/null; then
+		i3_ready=1
+		break
+	fi
+	sleep 0.1
+done
+if (( ! i3_ready )); then
+	log "not an i3 session — skipping omarchy-launch-shell (XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-} XDG_SESSION_DESKTOP=${XDG_SESSION_DESKTOP:-} DESKTOP_SESSION=${DESKTOP_SESSION:-} DISPLAY=${DISPLAY:-})"
 	exit 0
 fi
 
@@ -21,8 +111,7 @@ fi
 unset I3SOCK
 
 # --- Quickshell host (omarchy-shell plugin host) ---------------------------
-# omarchy-launch-shell supervises quickshell (relaunch budget + log to
-# ~/.local/state/omarchy/shell.log); it does not daemonize, so background it.
+# omarchy-launch-shell supervises quickshell (relaunch budget + log).
 # QS_WIDGETS_ONLY=1 keeps the local Bar/ popup host at 1px — the visible bar
 # is plugins/bar, which ignores this env var.
 #
@@ -46,20 +135,97 @@ for _fp in "$HOME/.local/share/flatpak/exports/share" /var/lib/flatpak/exports/s
 	esac
 done
 unset _fp
-if command -v omarchy-launch-shell >/dev/null 2>&1; then
-	# Only treat the shell as "already up" if IPC answers. A leftover
-	# launch-shell/quickshell from a previous X session (runtime dir survives
-	# logout) used to make pgrep succeed and skip start — empty desktop until
-	# reboot.
-	if timeout 2 omarchy-shell -q shell ping >/dev/null 2>&1; then
-		:
-	else
-		# Stale supervisor / qs still in the process table but not serving.
-		pkill -u "$UID" -f 'omarchy-launch-shell' 2>/dev/null || true
-		pkill -u "$UID" -f "quickshell .*-p ${OMARCHY_PATH}/shell" 2>/dev/null || true
-		sleep 0.2
-		setsid nohup omarchy-launch-shell >>"${HOME}/.local/state/omarchy/shell.log" 2>&1 &
+
+if ! command -v omarchy-launch-shell >/dev/null 2>&1; then
+	fail_visibly "omarchy-launch-shell not on PATH"
+fi
+
+if shell_ping_ok; then
+	exit 0
+fi
+
+# quickshell is the one required binary setup.sh may not be able to install
+# (not in every Debian/Devuan suite). Say so instead of looping on exit 127.
+if ! command -v quickshell >/dev/null 2>&1; then
+	fail_visibly "quickshell is not installed (see setup.sh) — the bar cannot start"
+fi
+
+# Serialize ensure passes. autostart, its delayed retries and i3_display_watch
+# (which runs concurrently at login and calls us on every topology change) can
+# all land here at once; without this, one pass pkills the supervisor another
+# pass just started and they ping-pong until the attempts run out. fd 6 is
+# closed for the supervisor below so it never inherits the lock.
+if { exec 6>"$ENSURE_LOCK"; } 2>/dev/null; then
+	if ! flock -w 300 6; then
+		log "another ensure pass still running after 300s — giving up this pass"
+		exit 1
 	fi
 else
-	echo "i3_bar: omarchy-launch-shell not on PATH" >&2
+	log "cannot open $ENSURE_LOCK — continuing without serialization"
 fi
+# The pass that held the lock may have brought the shell up while we waited.
+if shell_ping_ok; then
+	exit 0
+fi
+
+# omarchy-restart-shell owns the stop/relaunch dance (and picom). Do not kill
+# or double-start while it holds the restart lock — just wait for ping.
+if restart_in_progress; then
+	log "restart in progress — waiting for shell"
+	wait_for_ping 80 && exit 0
+	log "shell still down after restart wait — will ensure"
+fi
+
+start_supervisor() {
+	# Stale supervisor / qs still in the process table but not serving IPC
+	# (runtime dir survives logout on Devuan/elogind). Match the supervisor by
+	# its interpreter + script so an editor or terminal that merely has the
+	# name in its argv is left alone.
+	pkill -u "$UID" -f '^/bin/bash (.*/)?omarchy-launch-shell( |$)' 2>/dev/null || true
+	pkill -u "$UID" -f "quickshell .*-p ${OMARCHY_PATH}/shell" 2>/dev/null || true
+	sleep 0.3
+	# Resolve a live I3SOCK for the child (Quickshell.I3 needs it).
+	_sock="$(i3 --get-socketpath 2>/dev/null || true)"
+	if [[ -n $_sock && -S $_sock ]]; then
+		export I3SOCK="$_sock"
+	fi
+	unset _sock
+	log "starting omarchy-launch-shell (I3SOCK=${I3SOCK:-<unset>})"
+	setsid nohup env \
+		QS_WIDGETS_ONLY=1 \
+		OMARCHY_PATH="$OMARCHY_PATH" \
+		${I3SOCK:+I3SOCK="$I3SOCK"} \
+		${XDG_RUNTIME_DIR:+XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"} \
+		${DBUS_SESSION_BUS_ADDRESS:+DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"} \
+		${DISPLAY:+DISPLAY="$DISPLAY"} \
+		omarchy-launch-shell >>"$LOG" 2>&1 6>&- 7>&- &
+}
+
+# Cold login: dbus / qs / I3SOCK can race. Start, wait for ping, retry.
+for attempt in 1 2 3 4 5; do
+	if shell_ping_ok; then
+		log "shell ready (attempt $attempt)"
+		exit 0
+	fi
+	if restart_in_progress; then
+		wait_for_ping 40 && { log "shell ready after restart"; exit 0; }
+	fi
+	# A supervisor from an earlier pass (or the display watcher) may still be
+	# loading QML. Give it the full slow-start window before replacing it.
+	if supervisor_live; then
+		log "supervisor live, waiting for IPC (attempt $attempt)"
+		if wait_for_slow_start 90; then
+			log "shell ready (attempt $attempt)"
+			exit 0
+		fi
+		log "supervisor not serving IPC — replacing"
+	fi
+	start_supervisor
+	if wait_for_slow_start 90; then
+		log "shell ready (attempt $attempt)"
+		exit 0
+	fi
+	log "shell not pinging after start (attempt $attempt) — retrying"
+done
+
+fail_visibly "shell did not become ready after 5 attempts (see $LOG)"
