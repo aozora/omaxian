@@ -21,11 +21,29 @@ export XDG_CURRENT_DESKTOP='i3'
 export OMARCHY_PATH="${OMARCHY_PATH:-$HOME/.local/share/omarchy}"
 case ":$PATH:" in *":$OMARCHY_PATH/bin:"*) ;; *) export PATH="$OMARCHY_PATH/bin:$PATH" ;; esac
 
-# This script is `exec` (login only). If it is ever put back on exec_always,
-# do not spawn watchers / dunst / wallpaper again — that blanks the session.
-autostart_once="${XDG_RUNTIME_DIR:-}/omaxian-i3-autostart"
-if [[ -n ${XDG_RUNTIME_DIR:-} ]] && ! mkdir "$autostart_once" 2>/dev/null; then
-	exit 0
+# Once per *i3 instance*, not once per $XDG_RUNTIME_DIR lifetime. Runtime dirs
+# survive logout on Devuan/elogind; a plain mkdir guard then skipped the whole
+# autostart on the next login (no bar / shell) until reboot. Key the marker to
+# the live i3 IPC socket pid so each new session gets a fresh autostart.
+runtime="${XDG_RUNTIME_DIR:-}"
+if [[ -n $runtime ]]; then
+	sock="$(i3 --get-socketpath 2>/dev/null || true)"
+	i3pid=${sock##*.}
+	[[ $i3pid =~ ^[0-9]+$ ]] || i3pid=$$
+	# Drop the legacy unscoped marker and markers for dead i3 pids.
+	rm -rf "$runtime/omaxian-i3-autostart" 2>/dev/null || true
+	for d in "$runtime"/omaxian-i3-autostart-*; do
+		[[ -d $d ]] || continue
+		old=${d##*-}
+		if [[ $old =~ ^[0-9]+$ ]] && kill -0 "$old" 2>/dev/null; then
+			continue
+		fi
+		rm -rf "$d" 2>/dev/null || true
+	done
+	autostart_once="$runtime/omaxian-i3-autostart-$i3pid"
+	if ! mkdir "$autostart_once" 2>/dev/null; then
+		exit 0
+	fi
 fi
 
 # xsettingsd is started once per login. Do not kill it (or picom) just to

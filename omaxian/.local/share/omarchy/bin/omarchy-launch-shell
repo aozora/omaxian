@@ -78,13 +78,26 @@ if ! flock -n 8; then
 		echo "omarchy-launch-shell: already running (lock held, shell ping ok) — exiting" >&2
 		exit 0
 	fi
-	# Lock held but shell dead/stuck — try to wait briefly, then fail loudly
-	# (restart-shell is responsible for killing the holder).
-	echo "omarchy-launch-shell: lock held but shell not pinging — waiting 3s" >&2
-	if flock -w 3 8; then
-		:
-	else
-		echo "omarchy-launch-shell: still locked — giving up (run omarchy-restart-shell)" >&2
+	# Lock held but shell dead — common after logout when $XDG_RUNTIME_DIR
+	# (and this flock) survive into the next login. Reclaim instead of giving
+	# up (that left users with no bar until reboot).
+	echo "omarchy-launch-shell: lock held but shell not pinging — reclaiming" >&2
+	if [[ -f $LOCK_DIR/launch-shell.pid ]]; then
+		old_pid=$(cat "$LOCK_DIR/launch-shell.pid" 2>/dev/null || true)
+		if [[ ${old_pid:-} =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
+			kill -TERM "$old_pid" 2>/dev/null || true
+			sleep 0.3
+			kill -KILL "$old_pid" 2>/dev/null || true
+		fi
+	fi
+	fuser -k -TERM "$LOCK_FILE" >/dev/null 2>&1 || true
+	sleep 0.2
+	fuser -k -KILL "$LOCK_FILE" >/dev/null 2>&1 || true
+	sleep 0.2
+	# Re-open and take the lock for real.
+	exec 8>"$LOCK_FILE"
+	if ! flock -w 5 8; then
+		echo "omarchy-launch-shell: still locked after reclaim — giving up" >&2
 		exit 1
 	fi
 fi

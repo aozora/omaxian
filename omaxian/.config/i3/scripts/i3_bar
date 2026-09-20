@@ -47,12 +47,17 @@ for _fp in "$HOME/.local/share/flatpak/exports/share" /var/lib/flatpak/exports/s
 done
 unset _fp
 if command -v omarchy-launch-shell >/dev/null 2>&1; then
-	# Already up if supervisor or qs is live. Match the same pattern
-	# omarchy-restart-shell uses (no -x; Linux truncates comm to 15 chars).
-	if pgrep -f 'omarchy-launch-shell' >/dev/null \
-		|| pgrep -f "quickshell .*-p ${OMARCHY_PATH}/shell" >/dev/null; then
+	# Only treat the shell as "already up" if IPC answers. A leftover
+	# launch-shell/quickshell from a previous X session (runtime dir survives
+	# logout) used to make pgrep succeed and skip start — empty desktop until
+	# reboot.
+	if timeout 2 omarchy-shell -q shell ping >/dev/null 2>&1; then
 		:
 	else
+		# Stale supervisor / qs still in the process table but not serving.
+		pkill -u "$UID" -f 'omarchy-launch-shell' 2>/dev/null || true
+		pkill -u "$UID" -f "quickshell .*-p ${OMARCHY_PATH}/shell" 2>/dev/null || true
+		sleep 0.2
 		setsid nohup omarchy-launch-shell >>"${HOME}/.local/state/omarchy/shell.log" 2>&1 &
 	fi
 else
