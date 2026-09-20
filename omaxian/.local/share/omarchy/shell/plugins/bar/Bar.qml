@@ -416,7 +416,53 @@ Item {
   function sameWindow(left, right) {
     if (!left || !right) return false
     if (left === right) return true
-    return !!left.screen && !!right.screen && !!left.screen.name && !!right.screen.name && left.screen.name === right.screen.name
+    // Distinct PanelWindows share a screen (top bar + dock). Matching on
+    // screen.name alone let dock/ghost clickTargets steal bar hits via
+    // mapToItem. Only equate distinct wrappers of the same surface.
+    return !!left.screen && !!right.screen
+      && !!left.screen.name && left.screen.name === right.screen.name
+      && left.x === right.x && left.y === right.y
+      && left.width === right.width && left.height === right.height
+  }
+
+  function itemIsDescendantOf(item, ancestor) {
+    var node = item
+    while (node) {
+      if (node === ancestor) return true
+      node = node.parent
+    }
+    return false
+  }
+
+  // Walk the slot's item tree (topmost child first) for a clickable under
+  // (localX, localY). Nested WidgetButtons (workspaces) need this — the
+  // process-wide clickTargets list alone can miss them or false-hit.
+  function findClickableDescendantAt(item, slot, localX, localY) {
+    if (!item || item.visible === false) return null
+
+    var kids = item.children
+    if (kids && kids.length) {
+      for (var i = kids.length - 1; i >= 0; i--) {
+        var found = root.findClickableDescendantAt(kids[i], slot, localX, localY)
+        if (found) return found
+      }
+    }
+
+    if (!root.moduleTargetClickable(item)) return null
+
+    var point
+    try {
+      point = slot.mapToItem(item, localX, localY)
+    } catch (e) {
+      return null
+    }
+
+    var w = item.width
+    var h = item.height
+    if (w <= 0 || h <= 0) return null
+    if (point.x >= 0 && point.x <= w && point.y >= 0 && point.y <= h)
+      return item
+    return null
   }
 
   function targetTooltipHovered(target) {
@@ -1049,14 +1095,24 @@ Item {
   }
 
   function moduleClickTargetAt(slot, localX, localY) {
-    // clickTargets is process-wide. Skip widgets on another BarPanel —
-    // mapToItem across X11 windows can false-hit the other monitor's bar.
+    // Nested clickables (workspace pills) live under slot.activeItem but the
+    // host MouseArea sits above them — resolve by walking that tree first.
+    if (slot && slot.activeItem) {
+      var nested = root.findClickableDescendantAt(slot.activeItem, slot, localX, localY)
+      if (nested) return nested
+    }
+
+    // clickTargets is process-wide. Skip other panels/slots — mapToItem
+    // across X11 windows (or bar↔dock on one screen) can false-hit.
     // A null targetWindow must not bypass this: ghost/disabled-output
     // widgets often lack QsWindow and used to win the hit test.
     var window = root.slotWindow(slot)
     for (var i = clickTargets.length - 1; i >= 0; i--) {
       var target = clickTargets[i]
       if (!moduleTargetClickable(target)) continue
+      if (slot && slot.activeItem && target !== slot.activeItem
+          && !root.itemIsDescendantOf(target, slot.activeItem))
+        continue
       var targetWindow = root.targetWindow(target)
       if (window) {
         if (!targetWindow || !root.sameWindow(targetWindow, window)) continue
@@ -1069,6 +1125,7 @@ Item {
         continue
       }
 
+      if (target.width <= 0 || target.height <= 0) continue
       if (targetPoint.x >= 0 && targetPoint.x <= target.width &&
           targetPoint.y >= 0 && targetPoint.y <= target.height) {
         return target
@@ -1130,11 +1187,22 @@ Item {
     if ("open" in owner) return owner.open === true
     if ("trayMenuOpen" in owner || "managePopupOpen" in owner)
       return owner.trayMenuOpen === true || owner.managePopupOpen === true
-    // Unknown owner shape: assume open so the dismiss path still runs once.
-    return true
+    // Unknown shape: never assume open — that wedged every bar click on a
+    // stale activePopout claim (close() no-op, routing never reached widgets).
+    return false
   }
 
   function pressModuleClickTarget(slot, button, localX, localY, modifiers) {
+    var item = slot ? slot.activeItem : null
+    // Widgets with their own layout (workspaces) hit-test in local geometry
+    // first — do not depend on the process-wide clickTargets registry.
+    if (item && typeof item.handleSlotPress === "function") {
+      try {
+        if (item.handleSlotPress(button, localX, localY, modifiers) === true)
+          return true
+      } catch (e) {}
+    }
+
     var target = moduleClickTargetAt(slot, localX, localY)
     if (!target) return false
 
@@ -2029,21 +2097,22 @@ Item {
         // X11 fallback: a widget popup opened via PopupCard.grabFocus (a
         // Qt::Popup pointer grab) doesn't reliably dismiss when the click
         // lands back on the bar (the popup's own transient parent). If any
-        // popout is open, a bar click closes it instead of routing through
-        // — so re-clicking a widget button toggles its popup shut.
+        // popout is truly open, a bar click closes it instead of routing
+        // through — so re-clicking a widget button toggles its popup shut.
         //
-        // Stale claims (close already ran, IPC hide, ghost-bar teardown)
-        // used to leave activePopout set forever: every later click only
-        // called close() again and never reached the widget.
+        // Stale claims must never wedge the bar: always release after a
+        // dismiss attempt, and only consume the click when the owner was
+        // actually open. Otherwise fall through to the widget.
         if (root.activePopout) {
           var owner = root.activePopout
-          if (root.popoutOwnerIsOpen(owner) && "close" in owner) {
+          var wasOpen = root.popoutOwnerIsOpen(owner)
+          if (wasOpen && owner && typeof owner.close === "function")
             owner.close()
-            if (root.activePopout === owner) root.releasePopout(owner)
+          if (root.activePopout === owner) root.releasePopout(owner)
+          if (wasOpen) {
             mouse.accepted = true
             return
           }
-          if (root.activePopout === owner) root.releasePopout(owner)
         }
 
         if (!root.pressModuleClickTarget(slot, mouse.button, mouse.x, mouse.y, mouse.modifiers)) mouse.accepted = false

@@ -95,6 +95,35 @@ BarWidget {
     root.i3Quiet("focus output " + here + "; [workspace=\"" + num + "\"] move workspace to output " + here + "; workspace number " + num)
   }
 
+  // Host ModuleSlot MouseArea sits above nested WidgetButtons and routes
+  // presses here first (see Bar.pressModuleClickTarget). Hit-test pills by
+  // local geometry so workspace switching never depends on clickTargets.
+  function handleSlotPress(button, localX, localY, modifiers) {
+    var kids = grid.children
+    if (!kids || !kids.length) return false
+
+    for (var i = 0; i < kids.length; i++) {
+      var cell = kids[i]
+      if (!cell || typeof cell.modelData !== "number") continue
+      if (cell.width <= 0 || cell.height <= 0) continue
+
+      var point
+      try {
+        point = root.mapToItem(cell, localX, localY)
+      } catch (e) {
+        continue
+      }
+
+      if (point.x < 0 || point.y < 0 || point.x >= cell.width || point.y >= cell.height)
+        continue
+
+      var jump = button === Qt.MiddleButton || ((modifiers || 0) & Qt.ShiftModifier)
+      root.focusWorkspace(cell.modelData, !jump)
+      return true
+    }
+    return false
+  }
+
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)
 
   implicitWidth: grid.implicitWidth + trailingGap

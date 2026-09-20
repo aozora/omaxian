@@ -283,9 +283,18 @@ annotate_lock() {
     icon="/usr/share/i3lock-fancy/icons/lock.png"
   fi
 
-  local font
-  font=$(convert -list font 2>/dev/null | awk "{ a[NR] = \$2 } /family: $(fc-match sans -f "%{family}\n" 2>/dev/null)/ { print a[NR-1]; exit }" || true)
-  [[ -n $font ]] || font=DejaVu-Sans
+  # Prefer a font *file* from fontconfig. Matching ImageMagick's "family:"
+  # list with a substring (i3lock-fancy's trick) can pick Noto Sans Adlam /
+  # Arabic / … which have no Latin glyphs — unlock text then renders blank.
+  local font lang_tag
+  lang_tag=${LANG%%.*}
+  lang_tag=${lang_tag%%_*}
+  [[ -n $lang_tag ]] || lang_tag=en
+  font=$(fc-match -f '%{file}\n' "sans:lang=${lang_tag}" 2>/dev/null || true)
+  if [[ ! -f $font ]]; then
+    font=$(fc-match -f '%{file}\n' 'sans:lang=en' 2>/dev/null || true)
+  fi
+  [[ -f $font ]] || font=DejaVu-Sans
 
   if [[ -f $icon ]]; then
     convert "$IMAGE_TMP" -font "$font" -pointsize 26 -fill "$bw" -gravity center \
