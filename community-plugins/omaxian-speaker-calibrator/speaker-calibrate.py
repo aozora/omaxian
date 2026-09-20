@@ -46,20 +46,11 @@ OPTIMIZER_NAMES = (
 # the panel can offer to install them instead of letting a press of Calibrate
 # end in a stack trace.
 MEASUREMENT_PACKAGES = ("python3-numpy", "python3-scipy")
-GRAPH_PACKAGES = ("python3-lilv", "lsp-plugins-lv2")
-# The filter chain ends in an LV2 limiter.  Omarchy pacstraps this package from
-# its own list, so it is normally present; the check is here so that removing
-# it by hand gives a button rather than a dead end.
-LIMITER_PACKAGE = "lsp-plugins-lv2"
-def _limiter_probe():
-    for base in ("/usr/lib/lv2", "/usr/lib/x86_64-linux-gnu/lv2", "/usr/local/lib/lv2"):
-        candidate = Path(base) / "lsp-plugins.lv2" / "limiter_stereo.ttl"
-        if candidate.exists():
-            return candidate
-    return Path("/usr/lib/lv2/lsp-plugins.lv2/limiter_stereo.ttl")
-
-
-LIMITER_PROBE = _limiter_probe()
+# Optional LV2 extras (deep bass / ISO loudness) are not hosted by speaker-dsp
+# on Debian: python3-lilv cannot load liblilv without -dev, and LSP plugins
+# segfault without a full LV2 host. Calibration playback uses SciPy biquads
+# plus a soft ceiling in speaker-dsp.py instead.
+GRAPH_PACKAGES = ()
 
 
 def measurement_support():
@@ -70,12 +61,10 @@ def measurement_support():
             __import__(module)
         except Exception:
             missing.append(package)
-    if not LIMITER_PROBE.exists():
-        missing.append(LIMITER_PACKAGE)
     return {
         "available": not missing,
         "missing": missing,
-        "packages": list(MEASUREMENT_PACKAGES) + [LIMITER_PACKAGE],
+        "packages": list(MEASUREMENT_PACKAGES),
         "command": "sudo apt install -y " + " ".join(missing or
                                                  list(MEASUREMENT_PACKAGES)),
     }
@@ -139,7 +128,7 @@ LEVEL_PROBE_SPEC = dict(
     seconds=0.4, repeats=1, pre_silence=0.1, block_gap=0.05, response_tail=0.15
 )
 # The lead must exceed the probe's background window (0.3 s) by more than
-# pw-record's start-up time, so the opening of every recording is room sound.
+# parec's start-up time, so the opening of every recording is room sound.
 LEVEL_PROBE_LEAD_SECONDS = 0.8
 LEVEL_PROBE_TAIL_SECONDS = 0.25
 LEVEL_SEARCH_ATTEMPTS = 4
@@ -1037,7 +1026,10 @@ def use_calibrated_output():
     """
     if not any(item.get("name") == VIRTUAL_SINK for item in pactl_json("sinks")):
         raise SystemExit("The calibrated output is not running; install a calibration first.")
+    physical = (load_profile(PROFILE) or {}).get("speaker", {}).get("name")
     move_apps(VIRTUAL_SINK)
+    if physical:
+        pin_dsp_to_physical(physical)
     return {**status_payload(), "message": "Sound is going through the calibration again."}
 
 
@@ -1045,8 +1037,37 @@ def move_apps(target):
     run(["pactl", "set-default-sink", target])
     for stream in pactl_json("sink-inputs"):
         props = stream.get("properties", {})
-        if props.get("application.name") and props.get("application.name") != "EasyEffects":
-            run(["pactl", "move-sink-input", str(stream["index"]), target], check=False)
+        name = props.get("application.name") or ""
+        # Never pull the DSP playback leg onto the null sink — that would
+        # loop calibrated audio back into itself and silence the speakers.
+        if not name or name in ("EasyEffects", "omaxian-speaker-dsp"):
+            continue
+        run(["pactl", "move-sink-input", str(stream["index"]), target], check=False)
+
+
+def pin_dsp_to_physical(physical):
+    """Keep the DSP pacat on the real speakers, not the null sink."""
+    sinks_by_index = {
+        int(item["index"]): item.get("name")
+        for item in pactl_json("sinks")
+        if item.get("index") is not None
+    }
+    for stream in pactl_json("sink-inputs"):
+        props = stream.get("properties") or {}
+        if props.get("application.name") != "omaxian-speaker-dsp":
+            continue
+        sink = stream.get("sink")
+        try:
+            sink_name = sinks_by_index.get(int(sink), sink)
+        except (TypeError, ValueError):
+            sink_name = sink
+        if sink_name != physical:
+            run(
+                ["pactl", "move-sink-input", str(stream["index"]), physical],
+                check=False,
+            )
+        return True
+    return False
 
 
 def compare_state():
@@ -1179,7 +1200,11 @@ def ensure_null_sink():
         [
             "pactl", "load-module", "module-null-sink",
             f"sink_name={VIRTUAL_SINK}",
-            "sink_properties=device.description=Calibrated Speakers",
+            f"rate={RATE}",
+            "channels=2",
+            # Spaces inside the property value break module-null-sink init
+            # when passed as a single argv token ("Module initialization failed").
+            "sink_properties=device.description=Calibrated_Speakers",
         ],
         check=False, capture=True,
     )
@@ -1265,7 +1290,10 @@ def start_dsp_daemon(physical_sink):
         if proc.poll() is not None:
             break
         time.sleep(0.1)
-    raise SystemExit("The DSP daemon did not start; check PulseAudio and python3-lilv.")
+    raise SystemExit(
+        "The DSP daemon did not start; check PulseAudio and python3-numpy. "
+        f"See {RUNTIME / 'dsp.log'} if present."
+    )
 
 
 @contextlib.contextmanager
@@ -1402,26 +1430,18 @@ def restart_tuning(profile=None, controls=None):
     for _ in range(30):
         if any(item.get("name") == VIRTUAL_SINK for item in pactl_json("sinks")):
             move_apps(VIRTUAL_SINK)
+            # move_apps must not touch the DSP, but stream-restore / default
+            # sink races can still land pacat on the null sink — pin it.
+            for _ in range(20):
+                if pin_dsp_to_physical(physical):
+                    break
+                time.sleep(0.05)
             return
         time.sleep(0.25)
     raise SystemExit("The calibrated sink did not appear.")
 
 
 def install_profile(profile, graph=None):
-    if not LIMITER_PROBE.exists():
-        raise SystemExit(
-            f"The filter chain needs {LIMITER_PACKAGE}, which this machine does "
-            "not have. The panel can install it for you, or run:\n"
-            f"  sudo apt install -y {LIMITER_PACKAGE}"
-        )
-    # Graph hosting needs lilv even when LV2 plugins are present.
-    try:
-        import lilv  # noqa: F401
-    except ImportError:
-        raise SystemExit(
-            "The PulseAudio DSP daemon needs python3-lilv. Install it with:\n"
-            "  sudo apt install -y python3-lilv"
-        )
     secure_directory(DATA, repair_contents=True)
     keep_previous_profile()
     write_atomic(PROFILE, json.dumps(profile, indent=2) + "\n")
@@ -1436,6 +1456,7 @@ def ensure_running():
     if not service_active():
         restart_tuning(profile)
     move_apps(VIRTUAL_SINK)
+    pin_dsp_to_physical(profile["speaker"]["name"])
     if (profile.get("loudness_compensation") == "on"
             and not loudness_running()):
         start_loudness_tracker()
@@ -1582,17 +1603,71 @@ def default_sweep_level(sink_name):
 def record_while_playing(
     sink_name, mic_name, channels, program, recording, lead_seconds, tail_seconds
 ):
-    """Record the microphone while a program plays on the selected sink."""
-    recorder = subprocess.Popen([
-        "pw-record", f"--target={mic_name}", f"--rate={RATE}",
-        f"--channels={channels}", "--format=s16", str(recording)])
+    """Record the microphone while a program plays on the selected sink.
+
+    Omaxian uses PulseAudio (`parec` / `pacat`), not PipeWire's `pw-record` /
+    `pw-play`. Raw PCM is captured then wrapped as WAV for the analyser.
+    """
+    if not shutil.which("parec") or not shutil.which("pacat"):
+        raise SystemExit(
+            "parec/pacat not found. Install pulseaudio-utils "
+            "(or pipewire-pulse tools that provide them)."
+        )
+
+    recording = Path(recording)
+    recording.parent.mkdir(parents=True, exist_ok=True)
+    raw_path = recording.with_suffix(".pcm")
+
+    with open(raw_path, "wb") as out:
+        recorder = subprocess.Popen(
+            [
+                "parec",
+                f"--device={mic_name}",
+                f"--rate={RATE}",
+                f"--channels={channels}",
+                "--format=s16le",
+                "--latency-msec=30",
+                "--raw",
+            ],
+            stdout=out,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            time.sleep(lead_seconds)
+            run([
+                "pacat",
+                "--playback",
+                f"--device={sink_name}",
+                "--file-format=wav",
+                str(program),
+            ])
+            time.sleep(tail_seconds)
+        finally:
+            recorder.send_signal(signal.SIGTERM)
+            try:
+                recorder.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                recorder.kill()
+                recorder.wait(timeout=2)
+
+    pcm = raw_path.read_bytes()
+    frame = max(1, int(channels) * 2)
+    pcm = pcm[: len(pcm) - (len(pcm) % frame)]
+    if len(pcm) < frame * int(RATE * 0.05):
+        raise SystemExit(
+            "Microphone capture was empty. Check that the mic is unmuted "
+            "and that PulseAudio can record from it (parec)."
+        )
+    import wave
+    with wave.open(str(recording), "wb") as wav:
+        wav.setnchannels(int(channels))
+        wav.setsampwidth(2)
+        wav.setframerate(RATE)
+        wav.writeframes(pcm)
     try:
-        time.sleep(lead_seconds)
-        run(["pw-play", f"--target={sink_name}", str(program)])
-        time.sleep(tail_seconds)
-    finally:
-        recorder.send_signal(signal.SIGINT)
-        recorder.wait(timeout=5)
+        raw_path.unlink()
+    except OSError:
+        pass
 
 
 def playing_applications():
@@ -1607,7 +1682,7 @@ def playing_applications():
             continue
         properties = stream.get("properties", {})
         name = properties.get("application.name") or properties.get("media.name")
-        if name and name not in ("pw-play", "pw-record", "(null)") and name not in names:
+        if name and name not in ("pacat", "parec", "pw-play", "pw-record", "(null)") and name not in names:
             names.append(name)
     return names
 

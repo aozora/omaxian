@@ -1218,9 +1218,10 @@ class LevelSearchPolicy:
     # Stepping up when nothing was heard is equally coarse.
     blind_step_db: float = 12.0
     # Room sound recorded before the probe starts.  Music, a call, or typing
-    # next to a built-in microphone sits far above this; a quiet room with a
-    # fan sits well below it.
-    maximum_background_dbfs: float = -30.0
+    # next to a built-in microphone sits far above this.  A quiet room with a
+    # PC fan on a built-in mic is typically -35 to -25 dBFS, so the abort line
+    # sits above that band and only stops real interference.
+    maximum_background_dbfs: float = -20.0
     # A linear speaker/microphone path moves the peak one-for-one with the
     # level.  When a level change of at least this size moves the peak by
     # less than half as much, something else sets the peak: automatic gain
@@ -1233,15 +1234,18 @@ def analyse_level_probe(
     rate: int,
     *,
     background_seconds: float = 0.3,
+    settle_seconds: float = 0.1,
     block_seconds: float = 0.05,
 ) -> dict:
     """Summarize a short level-probe recording without relying on timing.
 
     The recorder starts ``background_seconds`` or more before the probe plays,
     so the opening of the recording is room sound alone and is reported as
-    background.  Everything after it is the probe region.  Noise and
-    prominence come from short RMS blocks, so a late recorder start or an
-    early stop cannot masquerade as a quiet speaker.
+    background.  A short settle at the very start is skipped inside that
+    window so a mic-open click cannot look like a loud room.  Everything
+    after the background window is the probe region.  Noise and prominence
+    come from short RMS blocks, so a late recorder start or an early stop
+    cannot masquerade as a quiet speaker.
 
     The steering peak is the second-highest block peak of the probe region.
     Using the highest sample would let one keyboard click drive the whole
@@ -1251,9 +1255,9 @@ def analyse_level_probe(
     anything that recurs, including those transients, and discards a lone
     click.  The tonal and transient peaks are reported separately for
     diagnosis.  Peak and clipping span every supplied channel, because one
-    clipped microphone channel spoils the measurement, while noise and
-    prominence use the best channel, because one working microphone is enough
-    to plan the level.
+    clipped microphone channel spoils the measurement, while noise,
+    prominence, and the background abort use the best/quietest channel,
+    because one working microphone is enough to plan the level.
     """
     values = np.asarray(captures, dtype=np.float64)
     if values.ndim == 1:
@@ -1268,8 +1272,15 @@ def analyse_level_probe(
     block_peak = np.max(np.abs(blocks), axis=1)
     count = blocks.shape[0]
     background_blocks = int(np.clip(round(background_seconds * rate / block), 1, count // 2))
-    background_rms = np.sqrt(np.mean(block_rms[:background_blocks] ** 2, axis=0))
-    background_peak = np.max(block_peak[:background_blocks], axis=0)
+    settle_blocks = int(np.clip(
+        round(settle_seconds * rate / block), 0, max(0, background_blocks - 1)
+    ))
+    background_slice = block_rms[settle_blocks:background_blocks]
+    background_peak_slice = block_peak[settle_blocks:background_blocks]
+    # Low percentile rejects a single UI click or cable pop in the pre-roll;
+    # the quietest channel matches how prominence picks the usable mic.
+    background_rms = np.percentile(background_slice, 25, axis=0)
+    background_peak = np.max(background_peak_slice, axis=0)
 
     region_rms = block_rms[background_blocks:]
     region_peak = block_peak[background_blocks:]
@@ -1291,7 +1302,7 @@ def analyse_level_probe(
         "noise_dbfs": round(dbfs(float(noise[best])), 3),
         "prominence_db": round(float(prominences[best]), 3),
         "clipped_samples": int(np.count_nonzero(np.abs(region) >= 0.999)),
-        "background_rms_dbfs": round(dbfs(float(np.max(background_rms))), 3),
+        "background_rms_dbfs": round(dbfs(float(np.min(background_rms))), 3),
         "background_peak_dbfs": round(dbfs(float(np.max(background_peak))), 3),
         "transient_peak_dbfs": round(dbfs(transient_peak), 3),
         "tonal_blocks": int(np.count_nonzero(np.any(tonal, axis=1))),
@@ -1453,7 +1464,9 @@ def level_search_advice(search: dict) -> tuple[list[str], list[str]]:
         return (
             [f"Background sound at the microphone is too loud for a measurement "
              f"({float(last.get('background_rms_dbfs', 0.0)):.1f} dBFS RMS before the probe started)."],
-            ["Pause other audio and calls, stop typing, and keep the room quiet, then measure again."],
+            ["Pause other audio and calls, stop typing, and keep the room quiet. "
+             "If the room is already quiet, lower the microphone capture gain "
+             "in the sound settings, then measure again."],
         )
     if status == "level-independent":
         return (

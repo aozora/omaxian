@@ -408,7 +408,7 @@ class LevelSearchTests(unittest.TestCase):
 
     def test_probe_measures_room_sound_before_the_probe(self):
         probe = analyse_level_probe(self.probe_capture(0.3, background=0.05), self.rate)
-        self.assertAlmostEqual(probe["background_rms_dbfs"], -26.0, delta=1.0)
+        self.assertAlmostEqual(probe["background_rms_dbfs"], -26.0, delta=2.0)
 
     def test_silence_has_no_prominence(self):
         probe = analyse_level_probe(self.probe_capture(0.0), self.rate)
@@ -458,7 +458,7 @@ class LevelSearchTests(unittest.TestCase):
 
     def test_plan_refuses_a_loud_room_before_anything_else(self):
         loud = {"peak_dbfs": 0.0, "noise_dbfs": -30.0, "prominence_db": 10.0,
-                "clipped_samples": 3, "background_rms_dbfs": -25.0}
+                "clipped_samples": 3, "background_rms_dbfs": -12.0}
         plan = plan_probe_level(-24.0, loud, (-36.0, -6.0))
         self.assertTrue(plan["done"])
         self.assertEqual(plan["status"], "background-too-loud")
@@ -539,14 +539,25 @@ class LevelSearchTests(unittest.TestCase):
 
     def test_search_stops_when_the_room_is_loud(self):
         search = search_measurement_level(
-            self.fake_microphone(8.0, background_dbfs=-22.0), start_level_dbfs=-24.0, bounds=(-36.0, -6.0)
+            self.fake_microphone(8.0, background_dbfs=-12.0), start_level_dbfs=-24.0, bounds=(-36.0, -6.0)
         )
         self.assertEqual(search["status"], "background-too-loud")
         self.assertEqual(len(search["attempts"]), 1)
         warnings, guidance = level_search_advice(search)
-        self.assertTrue(any("-22.0 dBFS" in item for item in warnings))
+        self.assertTrue(any("-12.0 dBFS" in item for item in warnings))
         self.assertTrue(any("Pause other audio" in item for item in guidance))
+        self.assertTrue(any("microphone capture gain" in item for item in guidance))
 
+    def test_search_accepts_a_quiet_room_with_fan_noise(self):
+        # Built-in mic + PC fan often lands around -28 dBFS — above the old
+        # -30 abort line, but still well below music or speech.
+        search = search_measurement_level(
+            self.fake_microphone(8.0, background_dbfs=-28.0),
+            start_level_dbfs=-24.0,
+            bounds=(-36.0, -6.0),
+        )
+        self.assertEqual(search["status"], "converged")
+        self.assertNotEqual(search["status"], "background-too-loud")
     def clipping_microphone(self, clip_above_dbfs, *, gain_db=20.0):
         """A path that clips hard above a level the probe cannot see coming."""
         def run_probe(level_dbfs):

@@ -2,9 +2,13 @@
 """PulseAudio userspace DSP graph for omaxian.speaker-calibrator.
 
 Replaces upstream's PipeWire filter-chain client. Apps play into a null sink;
-this process reads the monitor, applies the same section order as upstream
-(optional bankstown → loudness compensator → biquads → limiter), and writes
-to the physical sink.
+this process reads the monitor, applies high-pass / peaking EQ / balance, a
+soft ceiling limiter, and writes to the physical sink.
+
+LV2 plugins (LSP limiter / loudness, bankstown) are intentionally not hosted
+here: Debian's python3-lilv loads the wrong soname, and LSP plugins require a
+full LV2 host (URID map + Atom ports) or they segfault on run. The fitted
+biquads carry the calibration; the soft limiter enforces the -1 dBFS ceiling.
 
 Control is a length-prefixed JSON request/response Unix socket (0600) under
 $XDG_RUNTIME_DIR. Loudness-tracker and speaker-calibrate talk to that socket
@@ -30,13 +34,14 @@ sys.path.insert(0, str(PLUGIN_DIR))
 
 RATE = 48000
 CHANNELS = 2
-FRAMES = 1024
+# Large blocks + latency absorb Pulse/Python scheduling jitter (crackle).
+FRAMES = 4096
 BYTES_PER_FRAME = CHANNELS * 2  # s16le
+LATENCY_MSEC = 200
+PROCESS_TIME_MSEC = 40
 MAX_MSG = 1 << 20
-
-LOUDNESS_URI = "http://lsp-plug.in/plugins/lv2/loud_comp_stereo"
-LIMITER_URI = "http://lsp-plug.in/plugins/lv2/limiter_stereo"
-BASS_URI = "https://chadmed.au/bankstown"
+# Match the profile's limiter_ceiling_dbfs / safety.limiter_ceiling_dbfs.
+LIMITER_CEILING_DBFS = -1.0
 
 RUNTIME = Path(
     os.environ.get("XDG_RUNTIME_DIR")
@@ -44,6 +49,7 @@ RUNTIME = Path(
 ) / "omaxian-speaker-calibrator"
 SOCKET_PATH = RUNTIME / "dsp.sock"
 PID_PATH = RUNTIME / "dsp.pid"
+LOG_PATH = RUNTIME / "dsp.log"
 
 
 def rbj_peaking(freq, q, gain_db, rate=RATE):
@@ -73,181 +79,126 @@ def rbj_highpass(freq, q, rate=RATE):
 
 
 class Biquad:
-  __slots__ = ("b0", "b1", "b2", "a1", "a2", "z1", "z2")
+  __slots__ = ("b0", "b1", "b2", "a1", "a2")
 
   def __init__(self, coeffs):
     self.b0, self.b1, self.b2, self.a1, self.a2 = coeffs
-    self.z1 = 0.0
-    self.z2 = 0.0
 
-  def process(self, x):
-    y = self.b0 * x + self.z1
-    self.z1 = self.b1 * x - self.a1 * y + self.z2
-    self.z2 = self.b2 * x - self.a2 * y
-    return y
-
-  def reset(self):
-    self.z1 = self.z2 = 0.0
+  def sos_row(self):
+    return [self.b0, self.b1, self.b2, 1.0, self.a1, self.a2]
 
 
-class Lv2Stage:
-  """Thin lilv wrapper; absent plugins become a passthrough."""
+class SoftLimiter:
+  """Ceiling at LIMITER_CEILING_DBFS with input makeup (g_in).
 
-  def __init__(self, uri, rate=RATE):
-    self.uri = uri
-    self.ok = False
-    self.instance = None
-    self.in_l = self.in_r = self.out_l = self.out_r = None
-    self.controls = {}
-    self._ports = {}
-    try:
-      import lilv
-      import numpy as np
-    except ImportError:
-      return
-    self._np = np
-    world = lilv.World()
-    world.load_all()
-    plugin = world.get_plugin_by_uri(world.new_uri(uri))
-    if plugin is None:
-      return
-    self.instance = lilv.Instance(plugin, rate)
-    self._plugin = plugin
-    self._world = world
-    for i in range(plugin.get_num_ports()):
-      port = plugin.get_port_by_index(i)
-      symbol = port.get_symbol().as_string() if hasattr(port.get_symbol(), "as_string") else str(port.get_symbol())
-      self._ports[symbol] = i
-    # Connect stereo audio if present; otherwise first two audio in/out.
-    audio_in, audio_out = [], []
-    for symbol, index in self._ports.items():
-      port = plugin.get_port_by_index(index)
-      if port.is_a(world.ns.lv2.AudioPort):
-        if port.is_a(world.ns.lv2.InputPort):
-          audio_in.append((symbol, index))
-        elif port.is_a(world.ns.lv2.OutputPort):
-          audio_out.append((symbol, index))
-    if len(audio_in) < 2 or len(audio_out) < 2:
-      return
-    n = FRAMES
-    self.in_l = np.zeros(n, dtype=np.float32)
-    self.in_r = np.zeros(n, dtype=np.float32)
-    self.out_l = np.zeros(n, dtype=np.float32)
-    self.out_r = np.zeros(n, dtype=np.float32)
-    self.instance.connect_port(audio_in[0][1], self.in_l)
-    self.instance.connect_port(audio_in[1][1], self.in_r)
-    self.instance.connect_port(audio_out[0][1], self.out_l)
-    self.instance.connect_port(audio_out[1][1], self.out_r)
-    for symbol, index in self._ports.items():
-      port = plugin.get_port_by_index(index)
-      if port.is_a(world.ns.lv2.ControlPort) and port.is_a(world.ns.lv2.InputPort):
-        default = 0.0
-        try:
-          default = float(port.get_range()[1]) if port.get_range() else 0.0
-        except Exception:
-          pass
-        buf = np.array([default], dtype=np.float32)
-        self.controls[symbol] = buf
-        self.instance.connect_port(index, buf)
-    self.instance.activate()
-    self.ok = True
+  Soft knee (tanh) avoids the hard-clip crackle of a brick-wall limiter.
+  """
 
-  def set_controls(self, mapping, prefix=""):
-    if not self.ok:
-      return
-    for name, value in mapping.items():
-      key = name.split(":", 1)[-1] if prefix and name.startswith(prefix) else name
-      if key in self.controls:
-        self.controls[key][0] = float(value)
+  def __init__(self, ceiling_dbfs=LIMITER_CEILING_DBFS):
+    self.ceiling = 10.0 ** (float(ceiling_dbfs) / 20.0)
+    self.g_in = 1.0
+
+  def set_controls(self, mapping):
+    if "limiter:g_in" in mapping:
+      self.g_in = max(0.0, float(mapping["limiter:g_in"]))
+    elif "g_in" in mapping:
+      self.g_in = max(0.0, float(mapping["g_in"]))
 
   def process(self, left, right):
-    if not self.ok:
-      return left, right
-    n = len(left)
-    self.in_l[:n] = left
-    self.in_r[:n] = right
-    self.instance.run(n)
-    return self.out_l[:n].copy(), self.out_r[:n].copy()
+    import numpy as np
+    g = self.g_in
+    c = self.ceiling
+    # Drive into a gentle tanh so peaks fold instead of square-clip.
+    scale = 1.5
+    left = c * np.tanh((left * g) * (scale / c)) / np.tanh(scale)
+    right = c * np.tanh((right * g) * (scale / c)) / np.tanh(scale)
+    return left.astype(np.float32, copy=False), right.astype(np.float32, copy=False)
+
+
+class ChannelChain:
+  """Cascaded biquads via scipy sosfilt — real-time safe, keeps zi state."""
+
+  __slots__ = ("sos", "zi", "gain_mult", "gain_add")
+
+  def __init__(self):
+    self.sos = None
+    self.zi = None
+    self.gain_mult = 1.0
+    self.gain_add = 0.0
+
+  def configure(self, sections, gain_mult=1.0, gain_add=0.0):
+    import numpy as np
+    from scipy import signal
+    self.gain_mult = float(gain_mult)
+    self.gain_add = float(gain_add)
+    if not sections:
+      self.sos = None
+      self.zi = None
+      return
+    sos = np.asarray([row.sos_row() for row in sections], dtype=np.float64)
+    # Keep filter memory across control rebuilds when shape matches.
+    if self.sos is not None and self.sos.shape == sos.shape:
+      self.sos = sos
+    else:
+      self.sos = sos
+      self.zi = signal.sosfilt_zi(sos) * 0.0
+
+  def process(self, samples):
+    import numpy as np
+    from scipy import signal
+    x = np.asarray(samples, dtype=np.float64)
+    if self.sos is not None:
+      x, self.zi = signal.sosfilt(self.sos, x, zi=self.zi)
+    if self.gain_mult != 1.0 or self.gain_add != 0.0:
+      x = x * self.gain_mult + self.gain_add
+    return x.astype(np.float32, copy=False)
 
 
 class Graph:
   def __init__(self):
     self.lock = threading.Lock()
     self.controls = {}
-    self.left_biquads = []
-    self.right_biquads = []
-    self.bass = Lv2Stage(BASS_URI)
-    self.loud = Lv2Stage(LOUDNESS_URI)
-    self.limiter = Lv2Stage(LIMITER_URI)
+    self.left = ChannelChain()
+    self.right = ChannelChain()
+    self.limiter = SoftLimiter()
     self.bypass = False
 
   def apply_controls(self, controls):
     with self.lock:
       self.controls = {str(k): float(v) for k, v in controls.items()}
       self._rebuild_biquads()
-      self.bass.set_controls(self.controls, "bass:")
-      self.loud.set_controls(
-        {k.split(":", 1)[-1]: v for k, v in self.controls.items() if k.startswith("loudcomp:")}
-      )
-      if "limiter:g_in" in self.controls and "g_in" in self.limiter.controls:
-        self.limiter.controls["g_in"][0] = self.controls["limiter:g_in"]
-      for key in ("alr", "boost", "th"):
-        name = f"limiter:{key}"
-        if name in self.controls and key in self.limiter.controls:
-          self.limiter.controls[key][0] = self.controls[name]
+      self.limiter.set_controls(self.controls)
 
   def _rebuild_biquads(self):
-    left, right = [], []
-    for side, bucket in (("l", left), ("r", right)):
-      # High-pass stages
+    for side, chain in (("l", self.left), ("r", self.right)):
+      sections = []
       for index in (1, 2):
         f = self.controls.get(f"hp{index}_{side}:Freq")
         q = self.controls.get(f"hp{index}_{side}:Q", 0.707)
         if f is not None and f > 0:
-          bucket.append(Biquad(rbj_highpass(f, q)))
-      # Peaking slots
+          sections.append(Biquad(rbj_highpass(f, q)))
       for slot in range(1, 13):
         f = self.controls.get(f"p{slot}_{side}:Freq")
         g = self.controls.get(f"p{slot}_{side}:Gain", 0.0)
         q = self.controls.get(f"p{slot}_{side}:Q", 1.0)
         if f is not None and abs(g) > 1e-6:
-          bucket.append(Biquad(rbj_peaking(f, q, g)))
-      # Balance as simple gain
+          sections.append(Biquad(rbj_peaking(f, q, g)))
       mult = self.controls.get(f"bal_{side}:Mult", 1.0)
       add = self.controls.get(f"bal_{side}:Add", 0.0)
-      bucket.append(("gain", float(mult), float(add)))
-    self.left_biquads = left
-    self.right_biquads = right
+      chain.configure(sections, mult, add)
 
   def process_block(self, interleaved_f32):
     import numpy as np
     with self.lock:
-      left = interleaved_f32[0::2].copy()
-      right = interleaved_f32[1::2].copy()
-      if self.controls.get("bass:bypass", 1.0) < 0.5:
-        left, right = self.bass.process(left, right)
-      if self.controls.get("loudcomp:enabled", 0.0) >= 0.5:
-        left, right = self.loud.process(left, right)
-      left = self._run_channel(left, self.left_biquads)
-      right = self._run_channel(right, self.right_biquads)
+      left = interleaved_f32[0::2]
+      right = interleaved_f32[1::2]
+      left = self.left.process(left)
+      right = self.right.process(right)
       left, right = self.limiter.process(left, right)
       out = np.empty(left.size * 2, dtype=np.float32)
       out[0::2] = left
       out[1::2] = right
       return out
-
-  @staticmethod
-  def _run_channel(samples, stages):
-    for stage in stages:
-      if isinstance(stage, tuple) and stage[0] == "gain":
-        _, mult, add = stage
-        samples = samples * mult + add
-      else:
-        out = samples.copy()
-        for i, x in enumerate(samples):
-          out[i] = stage.process(float(x))
-        samples = out
-    return samples
 
 
 class Daemon:
@@ -334,48 +285,86 @@ class Daemon:
 
   def audio_loop(self):
     import numpy as np
+    # Unique Pulse application names so module-stream-restore and move_apps
+    # do not park our playback on the null sink (silent feedback loop).
+    env = os.environ.copy()
+    env.pop("PULSE_SINK", None)
+    env.pop("PULSE_SOURCE", None)
+    env["PULSE_LATENCY_MSEC"] = str(LATENCY_MSEC)
+    env["PULSE_PROP_application.name"] = "omaxian-speaker-dsp"
+    env["PULSE_PROP_media.role"] = "filter"
     self.parec = subprocess.Popen(
       [
         "/usr/bin/parec",
+        "--raw",
         "--format=s16le",
         f"--rate={RATE}",
         f"--channels={CHANNELS}",
         f"--device={self.monitor}",
-        f"--latency-msec=30",
+        f"--latency-msec={LATENCY_MSEC}",
+        f"--process-time-msec={PROCESS_TIME_MSEC}",
+        "--client-name=omaxian-speaker-dsp-capture",
+        "--property=application.name=omaxian-speaker-dsp-capture",
       ],
       stdout=subprocess.PIPE,
       stderr=subprocess.DEVNULL,
+      env=env,
+      bufsize=0,
     )
     self.pacat = subprocess.Popen(
       [
         "/usr/bin/pacat",
         "--playback",
+        "--raw",
         "--format=s16le",
         f"--rate={RATE}",
         f"--channels={CHANNELS}",
         f"--device={self.physical}",
-        f"--latency-msec=30",
+        f"--latency-msec={LATENCY_MSEC}",
+        f"--process-time-msec={PROCESS_TIME_MSEC}",
+        "--client-name=omaxian-speaker-dsp",
+        "--property=application.name=omaxian-speaker-dsp",
+        "--property=media.role=filter",
       ],
       stdin=subprocess.PIPE,
       stderr=subprocess.DEVNULL,
+      env=env,
+      # Let the OS pipe buffer absorb write bursts; do not flush every block.
+      bufsize=FRAMES * BYTES_PER_FRAME * 4,
     )
+    self._pin_playback_to_physical()
     chunk = FRAMES * BYTES_PER_FRAME
+    # Pre-roll silence so Pulse starts playback with a full cushion instead of
+    # draining the ALSA ~7 ms hardware buffer on the first real audio.
+    preroll = b"\x00" * (RATE * BYTES_PER_FRAME * LATENCY_MSEC // 1000)
+    try:
+      self.pacat.stdin.write(preroll)
+      self.pacat.stdin.flush()
+    except BrokenPipeError:
+      return
+    pending = bytearray()
+    scale = np.float32(1.0 / 32768.0)
     try:
       while self.running:
         data = self.parec.stdout.read(chunk)
         if not data:
-          time.sleep(0.05)
+          if self.parec.poll() is not None:
+            break
+          time.sleep(0.005)
           continue
-        if len(data) < chunk:
-          data = data + b"\x00" * (chunk - len(data))
-        samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
-        out = self.graph.process_block(samples)
-        clipped = np.clip(out, -1.0, 1.0)
-        pcm = (clipped * 32767.0).astype(np.int16).tobytes()
-        try:
-          self.pacat.stdin.write(pcm)
-        except BrokenPipeError:
-          break
+        pending.extend(data)
+        while len(pending) >= chunk:
+          block = bytes(pending[:chunk])
+          del pending[:chunk]
+          samples = np.frombuffer(block, dtype=np.int16).astype(np.float32)
+          samples *= scale
+          out = self.graph.process_block(samples)
+          pcm = (np.clip(out, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+          try:
+            self.pacat.stdin.write(pcm)
+          except BrokenPipeError:
+            self.running = False
+            break
     finally:
       for proc in (self.parec, self.pacat):
         if proc and proc.poll() is None:
@@ -385,7 +374,54 @@ class Daemon:
           except subprocess.TimeoutExpired:
             proc.kill()
 
-
+  def _pin_playback_to_physical(self):
+    """Move our pacat onto the physical sink if restore/move_apps stole it."""
+    for _ in range(40):
+      try:
+        listing = subprocess.check_output(
+          ["/usr/bin/pactl", "list", "short", "sink-inputs"],
+          text=True,
+          stderr=subprocess.DEVNULL,
+        )
+        sinks = {}
+        for line in subprocess.check_output(
+          ["/usr/bin/pactl", "list", "short", "sinks"],
+          text=True,
+          stderr=subprocess.DEVNULL,
+        ).splitlines():
+          parts = line.split()
+          if len(parts) >= 2:
+            sinks[parts[0]] = parts[1]
+        for line in listing.splitlines():
+          # index sink client ...  — application name is not here; use long list
+          pass
+        # Prefer JSON when it works; fall back to moving by matching pacat cmdline.
+        raw = subprocess.check_output(
+          ["/usr/bin/pactl", "-f", "json", "list", "sink-inputs"],
+          text=True,
+          stderr=subprocess.DEVNULL,
+        )
+        import json as _json
+        for stream in _json.loads(raw or "[]"):
+          props = stream.get("properties") or {}
+          if props.get("application.name") != "omaxian-speaker-dsp":
+            continue
+          sink = stream.get("sink")
+          sink_name = sinks.get(str(sink), sink)
+          if sink_name != self.physical:
+            subprocess.run(
+              [
+                "/usr/bin/pactl", "move-sink-input",
+                str(stream["index"]), self.physical,
+              ],
+              check=False,
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
+            )
+          return
+      except (subprocess.CalledProcessError, ValueError, OSError, TypeError):
+        pass
+      time.sleep(0.05)
 def _recv_exact(conn, n):
   buf = b""
   while len(buf) < n:
@@ -406,6 +442,12 @@ def main():
     print("usage: speaker-dsp.py <monitor_source> <physical_sink>", file=sys.stderr)
     sys.exit(2)
   monitor, physical = sys.argv[1], sys.argv[2]
+  RUNTIME.mkdir(mode=0o700, parents=True, exist_ok=True)
+  try:
+    log = open(LOG_PATH, "w", buffering=1)
+    sys.stderr = log
+  except OSError:
+    pass
   daemon = Daemon(monitor, physical)
   signal.signal(signal.SIGTERM, daemon.stop)
   signal.signal(signal.SIGINT, daemon.stop)

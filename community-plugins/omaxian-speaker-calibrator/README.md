@@ -15,9 +15,9 @@ pattern.
 
 | Upstream (Omarchy) | This port |
 | ------------------ | --------- |
-| Dedicated filter-chain audio client + live port writes | PulseAudio null-sink + setsid `speaker-dsp.py` (SciPy biquads + `python3-lilv` LV2) |
+| Dedicated filter-chain audio client + live port writes | PulseAudio null-sink + setsid `speaker-dsp.py` (RBJ biquads + soft ceiling) |
 | User service units for tuning + loudness | Pidfiles under `$XDG_RUNTIME_DIR/omaxian-speaker-calibrator/` + `setsid` |
-| Distro package helper / source build for bankstown | `sudo apt install` (`python3-numpy`, `python3-scipy`, `python3-lilv`, `lsp-plugins-lv2`, `bankstown-lv2`) |
+| Distro package helper / source build for bankstown | `sudo apt install` (see Prerequisites); bankstown UI present but not hosted yet |
 | Data under `~/.local/share/omarchy-speaker-calibrator/` | `~/.local/share/omaxian-speaker-calibrator/` |
 | Virtual sink `omarchy_speaker_tuning` | `omaxian_speaker_tuning` |
 
@@ -25,12 +25,19 @@ Measurement, fitting, safety limits, and the panel UX follow upstream.
 
 ## Prerequisites
 
-- PulseAudio (`pactl`, `parec`, `pacat`) — stock Omaxian audio
-- For measuring: `python3-numpy`, `python3-scipy`
-- For enabling a calibration: `python3-lilv`, `lsp-plugins-lv2`
-- Optional Deep bass: `bankstown-lv2`
+```bash
+sudo apt install -y python3-numpy python3-scipy pulseaudio-utils
+```
 
-The panel can open a floating terminal to install missing packages via apt.
+| Package | Needed for |
+| ------- | ---------- |
+| `python3-numpy` | Measuring, fitting, and the userspace DSP |
+| `python3-scipy` | Measuring and fitting |
+| `pulseaudio-utils` | `pactl`, `parec`, `pacat` (also provided by `pipewire-pulse` on some setups) |
+
+No `python3-lilv` or `lsp-plugins-lv2` — the DSP uses pure-Python biquads and a soft ceiling. Deep bass (`bankstown-lv2`) remains optional in the UI but is not hosted yet.
+
+The panel can open a floating terminal to install missing measurement packages if they are absent.
 
 ## Install
 

@@ -1372,24 +1372,17 @@ class MicrophoneCandidateTests(unittest.TestCase):
 
 
 class MeasurementSupportTests(unittest.TestCase):
-    """Debian package names for measuring and the LV2 limiter."""
+    """Debian package names for measuring."""
 
     def test_it_reports_what_is_missing_and_how_to_get_it(self):
         support = speaker_calibrate.measurement_support()
         self.assertEqual(
             set(support["packages"]),
-            {"python3-numpy", "python3-scipy", "lsp-plugins-lv2"},
+            {"python3-numpy", "python3-scipy"},
         )
         self.assertTrue(support["command"].startswith("sudo apt install"))
         for package in support["missing"]:
             self.assertIn(package, support["command"])
-
-    def test_the_limiter_package_is_checked_by_its_own_file(self):
-        # It is not a Python module, so importing proves nothing about it.
-        self.assertTrue(str(speaker_calibrate.LIMITER_PROBE).endswith(".ttl"))
-        support = speaker_calibrate.measurement_support()
-        present = speaker_calibrate.LIMITER_PROBE.exists()
-        self.assertEqual("lsp-plugins-lv2" not in support["missing"], present)
 
     def test_available_matches_what_can_actually_be_imported(self):
         support = speaker_calibrate.measurement_support()
@@ -1399,9 +1392,8 @@ class MeasurementSupportTests(unittest.TestCase):
             importable = True
         except Exception:
             importable = False
-        limiter = speaker_calibrate.LIMITER_PROBE.exists()
-        self.assertEqual(support["available"], importable and limiter)
-        self.assertEqual(support["missing"] == [], importable and limiter)
+        self.assertEqual(support["available"], importable)
+        self.assertEqual(support["missing"] == [], importable)
 
     def test_measuring_without_it_explains_itself(self):
         # A press of Calibrate on a fresh machine used to end in an ImportError
