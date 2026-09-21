@@ -13,11 +13,16 @@ if (( $# < 1 )); then
   exit 1
 fi
 
-cmd="$*"
+# bash -lc rebuilds PATH from the login profile and drops $OMARCHY_PATH/bin
+# (set by ~/.xsessionrc for the X session). Same fix as Util.loginShellCommand
+# in the Quickshell shell — without it, menu actions like omarchy-plugin-remove
+# fail with "command not found".
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
+cmd="export PATH=$(printf '%q' "$OMARCHY_PATH/bin"):\"\$PATH\"; $*; echo; read -n1 -s -r -p 'Done. Press any key to close.'"
 term="${HOME}/.config/i3/scripts/i3_term"
 if [[ ! -x $term ]]; then
   echo "omarchy-launch-floating-terminal-with-presentation: i3_term not found" >&2
   exit 1
 fi
 
-exec "$term" --float -e bash -lc "$cmd; echo; read -n1 -s -r -p 'Done. Press any key to close.'"
+exec "$term" --float -e bash -lc "$cmd"
