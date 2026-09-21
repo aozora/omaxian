@@ -25,6 +25,10 @@ Helpers run with `python3 -sB` so they never write `__pycache__` under the
 plugin tree. The shell file-watches that directory; bytecode writes used to
 hot-reload the panel and abort calibration mid-sweep.
 
+On Framework/AMD UCM machines the panel prefers the Digital Microphone over
+the often-silent Stereo (headset jack) mic, and switches the card from
+Headphones to Speakers when measuring so the laptop mics can hear the sweeps.
+
 Measurement, fitting, safety limits, and the panel UX follow upstream.
 
 ## Prerequisites

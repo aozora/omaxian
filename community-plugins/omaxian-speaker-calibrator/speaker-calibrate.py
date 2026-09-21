@@ -544,6 +544,45 @@ def is_physical_sink(name):
     return str(name).startswith("alsa_output.") and str(name) != VIRTUAL_SINK
 
 
+def _device_text(item):
+    """Name + description blob used to classify sinks and microphones."""
+    props = item.get("properties") or {}
+    parts = [
+        item.get("name", ""),
+        item.get("description", ""),
+        props.get("device.description", ""),
+        props.get("device.profile.description", ""),
+        props.get("device.profile.name", ""),
+    ]
+    return " ".join(str(part) for part in parts if part).lower()
+
+
+def is_headphone_sink(item):
+    """True when the selected output is a headphone jack, not the speakers."""
+    text = _device_text(item)
+    if "speaker" in text and "headphone" not in text:
+        return False
+    return "headphone" in text or "headset" in text
+
+
+def microphone_preference(item):
+    """Lower sorts first. Prefer built-in digital arrays over silent jack mics.
+
+    On AMD/Framework UCM, Mic1 is the DMIC array and Mic2 is often the analog
+    headset jack — which records digital silence with nothing plugged in. The
+    panel defaults to the first internal mic, so ranking decides the default.
+    """
+    text = _device_text(item)
+    name = str(item.get("name", "")).lower()
+    if "dmic" in text or "digital" in text or "mic1" in name:
+        return (0, label(item))
+    if "headset" in text or "headphone" in text:
+        return (3, label(item))
+    if "mic2" in name or ("analog" in text and "stereo" in text):
+        return (2, label(item))
+    return (1, label(item))
+
+
 def listening_sink(profile=None):
     """The sink whose volume says how loud the speakers actually are.
 
@@ -579,9 +618,10 @@ def is_measurement_microphone(name):
 
 
 def microphones():
-    return [item for item in pactl_json("sources")
+    mics = [item for item in pactl_json("sources")
             if not item.get("name", "").endswith(".monitor")
             and is_measurement_microphone(item.get("name", ""))]
+    return sorted(mics, key=microphone_preference)
 
 
 def unusable_microphones():
@@ -597,10 +637,99 @@ def channel_count(item):
     return int(found.group(1)) if found else 1
 
 
+def card_for_sink(sink):
+    """PulseAudio card entry that owns this sink, if any."""
+    props = (sink or {}).get("properties") or {}
+    card_name = props.get("device.bus_path") or props.get("alsa.card")
+    sink_name = str((sink or {}).get("name", ""))
+    for card in pactl_json("cards"):
+        name = card.get("name", "")
+        if name and name in sink_name:
+            return card
+        cprops = card.get("properties") or {}
+        if card_name and (
+            cprops.get("device.bus_path") == card_name
+            or str(cprops.get("alsa.card", "")) == str(card_name)
+        ):
+            return card
+        # Same PCI device prefix: alsa_card.pci-0000_c1_00.6 vs alsa_output.pci-0000_c1_00.6.*
+        if name.startswith("alsa_card.") and sink_name.startswith("alsa_output."):
+            card_id = name[len("alsa_card."):]
+            if card_id and card_id in sink_name:
+                return card
+    return None
+
+
+def speaker_profile_name(card):
+    """UCM profile that routes to speakers, not the headphone jack."""
+    profiles = (card or {}).get("profiles") or {}
+    # pactl JSON may be a dict of name→info or a list of {name: …}.
+    if isinstance(profiles, dict):
+        names = list(profiles.keys())
+    else:
+        names = [entry.get("name", "") for entry in profiles if isinstance(entry, dict)]
+    for name in names:
+        text = str(name).lower()
+        if "speaker" in text and "headphone" not in text:
+            return name
+    return None
+
+
+def ensure_loudspeaker_sink(sink):
+    """If the selection is headphones, switch the card to Speakers when possible.
+
+    Calibration measures room acoustics. Playing into a headphone jack while
+    recording the laptop mics yields silence (or leakage), which the level
+    search reports as a failed probe.
+    """
+    if not is_headphone_sink(sink):
+        return sink
+    card = card_for_sink(sink)
+    profile = speaker_profile_name(card)
+    if not card or not profile:
+        raise SystemExit(
+            "The selected output is headphones, and no Speakers profile is available. "
+            "Unplug headphones (or switch the sound card to Speakers in settings), "
+            "then measure again."
+        )
+    active = (card.get("active_profile") or card.get("active-profile") or "")
+    if active != profile:
+        run(["pactl", "set-card-profile", card["name"], profile])
+        time.sleep(0.4)
+    speakers = [item for item in physical_sinks() if not is_headphone_sink(item)]
+    if not speakers:
+        raise SystemExit(
+            "Switched the sound card toward Speakers, but no speaker sink appeared. "
+            "Check the sound settings and measure again."
+        )
+    # Prefer the sink on the same card as the headphones we replaced.
+    card_name = card.get("name", "").replace("alsa_card.", "")
+    for item in speakers:
+        if card_name and card_name in item.get("name", ""):
+            return item
+    return speakers[0]
+
+
+@contextlib.contextmanager
+def source_capture_ready(mic_name):
+    """Unmute the selected mic for the capture, then restore mute state."""
+    before = run(
+        ["pactl", "get-source-mute", mic_name], check=False, capture=True
+    )
+    muted = before.returncode == 0 and "yes" in (before.stdout or "").lower()
+    if muted:
+        run(["pactl", "set-source-mute", mic_name, "0"], check=False)
+    try:
+        yield
+    finally:
+        if muted:
+            run(["pactl", "set-source-mute", mic_name, "1"], check=False)
+
+
 def devices_payload():
     def public(item, kind):
         name = item["name"]
-        return {
+        entry = {
             "name": name,
             # A device names itself, and some do it with ragged spacing.
             "description": short_label(label(item)) or label(item),
@@ -608,6 +737,9 @@ def devices_payload():
             "kind": kind,
             "internal": name.startswith(("alsa_input.pci-", "alsa_output.pci-")),
         }
+        if kind == "speaker":
+            entry["headphones"] = is_headphone_sink(item)
+        return entry
     return {
         "sinks": [public(item, "speaker") for item in physical_sinks()],
         "microphones": [public(item, "microphone") for item in microphones()],
@@ -1623,37 +1755,38 @@ def record_while_playing(
     recording.parent.mkdir(parents=True, exist_ok=True)
     raw_path = recording.with_suffix(".pcm")
 
-    with open(raw_path, "wb") as out:
-        recorder = subprocess.Popen(
-            [
-                "parec",
-                f"--device={mic_name}",
-                f"--rate={RATE}",
-                f"--channels={channels}",
-                "--format=s16le",
-                "--latency-msec=30",
-                "--raw",
-            ],
-            stdout=out,
-            stderr=subprocess.DEVNULL,
-        )
-        try:
-            time.sleep(lead_seconds)
-            run([
-                "pacat",
-                "--playback",
-                f"--device={sink_name}",
-                "--file-format=wav",
-                str(program),
-            ])
-            time.sleep(tail_seconds)
-        finally:
-            recorder.send_signal(signal.SIGTERM)
+    with source_capture_ready(mic_name):
+        with open(raw_path, "wb") as out:
+            recorder = subprocess.Popen(
+                [
+                    "parec",
+                    f"--device={mic_name}",
+                    f"--rate={RATE}",
+                    f"--channels={channels}",
+                    "--format=s16le",
+                    "--latency-msec=30",
+                    "--raw",
+                ],
+                stdout=out,
+                stderr=subprocess.DEVNULL,
+            )
             try:
-                recorder.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                recorder.kill()
-                recorder.wait(timeout=2)
+                time.sleep(lead_seconds)
+                run([
+                    "pacat",
+                    "--playback",
+                    f"--device={sink_name}",
+                    "--file-format=wav",
+                    str(program),
+                ])
+                time.sleep(tail_seconds)
+            finally:
+                recorder.send_signal(signal.SIGTERM)
+                try:
+                    recorder.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    recorder.kill()
+                    recorder.wait(timeout=2)
 
     pcm = raw_path.read_bytes()
     frame = max(1, int(channels) * 2)
@@ -2131,6 +2264,9 @@ def calibrate_noninteractive(
     mic = next((item for item in microphones() if item["name"] == mic_name), None)
     if sink is None or mic is None:
         raise SystemExit("Selected audio device is no longer available.")
+    # Headphone jack + laptop mics cannot measure speakers. Prefer the Speakers
+    # UCM profile when the panel still has Headphones selected as default.
+    sink = ensure_loudspeaker_sink(sink)
     channel = parse_channel_selection(channel)
     channels = channel_count(mic)
     internal_mic = mic["name"].startswith("alsa_input.pci-")

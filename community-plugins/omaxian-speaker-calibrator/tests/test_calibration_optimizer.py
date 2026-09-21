@@ -1370,6 +1370,39 @@ class MicrophoneCandidateTests(unittest.TestCase):
         self.assertFalse(speaker_calibrate.is_physical_sink("bluez_output.80_C3_BA_81_E7_90.1"))
         self.assertTrue(speaker_calibrate.is_physical_sink("alsa_output.pci-0000_00_1f.3.analog-stereo"))
 
+    def test_it_prefers_digital_arrays_over_silent_jack_mics(self):
+        digital = {
+            "name": "alsa_input.pci-0000_c1_00.6.HiFi__Mic1__source",
+            "description": "Digital Microphone",
+            "properties": {"device.profile.name": "HiFi: Mic1: source"},
+        }
+        analog = {
+            "name": "alsa_input.pci-0000_c1_00.6.HiFi__Mic2__source",
+            "description": "Stereo Microphone",
+            "properties": {
+                "device.profile.name": "HiFi: Mic2: source",
+                "alsa.name": "ALC285 Analog",
+            },
+        }
+        self.assertLess(
+            speaker_calibrate.microphone_preference(digital),
+            speaker_calibrate.microphone_preference(analog),
+        )
+
+    def test_it_recognises_a_headphone_jack(self):
+        phones = {
+            "name": "alsa_output.pci-0000_c1_00.6.HiFi__Headphones__sink",
+            "description": "Headphones",
+            "properties": {"device.profile.description": "Headphones"},
+        }
+        speakers = {
+            "name": "alsa_output.pci-0000_c1_00.6.HiFi__Speaker__sink",
+            "description": "Speaker",
+            "properties": {"device.profile.description": "Speaker"},
+        }
+        self.assertTrue(speaker_calibrate.is_headphone_sink(phones))
+        self.assertFalse(speaker_calibrate.is_headphone_sink(speakers))
+
 
 class MeasurementSupportTests(unittest.TestCase):
     """Debian package names for measuring."""

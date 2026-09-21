@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omaxian-speaker-calibrator",
   "name": "Speaker Calibrator",
-  "version": "1.0.2-omaxian.2",
+  "version": "1.0.2-omaxian.3",
   "author": "Michael de By (Omaxian port)",
   "license": "MIT",
   "description": "Measure with one or many microphones and generate adaptive, repeat-validated, protected parametric speaker tuning (PulseAudio port).",

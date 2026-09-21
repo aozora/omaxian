@@ -1477,7 +1477,8 @@ def level_search_advice(search: dict) -> tuple[list[str], list[str]]:
     if status == "no-signal":
         return (
             ["The microphone did not pick up the level probe even at the loudest allowed sweep level."],
-            ["Check that the selected speaker and microphone are unmuted and raise the "
+            ["Use the Digital Microphone (not the Stereo/headset jack mic), switch the "
+             "sound card to Speakers rather than Headphones, unmute both, raise the "
              "hardware volume, then measure again."],
         )
     if status == "limited-by-maximum-level":

@@ -80,10 +80,18 @@ Panel {
     return mic ? mic.internal === true : true
   }
   // Zero-knowledge default: the laptop's own speakers and microphones.
+  // Prefer Speakers over a headphone jack, and Digital/DMIC over the often
+  // silent analog headset mic (helpers already sort microphones that way).
   function selectInternalDevices() {
     var sink = -1
-    for (var sinkIndex = 0; sinkIndex < service.sinks.length; sinkIndex++)
-      if (service.sinks[sinkIndex].internal === true) { sink = sinkIndex; break }
+    for (var sinkIndex = 0; sinkIndex < service.sinks.length; sinkIndex++) {
+      var entry = service.sinks[sinkIndex]
+      if (entry.internal === true && entry.headphones !== true) { sink = sinkIndex; break }
+    }
+    if (sink < 0) {
+      for (sinkIndex = 0; sinkIndex < service.sinks.length; sinkIndex++)
+        if (service.sinks[sinkIndex].internal === true) { sink = sinkIndex; break }
+    }
     root.sinkIndex = sink >= 0 ? sink : (service.sinks.length > 0 ? 0 : -1)
     var mic = -1
     for (var micIndex = 0; micIndex < service.microphones.length; micIndex++)
