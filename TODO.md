@@ -3,7 +3,7 @@
 - integrate some apps from `omarchy-quattro/applications/`
   - `omarchy-quattro/applications/imv.desktop`
   - `omarchy-quattro/applications/Disk Usage.desktop`
-  - 
+  - https://github.com/wesleygrimes/omastorm
 - create new omaxian theme
 - refactor website + branding
 - prepare new versione 1.0.0-rc1
