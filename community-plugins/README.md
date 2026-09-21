@@ -65,6 +65,7 @@ community-plugins/
 | [`mkelk.keepass-picker`](mkelk.keepass-picker/)                 | `mkelk.keepass-picker`         | [keepass-picker](https://github.com/mkelk/keepass-picker) — KeePassXC paste picker; T1 CenteredModal, `xclip`/`xdotool`                     | Ported |
 | [`omaxian-speaker-calibrator`](omaxian-speaker-calibrator/) | `omaxian-speaker-calibrator` | [omarchy-speaker-calibrator](https://github.com/thefreshoffice/omarchy-speaker-calibrator) — speaker PEQ; PipeWire filter-chain → PulseAudio DSP daemon + apt | Ported |
 | [`omamail`](omamail/)                                           | `omamail`                      | [huacnlee/omamail](https://github.com/huacnlee/omamail) — Gmail/HEY/JMAP/IMAP + Rust backend; Wayland clipboard → Qt clipboard / `xclip` | Ported |
+| [`io.github.adamcbrewer.voxtype-aura`](io.github.adamcbrewer.voxtype-aura/) | `io.github.adamcbrewer.voxtype-aura` | [voxtype-aura](https://github.com/adamcbrewer/voxtype-aura) — Voxtype dictation overlay; T1 PopupWindow + T3 I3; plugin-local status/audio helpers | Ported |
 
 ## Install (opt-in)
 

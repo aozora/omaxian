@@ -1,0 +1,16 @@
+#!/bin/bash
+# Stream Voxtype status as JSON for the Aura overlay.
+# Mirrors upstream omarchy-voxtype-status (setpriv so QS cleanup kills the child).
+
+set -euo pipefail
+
+if ! command -v voxtype >/dev/null 2>&1; then
+  echo '{"alt": "", "class": "idle", "tooltip": ""}'
+  exit 0
+fi
+
+if command -v setpriv >/dev/null 2>&1; then
+  exec setpriv --pdeathsig TERM voxtype status --follow --extended --format json
+fi
+
+exec voxtype status --follow --extended --format json

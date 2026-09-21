@@ -1,0 +1,18 @@
+#!/bin/bash
+# Live mic peak stream for Aura listening bars.
+# Prefer the real Voxtype bridge when present; otherwise fall back to parec.
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+
+if [[ -x /usr/bin/voxtype-audio-bridge ]]; then
+  exec /usr/bin/voxtype-audio-bridge
+fi
+
+if command -v python3 >/dev/null 2>&1 && command -v pacat >/dev/null 2>&1; then
+  exec python3 "$here/aura-audio-peak.py"
+fi
+
+# Nothing available: exit so Service.qml retries after 1s (same as upstream).
+exit 1
