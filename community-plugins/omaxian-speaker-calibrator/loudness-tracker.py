@@ -1,4 +1,4 @@
-#!/usr/bin/python3 -s
+#!/usr/bin/python3 -sB
 """Tell the loudness compensator what level the speakers are playing at.
 
 Omaxian port: writes go to the local speaker-dsp Unix socket instead of upstream live-control tooling.

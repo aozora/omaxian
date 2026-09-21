@@ -41,10 +41,12 @@ Item {
     _stdout = ""
     _stderr = ""
     _overflowed = false
-    // Keep mise/user-site packages from shadowing Arch's matched NumPy/SciPy
-    // pair.  -s disables only the user site; /usr/lib Python packages remain.
+    // Keep mise/user-site packages from shadowing distro NumPy/SciPy.
+    // -s disables only the user site; /usr/lib Python packages remain.
+    // -B skips __pycache__: the shell file-watches this plugin directory and
+    // would otherwise reload (and kill this Process) mid-calibration.
     process.command = ["/usr/bin/env", "-u", "PYTHONHOME", "-u", "PYTHONPATH",
-                       "/usr/bin/python3", "-s", helperPath].concat(arguments)
+                       "/usr/bin/python3", "-sB", helperPath].concat(arguments)
     process.running = true
   }
 

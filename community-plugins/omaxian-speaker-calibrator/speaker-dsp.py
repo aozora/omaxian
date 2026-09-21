@@ -1,4 +1,4 @@
-#!/usr/bin/python3 -s
+#!/usr/bin/python3 -sB
 """PulseAudio userspace DSP graph for omaxian.speaker-calibrator.
 
 Replaces upstream's PipeWire filter-chain client. Apps play into a null sink;

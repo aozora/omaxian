@@ -754,6 +754,11 @@ QtObject {
     // Hidden entries are not plugins: clone staging dirs, remove backups.
     if (relative.indexOf(".") === 0) return ""
     if (relative.indexOf("/.git/") !== -1 || relative.endsWith("/.git")) return ""
+    // Python helpers write bytecode next to the plugin. That is not a source
+    // change and must not tear down a live Process mid-run (e.g. speaker
+    // calibration writing __pycache__ while the panel helper is measuring).
+    if (relative.indexOf("__pycache__") !== -1) return ""
+    if (/\.py[co]$/.test(relative)) return ""
 
     var slash = relative.indexOf("/")
     return slash === -1 ? relative : relative.slice(0, slash)

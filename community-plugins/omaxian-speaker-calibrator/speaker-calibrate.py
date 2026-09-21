@@ -1,5 +1,11 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -sB
 """Guided, measurement-gated PulseAudio speaker calibration for Omaxian."""
+
+import sys
+
+# The shell file-watches ~/.config/omarchy/plugins/. Bytecode next to this
+# tree looks like a plugin edit and hot-reloads the panel mid-run.
+sys.dont_write_bytecode = True
 
 import argparse
 import contextlib
@@ -11,7 +17,6 @@ import shlex
 import shutil
 import signal
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -386,7 +391,7 @@ def start_loudness_tracker():
         return
     runtime_dir()
     proc = subprocess.Popen(
-        ["/usr/bin/python3", "-s", str(loudness_tracker_path())],
+        ["/usr/bin/python3", "-sB", str(loudness_tracker_path())],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
@@ -1276,7 +1281,7 @@ def start_dsp_daemon(physical_sink):
         raise SystemExit(f"Missing DSP daemon script: {DSP_SCRIPT}")
     proc = subprocess.Popen(
         [
-            "/usr/bin/python3", "-s", str(DSP_SCRIPT),
+            "/usr/bin/python3", "-sB", str(DSP_SCRIPT),
             null_sink_monitor(), physical_sink,
         ],
         stdout=subprocess.DEVNULL,

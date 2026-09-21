@@ -21,6 +21,10 @@ pattern.
 | Data under `~/.local/share/omarchy-speaker-calibrator/` | `~/.local/share/omaxian-speaker-calibrator/` |
 | Virtual sink `omarchy_speaker_tuning` | `omaxian_speaker_tuning` |
 
+Helpers run with `python3 -sB` so they never write `__pycache__` under the
+plugin tree. The shell file-watches that directory; bytecode writes used to
+hot-reload the panel and abort calibration mid-sweep.
+
 Measurement, fitting, safety limits, and the panel UX follow upstream.
 
 ## Prerequisites
@@ -63,7 +67,7 @@ The DSP does not use systemd. If a calibration was left enabled, add to
 `~/.xsessionrc` or an i3 `exec --no-startup-id` line:
 
 ```bash
-/usr/bin/python3 -s ~/.config/omarchy/plugins/omaxian-speaker-calibrator/speaker-calibrate.py ensure-running
+/usr/bin/python3 -sB ~/.config/omarchy/plugins/omaxian-speaker-calibrator/speaker-calibrate.py ensure-running
 ```
 
 ## Using it
@@ -94,7 +98,7 @@ restored. Removing the plugin deletes its directory only. Residuals:
 After Disable, or if the plugin was removed while still active:
 
 ```bash
-/usr/bin/python3 -s ~/.config/omarchy/plugins/omaxian-speaker-calibrator/speaker-calibrate.py disable
+/usr/bin/python3 -sB ~/.config/omarchy/plugins/omaxian-speaker-calibrator/speaker-calibrate.py disable
 # or, if the plugin tree is already gone:
 pkill -f speaker-dsp.py; pkill -f loudness-tracker.py
 pactl list short modules | awk '/module-null-sink/ && /omaxian_speaker_tuning/{print $1}' | xargs -r -n1 pactl unload-module
