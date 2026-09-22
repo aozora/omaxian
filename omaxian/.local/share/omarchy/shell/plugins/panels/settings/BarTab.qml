@@ -749,7 +749,7 @@ Item {
     property string kind: ""
     property var sectionModel: null
     property string emptyText: "No widgets in this section"
-    property int bodyMaxHeight: Style.space(120)
+    property int bodyMaxHeight: Style.space(240)
     width: parent ? parent.width : 0
     radius: Style.cornerRadius
     clip: true
@@ -961,19 +961,19 @@ Item {
             title: "Left"
             kind: "left"
             sectionModel: leftModel
-            bodyMaxHeight: Style.space(120)
+            bodyMaxHeight: Style.space(240)
           }
           SectionBlock {
             title: "Center"
             kind: "center"
             sectionModel: centerModel
-            bodyMaxHeight: Style.space(120)
+            bodyMaxHeight: Style.space(240)
           }
           SectionBlock {
             title: "Right"
             kind: "right"
             sectionModel: rightModel
-            bodyMaxHeight: Style.space(120)
+            bodyMaxHeight: Style.space(240)
           }
         }
       }
