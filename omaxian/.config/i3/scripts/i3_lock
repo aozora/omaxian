@@ -7,18 +7,22 @@
 ## unlock (I3 "Refreshing Monitors…" / dangling screen). Stop picom for the
 ## duration of the lock — same rule as omarchy-restart-shell — and tell the
 ## display watcher not to modeset until we are unlocked.
+##
+## Do not call XFCE lockers from an i3 session: xfce4-screensaver /
+## xflock4 race xss-lock and produce a second unlock (greeter-like dialog)
+## after i3lock-omaxian.
 
 notify_fail() {
 	command -v dunstify >/dev/null 2>&1 \
 		&& dunstify -u normal "Screen lock failed" \
-			"Install i3lock (and i3lock-omaxian / i3lock-fancy) or start xfce4-screensaver."
+			"Install i3lock (and i3lock-omaxian / i3lock-fancy)."
 }
 
 detect_wm() {
 	if pgrep -x i3 >/dev/null 2>&1; then
 		echo i3
-	elif [[ "${XDG_CURRENT_DESKTOP:-}" == *[Xx][Ff][Cc][Ee]* ]] \
-		|| [[ "${DESKTOP_SESSION:-}" == *[Xx][Ff][Cc][Ee]* ]] \
+	elif [[ ${XDG_CURRENT_DESKTOP:-} == *[Xx][Ff][Cc][Ee]* ]] \
+		|| [[ ${DESKTOP_SESSION:-} == *[Xx][Ff][Cc][Ee]* ]] \
 		|| pgrep -x xfce4-session >/dev/null 2>&1; then
 		echo xfce
 	else
@@ -124,18 +128,24 @@ try_loginctl() {
 	loginctl lock-session 2>/dev/null
 }
 
+lock_i3_chain() {
+	try_i3lock_omaxian && exit 0
+	try_i3lock_fancy && exit 0
+	try_i3lock && exit 0
+	try_slock && exit 0
+	try_loginctl && exit 0
+	notify_fail
+	exit 1
+}
+
 case "$(detect_wm)" in
 	xfce)
 		command -v xflock4 >/dev/null 2>&1 && exec xflock4
+		try_xfce_screensaver && exit 0
+		lock_i3_chain
+		;;
+	*)
+		# i3 / generic: never hand off to XFCE (second unlock after i3lock).
+		lock_i3_chain
 		;;
 esac
-
-try_xfce_screensaver && exit 0
-try_i3lock_omaxian && exit 0
-try_i3lock_fancy && exit 0
-try_i3lock && exit 0
-try_slock && exit 0
-try_loginctl && exit 0
-
-notify_fail
-exit 1

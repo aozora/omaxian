@@ -116,6 +116,42 @@ ensure_xss_lock() {
   disown || true
 }
 
+# Stop leftover XFCE locker daemons. OnlyShowIn=XFCE is ignored when something
+# dbus-activates org.xfce.ScreenSaver; sleep-activation then locks beside
+# xss-lock → unlock i3lock-omaxian, then unlock the XFCE dialog again.
+stop_xfce_screensaver() {
+  pkill -u "$UID" -x xfce4-screensaver 2>/dev/null || true
+}
+
+# xfce4-power-manager (started from i3_autostart) locks before suspend via
+# libxfce4ui's xfce_screensaver_lock(). Without a LockCommand it tries XFCE /
+# xdg / xscreensaver / light-locker — all fail under bare i3 and pop:
+# "None of the screen lock tools ran successfully…". xss-lock -l already owns
+# PrepareForSleep, so turn off xfpm's redundant pre-suspend lock and point
+# session LockCommand at loginctl so any remaining XFCE lock UI delegates here.
+configure_xfce_lock_delegation() {
+  command -v xfconf-query >/dev/null 2>&1 || return 0
+
+  if command -v loginctl >/dev/null 2>&1; then
+    xfconf-query -c xfce4-session -p /general/LockCommand -n -t string \
+      -s "loginctl lock-session" >/dev/null 2>&1 || true
+  fi
+
+  if command -v xss-lock >/dev/null 2>&1; then
+    xfconf-query -c xfce4-power-manager \
+      -p /xfce4-power-manager/lock-screen-suspend-hibernate -n -t bool -s false \
+      >/dev/null 2>&1 || true
+    # Bound to the same lock-on-sleep GObject prop; set explicitly in case xfpm
+    # is not running yet to propagate the binding.
+    xfconf-query -c xfce4-screensaver -p /lock/sleep-activation -n -t bool -s false \
+      >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-session -p /shutdown/LockScreen -n -t bool -s false \
+      >/dev/null 2>&1 || true
+  fi
+}
+
+stop_xfce_screensaver
+configure_xfce_lock_delegation
 apply_xset
 ensure_xss_lock
 

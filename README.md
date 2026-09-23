@@ -208,6 +208,9 @@ work differently or are missing:
   Settings → Lock screen sets appearance (screenshot / image / random, blur
   effects) and optional idle auto-lock via `xss-lock` + `xset`. Manual lock
   remains Super+Ctrl+L. There is no in-shell password UI or fingerprint PAM.
+  Lid close / suspend locking is owned by `xss-lock -l` (not
+  `xfce4-power-manager` / `xfce4-screensaver`), so you should not see a second
+  XFCE greeter unlock after `i3lock-omaxian`.
 - **No dimming overlay.** Full-screen Omarchy scrims (lock, some pickers) would
   go black under picom; panels are small popups instead. Escape dismisses them.
 - **Bar cannot be dragged** to another screen or reordered by dragging widgets.

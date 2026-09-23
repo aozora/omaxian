@@ -92,3 +92,9 @@ Idle auto-lock: `shell.json` `idle.enabled` + `idle.lock` (seconds). When
 enabled, `omarchy-idle-lock-apply` starts `xss-lock` and arms `xset s`. Stay
 Awake on the bar suspends the screensaver timeout. Manual lock remains
 Super+Ctrl+L / `omarchy-system-lock`.
+
+Lid / suspend: `xss-lock -l` locks before sleep. `omarchy-idle-lock-apply`
+(and `i3_autostart`) also point XFCE’s `LockCommand` at `loginctl lock-session`,
+turn off `xfce4-power-manager`’s lock-on-suspend (it only races xss-lock and
+shows “none of the screen lock tools…” under bare i3), and stop leftover
+`xfce4-screensaver` so you are not asked to unlock twice.
