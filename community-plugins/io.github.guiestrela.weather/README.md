@@ -2,7 +2,7 @@
 
 Weather pill with a detail popup for the Omaxian bar. Catalog copy of
 [guiestrela/weather](https://github.com/guiestrela/weather)
-(upstream commit `232afb3`).
+(upstream commit `554cb54`).
 
 Plugin id: `io.github.guiestrela.weather` (unchanged). Optional — not installed
 by `./deploy.sh`. See [`../README.md`](../README.md).
@@ -51,8 +51,8 @@ Docs below use Omaxian install paths and **i3** binds instead of Hyprland /
 - Live weather radar centered on the configured location.
 - Satellite imagery with CARTO city labels, roads, and map outlines under the radar.
 - Search for and change the location from the panel.
-- Automatic location detection when no city is configured.
-- Metric and imperial units; configurable refresh interval.
+- Automatic IP geolocation via `ipwho.is` when no city is configured.
+- Metric / imperial / system-default units; configurable refresh interval.
 
 ## Dependencies
 
@@ -123,7 +123,7 @@ In `~/.config/omarchy/shell.json`, on the plugin's entry:
 
 | Key | Default | Meaning |
 | --- | ------- | ------- |
-| `unit` | `metric` | `metric` (°C) or `imperial` (°F). Unset now follows the schema default (°C), not locale auto-detect. |
+| `unit` | `auto` | `auto` (system timezone / locale), `metric` (°C), or `imperial` (°F). |
 | `refreshMinutes` | `15` | Refresh interval in minutes (1–120) |
 
 Change them in Settings → Bar (widget settings), or edit the plugin entry in
@@ -138,8 +138,8 @@ Location is stored at `~/.local/state/omarchy/settings/weather.json`
 No account or API key. When a location is set, its name and/or coordinates go
 to Open-Meteo and wttr.in for weather (HTTPS). RainViewer metadata is no longer
 fetched into the shell; the panel opens RainViewer in the browser when you ask.
-With no location configured, wttr.in is used for IP-based detection. No
-credentials are stored.
+With no location configured, `ipwho.is` provides IP-based coordinates for
+Open-Meteo. No credentials are stored.
 
 ## Remove
 

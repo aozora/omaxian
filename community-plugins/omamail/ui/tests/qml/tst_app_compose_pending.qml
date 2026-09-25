@@ -476,12 +476,149 @@ Item {
       compare(app.composeRecovery.draft.body,"Keep local draft")
       app.saveComposeRecovery({body:"New local edit"})
       compare(recoveryBackend.requests.length,2)
+      wait(1200)
+      compare(recoveryBackend.requests.length,2,"a conflict is owned by another instance and is never retried")
       recoveryBackend.ready = false
       recoveryBackend.ready = true
       compare(recoveryBackend.requests.length,3)
       recoveryBackend.requests[2].done({record:{active:true,draft:{body:"Other instance"}},revision:"other"},null)
       compare(app.composeRecovery.draft.body,"New local edit")
       compare(recoveryBackend.requests.length,3)
+    }
+    function test_native_recovery_failure_notice_clears_once_a_save_lands() {
+      beginNativeRecovery()
+      app.saveComposeRecovery({body:"Keep local draft",accountId:"one@example.org"})
+      recoveryBackend.requests[1].done(null,{message:"recovery_unavailable"})
+      verify(app.draftSavedNotice.indexOf("could not be saved") >= 0)
+      app.saveComposeRecovery({body:"Second edit",accountId:"one@example.org"})
+      var saved = lastNativeRequest("compose.recoverySave")
+      verify(saved !== recoveryBackend.requests[1])
+      saved.done({record:saved.params.record,revision:"durable"},null)
+      compare(app.draftSavedNotice,"","a durable save answers its own failure warning")
+    }
+    function test_native_recovery_save_gives_back_the_delivery_warning_it_covered() {
+      recoveryBackend.ready = true
+      lastNativeRequest("compose.recoveryRead").done({record:recoveredPending(),revision:"r1"},null)
+      lastNativeRequest("outbox.snapshot").done({accountId:"me@example.com",entries:[{id:"receipt-one",state:"unknown"}]},null)
+      tryVerify(function(){return lastNativeRequest("compose.recoverySave") !== null})
+      var reconciled = lastNativeRequest("compose.recoverySave")
+      reconciled.done({record:reconciled.params.record,revision:"r2"},null)
+      app.opened = true
+      app.restoreComposeRecovery()
+      var warning = app.draftSavedNotice
+      verify(warning.indexOf("Delivery status is unknown") >= 0)
+      app.saveComposeRecovery({body:"Edited after recovery",accountId:"me@example.com"})
+      var failed = lastNativeRequest("compose.recoverySave")
+      verify(failed !== reconciled)
+      failed.done(null,{message:"recovery_unavailable"})
+      verify(app.draftSavedNotice.indexOf("could not be saved") >= 0)
+      app.saveComposeRecovery({body:"Edited once more",accountId:"me@example.com"})
+      var durable = lastNativeRequest("compose.recoverySave")
+      verify(durable !== failed)
+      durable.done({record:durable.params.record,revision:"r3"},null)
+      compare(app.draftSavedNotice,warning,"a save answers its own warning, not the one it covered")
+    }
+    function test_native_recovery_failure_notice_is_answered_after_the_draft_goes() {
+      beginNativeRecovery()
+      app.saveComposeRecovery({body:"Keep local draft",accountId:"one@example.org"})
+      var refused = recoveryBackend.requests[1]
+      refused.done(null,{message:"recovery_unavailable"})
+      verify(app.draftSavedNotice.indexOf("could not be saved") >= 0)
+      verify(app.clearComposeRecovery())
+      var tombstone = lastNativeRequest("compose.recoverySave")
+      verify(tombstone !== refused)
+      compare(tombstone.params.record.active,false)
+      tombstone.done({record:{active:false},revision:"cleared"},null)
+      compare(app.draftSavedNotice,"","the write that discards the draft answers the warning too")
+    }
+    function test_native_recovery_save_keeps_a_warning_raised_after_the_failure() {
+      recoveryBackend.ready = true
+      lastNativeRequest("compose.recoveryRead").done({record:recoveredPending(),revision:"r1"},null)
+      lastNativeRequest("outbox.snapshot").done({accountId:"me@example.com",entries:[{id:"receipt-one",state:"unknown"}]},null)
+      tryVerify(function(){return lastNativeRequest("compose.recoverySave") !== null})
+      var refused = lastNativeRequest("compose.recoverySave")
+      // The window is shut, so the failure covers nothing at all.
+      compare(app.draftSavedNotice,"")
+      refused.done(null,{message:"recovery_unavailable"})
+      verify(app.draftSavedNotice.indexOf("could not be saved") >= 0)
+      app.opened = true
+      app.restoreComposeRecovery()
+      var warning = app.draftSavedNotice
+      verify(warning.indexOf("Delivery status is unknown") >= 0)
+      app.saveComposeRecovery({body:"Edited after recovery",accountId:"me@example.com"})
+      var durable = lastNativeRequest("compose.recoverySave")
+      verify(durable !== refused)
+      durable.done({record:durable.params.record,revision:"r2"},null)
+      compare(app.draftSavedNotice,warning,"a warning raised after the failure is the current one")
+    }
+    function test_native_recovery_save_answers_the_update_notice_it_covered() {
+      recoveryBackend.apiVersion = 2
+      recoveryBackend.ready = true
+      app.writeComposeRecovery(JSON.stringify({version:1,active:true,draft:{userModified:true,body:"Keep this draft"}}))
+      verify(app.draftSavedNotice.indexOf("needs an updated backend") >= 0)
+      verify(app.composeRecoveryUpdateNoticePending)
+      recoveryBackend.apiVersion = 3
+      tryVerify(function(){return lastNativeRequest("compose.recoveryRead") !== null})
+      lastNativeRequest("compose.recoveryRead").done({record:{active:false},revision:"initial"},null)
+      var refused = lastNativeRequest("compose.recoverySave")
+      verify(refused !== null)
+      refused.done(null,{message:"recovery_unavailable"})
+      verify(app.draftSavedNotice.indexOf("could not be saved") >= 0)
+      app.saveComposeRecovery({body:"Edited once more",accountId:"one@example.org"})
+      var durable = lastNativeRequest("compose.recoverySave")
+      verify(durable !== refused)
+      durable.done({record:durable.params.record,revision:"durable"},null)
+      compare(app.draftSavedNotice,"","the write answers the old backend warning it covered")
+    }
+    function test_native_recovery_retries_a_failed_save_without_another_edit_data() {
+      return [{tag:"the backend refused it",code:-32000,message:"recovery_unavailable"},
+              {tag:"the host never sent it",code:-32011,message:"Too many pending requests"}]
+    }
+    function test_native_recovery_retries_a_failed_save_without_another_edit(data) {
+      beginNativeRecovery()
+      app.saveComposeRecovery({body:"Keep local draft",accountId:"one@example.org"})
+      compare(recoveryBackend.requests.length,2)
+      recoveryBackend.requests[1].done(null,{code:data.code,message:data.message})
+      compare(app.composeRecoveryConflict,false)
+      verify(app.composeWriteQueued)
+      app.saveComposeRecovery({body:"Keep local draft",accountId:"one@example.org"})
+      compare(recoveryBackend.requests.length,2,"an unchanged draft produces no second write of its own")
+      tryVerify(function(){return recoveryBackend.requests.length === 3},3000,"the refused save retries on its own")
+      var retry = recoveryBackend.requests[2]
+      compare(retry.method,"compose.recoverySave")
+      compare(retry.params.record.draft.body,"Keep local draft")
+      compare(retry.params.expectedRevision,"initial")
+      retry.done({record:retry.params.record,revision:"durable"},null)
+      compare(app.composeWriteQueued,false)
+      compare(app.composeWritePayload,"")
+      compare(app.draftSavedNotice,"","a durable retry answers its save-failure warning")
+    }
+    function test_native_recovery_leaves_an_unanswered_save_to_the_reconnect() {
+      beginNativeRecovery()
+      app.saveComposeRecovery({body:"Keep local draft",accountId:"one@example.org"})
+      compare(recoveryBackend.requests.length,2)
+      // The host, not the backend: this write may have landed and lost only its
+      // answer, so sending it again on the same revision would collide with it.
+      recoveryBackend.requests[1].done(null,{code:-32010,message:"Backend unavailable"})
+      verify(app.composeWriteQueued)
+      wait(1200)
+      compare(recoveryBackend.requests.length,2,"an unanswered write is not replayed on a stale revision")
+      recoveryBackend.ready = false
+      recoveryBackend.ready = true
+      compare(recoveryBackend.requests.length,3)
+      compare(recoveryBackend.requests[2].method,"compose.recoveryRead",
+        "reconnecting reads the revision before it writes again")
+    }
+    function test_native_recovery_retry_that_finds_a_conflict_stops_there() {
+      beginNativeRecovery()
+      app.saveComposeRecovery({body:"Keep local draft",accountId:"one@example.org"})
+      recoveryBackend.requests[1].done(null,{code:-32000,message:"recovery_unavailable"})
+      tryVerify(function(){return recoveryBackend.requests.length === 3},3000)
+      recoveryBackend.requests[2].done(null,{code:-32000,message:"recovery_conflict"})
+      compare(app.composeRecoveryConflict,true)
+      wait(1200)
+      compare(recoveryBackend.requests.length,3,"a retry that meets another instance's record writes no more")
+      compare(app.composeRecovery.draft.body,"Keep local draft")
     }
     function test_ai_dock_reserves_space_and_escape_keeps_the_draft() {
       app.open("{}")
@@ -686,6 +823,28 @@ Item {
       compare(compose.opened, true)
       compare(named(compose, "compose-subject-field").text, "Quarterly plan")
       compare(named(compose, "compose-body-editor").text, "Keep every word")
+    }
+
+    function test_compose_shortcut_focuses_input_data() {
+      return [
+        { tag: "reply", key: Qt.Key_R, field: "compose-body-editor" },
+        { tag: "reply-all", key: Qt.Key_A, field: "compose-body-editor" },
+        { tag: "new", key: Qt.Key_C, field: "compose-to-field" },
+        { tag: "forward", key: Qt.Key_F, field: "compose-to-field" }
+      ]
+    }
+
+    function test_compose_shortcut_focuses_input(data) {
+      app.open("{}")
+      app.cursorId = "message-1"
+      wait(0)
+      keyClick(data.key)
+      var field = named(app, data.field)
+      tryCompare(field, "activeFocus", true)
+      compare(field.cursorPosition, 0)
+      keyClick(Qt.Key_H)
+      keyClick(Qt.Key_I)
+      compare(field.text.substring(0, 2), "hi")
     }
 
     function test_reply_starts_while_another_send_is_pending() {
@@ -1163,6 +1322,25 @@ Item {
       compare(app.currentView, "reader")
       compare(app.composing, false)
       app.back()
+      mailService.mailboxKey = "inbox"
+    }
+
+    function test_reader_offers_continue_editing_for_a_draft() {
+      app.open("{}")
+      mailService.mailboxKey = "drafts"
+      app.openMessage("draft-7")
+      mailService.selectedMessage = ({id:"draft-7",subject:"Saved subject",isDraft:true,
+        from:({email:"me@example.com"}),to:[],cc:[],bcc:[]})
+      mailService.selectedBody = ({text:"Saved body",source:"plain"})
+      mailService.detailPainted = true
+      mailService.detailLoading = false
+      wait(0)
+      var button = named(app,"reader-continue-draft-button")
+      verify(button && button.visible,"the reader must expose the draft's editing path")
+      button.clicked()
+      compare(app.composing,true)
+      compare(composeView().sourceDraftId,"draft-7")
+      composeView().finish()
       mailService.mailboxKey = "inbox"
     }
 

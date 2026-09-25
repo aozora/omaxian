@@ -124,6 +124,7 @@ Item {
   }
 
   readonly property var summary: service ? service.selectedMessage : null
+  readonly property bool isDraft: !!summary && summary.isDraft === true
 
   // The id the service answers to, which is not always the one on the summary.
   // A list made of several mailboxes addresses a row by mailbox and id, and the
@@ -315,11 +316,29 @@ Item {
       onActivated: root.backRequested()
     }
 
-    IconButton {
-      id: starButton
+    IconTextButton {
+      id: continueDraftButton
+      objectName: "reader-continue-draft-button"
       anchors.right: parent.right
       anchors.top: backBar.visible ? backBar.bottom : parent.top
       anchors.topMargin: backBar.visible ? Style.space(10) : 0
+      visible: root.isDraft
+      iconName: "edit"
+      text: "Continue editing"
+      outline: true
+      foreground: root.accentColor
+      accent: root.accentColor
+      fontFamily: root.panelFontFamily
+      onClicked: root.composeRequested("draft")
+    }
+
+    IconButton {
+      id: starButton
+      objectName: "reader-star-button"
+      anchors.right: parent.right
+      anchors.top: backBar.visible ? backBar.bottom : parent.top
+      anchors.topMargin: backBar.visible ? Style.space(10) : 0
+      visible: !root.isDraft
       iconName: "star"
       filled: !!root.summary && root.summary.starred
       tooltipText: (root.summary && root.summary.starred ? "Unstar" : "Star") + " · s"
@@ -332,7 +351,7 @@ Item {
     Column {
       id: headerColumn
       anchors.left: parent.left
-      anchors.right: starButton.left
+      anchors.right: root.isDraft ? continueDraftButton.left : starButton.left
       anchors.rightMargin: Style.space(8)
       anchors.top: backBar.visible ? backBar.bottom : parent.top
       anchors.topMargin: backBar.visible ? Style.space(14) : 0
@@ -685,12 +704,18 @@ Item {
         root.openLink(link)
       }
 
-      // NoButton so selecting text still works; this exists only to turn the
-      // I-beam into a hand while a link is under the pointer.
+      // Only the right button, so selecting text still works: the left one
+      // passes through to the TextEdit. The hover half turns the I-beam into
+      // a hand while a link is under the pointer; the press half opens the
+      // text menu, naming the link the click landed on if there is one.
       MouseArea {
         anchors.fill: parent
-        acceptedButtons: Qt.NoButton
+        acceptedButtons: Qt.RightButton
         cursorShape: bodyText.hoveredLink !== "" ? Qt.PointingHandCursor : Qt.IBeamCursor
+        onPressed: function(mouse) {
+          var scene = bodyText.mapToGlobal(mouse.x, mouse.y)
+          textMenu.openAt(bodyText, scene.x, scene.y, bodyText.linkAt(mouse.x, mouse.y))
+        }
         onWheel: function(wheel) {
           if (!(wheel.modifiers & Qt.ControlModifier)) {
             wheel.accepted = false
@@ -790,7 +815,7 @@ Item {
       // across the panel. A row of controls that overlaps another row of
       // controls is worse than a taller toolbar, and the reader can be as
       // narrow as its own minimum beside the list.
-      readonly property bool stacked: messageActions.implicitWidth
+      readonly property bool stacked: messageActions.visible && messageActions.implicitWidth
         + viewTools.implicitWidth + Style.space(24) > width
       implicitHeight: stacked
         ? messageActions.implicitHeight + Style.space(4) + viewTools.implicitHeight
@@ -798,6 +823,7 @@ Item {
 
       Item {
         id: messageActions
+        visible: !root.isDraft
         readonly property int gap: Style.space(2)
         implicitWidth: trashButton.x + trashButton.width
         implicitHeight: Math.max(replyButton.height, replyAllButton.height,
@@ -1007,6 +1033,21 @@ Item {
       height: parent.height
       color: modeTrack.border.color
     }
+  }
+
+  // The body's own menu: Copy, and the link under the pointer. Placed here
+  // rather than in App so the menu can be tested with the body it reads.
+  TextMenu {
+    id: textMenu
+    objectName: "reader-text-menu"
+    textColor: root.textColor
+    popupBackgroundColor: root.popupBackgroundColor
+    popupBorderColor: root.popupBorderColor
+    panelFontFamily: root.panelFontFamily
+    onCopyRequested: function(text) {
+      if (root.service && typeof root.service.copyText === "function") root.service.copyText(text)
+    }
+    onOpenLinkRequested: function(url) { root.openLink(url) }
   }
 
   ImagePopover {

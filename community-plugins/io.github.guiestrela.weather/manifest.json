@@ -18,7 +18,7 @@
     "allowMultiple": false,
     "settingsForm": "weatherSettings",
     "defaults": {
-      "unit": "metric",
+      "unit": "auto",
       "refreshMinutes": 15
     },
     "schema": [
@@ -28,6 +28,10 @@
         "label": "Temperature unit",
         "options": [
           {
+            "value": "auto",
+            "label": "System default"
+          },
+          {
             "value": "metric",
             "label": "Celsius (°C)"
           },
@@ -36,8 +40,8 @@
             "label": "Fahrenheit (°F)"
           }
         ],
-        "defaultValue": "metric",
-        "description": "Choose Celsius (°C) or Fahrenheit (°F)."
+        "defaultValue": "auto",
+        "description": "Use the system default, Celsius (°C), or Fahrenheit (°F)."
       },
       {
         "key": "refreshMinutes",

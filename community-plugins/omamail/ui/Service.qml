@@ -16,6 +16,7 @@ import "providers/Registry.js" as Provider
 import "providers/Credentials.js" as CredentialKeys
 import "providers/Secrets.js" as SecretText
 import "bar/Preview.js" as Preview
+import "bar/Bridge.js" as BarBridge
 import "calendar/Sources.js" as CalendarSources
 import "message/Outbox.js" as Outbox
 import "message/Html.js" as Html
@@ -703,6 +704,15 @@ Item {
     return null
   }
 
+  // The id of the first saved Gmail account, or "" if there is none yet.
+  function gmailAccountId() {
+    var accounts = accountList ? accountList.accounts : []
+    for (var i = 0; i < accounts.length; i++) {
+      if (accounts[i].provider === "gmail") return accounts[i].id
+    }
+    return ""
+  }
+
   function refreshCurrent() {
     var next = activeIndex >= 0 && activeIndex < accountHosts.count
       ? accountHosts.objectAt(activeIndex)
@@ -1292,9 +1302,6 @@ Item {
     if (next === alwaysShowImages) return
     alwaysShowImages = next
     saveWindowPrefs()
-    // The message on screen is the one the answer was given about, so it
-    // answers now rather than at the next message.
-    if (next && current) current.showRemoteImages()
   }
   signal duplicateAccount(string email)
 
@@ -2527,8 +2534,7 @@ Item {
         return index < accounts.length ? accounts[index] : null
       }
 
-      notificationForeground: root.shell && root.shell.bar
-        ? root.shell.bar.barForeground : Color.foreground
+      notificationForeground: Color.foreground
       notificationAccent: Color.accent
       pluginDir: root.pluginDir
       accountId: entry ? entry.id : ""
@@ -2771,8 +2777,21 @@ Item {
   }
 
   Component.onCompleted: {
+    barBridge = BarBridge.publish(function() {
+      return {
+        ready: root.ready, windowOpen: root.windowOpen,
+        showBarIcon: root.showBarIcon, unreadTotal: root.unreadTotal,
+        barTooltip: root.barTooltip, contentDirection: root.contentDirection,
+        barMessages: root.barMessages, barEvents: root.barEvents
+      }
+    }, function(values) { root.applySettings(BarBridge.settings(values, root.defaultSettingValues)) },
+      function() { root.refresh() },
+      function() { root.refreshCalendarPreview() })
     Qt.callLater(root.restoreAccountRegistry)
     Qt.callLater(root.refreshRecipientContacts)
     Qt.callLater(root.registerMailtoHandler)
   }
+
+  property var barBridge: null
+  Component.onDestruction: BarBridge.clear(barBridge)
 }

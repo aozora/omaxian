@@ -81,8 +81,10 @@ Panel {
     return false
   }
 
+  // Omarchy 4.0.3 made bar.centerHoverRevealSuppressed read-only: writing it
+  // throws a TypeError and the centre indicators stay shown or hidden. The
+  // setter is the way in from 4.0.3; the direct write serves older releases.
   function setCenterHoverRevealSuppressed(value) {
-    // PluginBarApi exposes a readonly property; mutate via the setter.
     if (root.bar && typeof root.bar.setCenterHoverRevealSuppressed === "function")
       root.bar.setCenterHoverRevealSuppressed(value)
     else if (root.bar && "centerHoverRevealSuppressed" in root.bar)

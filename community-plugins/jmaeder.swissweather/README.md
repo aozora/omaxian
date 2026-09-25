@@ -2,7 +2,7 @@
 
 MeteoSwiss weather in the Omaxian bar. Catalog copy of
 [jmaeder/omarchy-swissweather](https://github.com/jmaeder/omarchy-swissweather)
-(upstream commit `6406b7e`).
+(upstream commit `aea6cb7`).
 
 Plugin id: `jmaeder.swissweather` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md).

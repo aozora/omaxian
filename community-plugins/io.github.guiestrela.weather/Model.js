@@ -28,6 +28,31 @@ function parseLocationFile(raw) {
   }
 }
 
+// Public IP geolocation fallback used when wttr.in cannot resolve the
+// requester's location. Keep the response normalized to the same shape as
+// weather.json and reject incomplete/untrusted values at the boundary.
+function parseIpLocation(raw) {
+  try {
+    var data = JSON.parse(String(raw || "{}"))
+    if (!data || data.success === false) return null
+
+    var latitude = parseFloat(data.latitude)
+    var longitude = parseFloat(data.longitude)
+    if (isNaN(latitude) || isNaN(longitude)) return null
+
+    var city = typeof data.city === "string" ? boundedText(data.city).replace(/^\s+|\s+$/g, "") : ""
+    var region = typeof data.region === "string" ? boundedText(data.region).replace(/^\s+|\s+$/g, "") : ""
+    var country = typeof data.country === "string" ? boundedText(data.country).replace(/^\s+|\s+$/g, "") : ""
+    return {
+      name: city || region || country,
+      latitude: latitude,
+      longitude: longitude
+    }
+  } catch (e) {
+    return null
+  }
+}
+
 // wttr.in path segment for a configured location: exact coordinates when
 // both are present, the URL-encoded name as a fallback (hand-edited
 // weather.loc files may only carry a name), empty for IP auto-detect.
@@ -70,12 +95,17 @@ function parseGeocodingResults(raw) {
     if (!results || !results.length) return []
 
     var out = []
+    var seen = {}
     for (var i = 0; i < results.length && out.length < MAX_RESULTS; i++) {
       var r = results[i]
       if (!r || !r.name || r.latitude === undefined || r.longitude === undefined) continue
+      var displayName = boundedText(r.name).replace(/^\s+|\s+$/g, "")
       var region = [r.admin1, r.country].filter(function(part) { return !!part }).join(", ")
+      var duplicateKey = (displayName + "\u0000" + region).toLowerCase()
+      if (seen[duplicateKey]) continue
+      seen[duplicateKey] = true
       out.push({
-        name: boundedText(r.name),
+        name: displayName,
         description: boundedText(region),
         latitude: r.latitude,
         longitude: r.longitude
@@ -130,6 +160,56 @@ function localeUsesImperial(localeName) {
   return /^en[_-]US($|[_.-])/.test(name) || /^en[_-]LR($|[_.-])/.test(name) || /^my($|[_.-])/.test(name)
 }
 
+// QLocale::MeasurementSystem values exposed by Qt.locale():
+// MetricSystem = 0, ImperialUSSystem = 1, ImperialUKSystem = 2.
+// Return null when running outside QML or when an older Qt does not expose
+// the value, so the locale-name fallback remains available to callers/tests.
+function measurementSystemUsesImperial(measurementSystem) {
+  if (measurementSystem === undefined || measurementSystem === null || measurementSystem === "") return null
+
+  var numeric = Number(measurementSystem)
+  if (!isNaN(numeric)) {
+    if (numeric === 0) return false
+    if (numeric === 1 || numeric === 2) return true
+  }
+
+  var name = normalizedUnit(measurementSystem)
+  if (name === "metricsystem" || name === "metric") return false
+  if (name === "imperialussystem" || name === "imperialuksystem" || name === "imperial") return true
+  return null
+}
+
+// Temperature defaults follow the system timezone when it is available.
+// Most countries use Celsius; the explicit list covers the IANA zones whose
+// countries/territories conventionally use Fahrenheit by default.
+function timeZoneUsesImperial(timeZone) {
+  var zone = String(timeZone || "").replace(/^\s+|\s+$/g, "")
+  if (!zone) return null
+
+  var imperialZones = [
+    "America/Adak", "America/Anchorage", "America/Boise", "America/Chicago",
+    "America/Denver", "America/Detroit", "America/Indiana/Indianapolis",
+    "America/Indiana/Knox", "America/Indiana/Marengo", "America/Indiana/Petersburg",
+    "America/Indiana/Tell_City", "America/Indiana/Vevay", "America/Indiana/Vincennes",
+    "America/Indiana/Winamac", "America/Juneau", "America/Kentucky/Louisville",
+    "America/Kentucky/Monticello", "America/Los_Angeles", "America/Menominee",
+    "America/Metlakatla", "America/New_York", "America/Nome",
+    "America/North_Dakota/Beulah", "America/North_Dakota/Center",
+    "America/North_Dakota/New_Salem", "America/Phoenix", "America/Puerto_Rico",
+    "America/Sitka", "America/St_Thomas", "America/Virgin", "America/Yakutat",
+    "Pacific/Guam", "Pacific/Honolulu", "Pacific/Saipan", "US/Alaska",
+    "US/Aleutian", "US/Arizona", "US/Central", "US/East-Indiana", "US/Eastern",
+    "US/Hawaii", "US/Indiana-Starke", "US/Michigan", "US/Mountain", "US/Pacific",
+    "Africa/Monrovia", "Asia/Rangoon", "Asia/Yangon"
+  ]
+  if (imperialZones.indexOf(zone) !== -1) return true
+
+  // A recognized IANA timezone outside the Fahrenheit list is treated as
+  // metric. This keeps a locale such as en_US from forcing Fahrenheit on a
+  // machine configured with a Brazilian, European, or Canadian timezone.
+  return false
+}
+
 function countryUsesImperial(countryName) {
   var country = String(countryName || "")
     .replace(/^\s+|\s+$/g, "")
@@ -141,10 +221,16 @@ function countryUsesImperial(countryName) {
   return false
 }
 
-function shouldUseImperial(unitOverride, localeName, countryName) {
+function shouldUseImperial(unitOverride, localeName, countryName, measurementSystem, timeZone) {
   var unit = normalizedUnit(unitOverride)
   if (unit === "imperial") return true
   if (unit === "metric") return false
+
+  var timeZonePreference = timeZoneUsesImperial(timeZone)
+  if (timeZonePreference !== null) return timeZonePreference
+
+  var systemPreference = measurementSystemUsesImperial(measurementSystem)
+  if (systemPreference !== null) return systemPreference
 
   var countryPreference = countryUsesImperial(countryName)
   if (countryPreference !== null) return countryPreference
@@ -427,6 +513,7 @@ function iconForCode(code, night) {
 if (typeof module !== "undefined") {
   module.exports = {
     parseLocationFile: parseLocationFile,
+    parseIpLocation: parseIpLocation,
     wttrLocationQuery: wttrLocationQuery,
     safeRadarHost: safeRadarHost,
     safeRadarPath: safeRadarPath,
@@ -439,6 +526,8 @@ if (typeof module !== "undefined") {
     formatTemp: formatTemp,
     normalizedUnit: normalizedUnit,
     localeUsesImperial: localeUsesImperial,
+    measurementSystemUsesImperial: measurementSystemUsesImperial,
+    timeZoneUsesImperial: timeZoneUsesImperial,
     countryUsesImperial: countryUsesImperial,
     shouldUseImperial: shouldUseImperial,
     dayName: dayName,

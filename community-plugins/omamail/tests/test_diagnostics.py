@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Exercise diagnostics with private synthetic state and a fake agent launcher."""
+import importlib.util
 import json
 import os
 from pathlib import Path
+import re
+import signal
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +55,28 @@ class Diagnostics(unittest.TestCase):
         self.assertLessEqual(len(json.loads(log.read_text())), 100)
         self.assertLess(log.stat().st_size, 65536)
 
+    def test_backend_provider_identifiers_survive_redaction(self):
+        codes = ['gmail_http_failed', 'calendar_auth_refused', 'upload_capacity_exceeded',
+                 'invalid_upload_encoding']
+        self.call('record', [self.event(code) for code in codes])
+        data = (self.folder / 'errors.json').read_text()
+        for code in codes:
+            self.assertIn(code, data)
+        self.assertNotIn('unknown_error', data)
+
+    def test_every_provider_identifier_the_backend_returns_is_allowlisted(self):
+        spec = importlib.util.spec_from_file_location('diagnostics', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        produced = re.compile(r'(?:Err\(|=> *|or\(|map_err\(\|_\| *)"((?:gmail|calendar|upload|auth)_[a-z_]+|invalid_upload_encoding)"')
+        codes = set()
+        for path in (ROOT / 'src').rglob('*.rs'):
+            if path.name == 'tests.rs' or path.stem.endswith(('_tests', '_test')):
+                continue
+            codes |= set(produced.findall(path.read_text()))
+        self.assertGreater(len(codes), 50)
+        self.assertEqual(sorted(codes - module.MESSAGES), [])
+
     def test_only_explicit_open_launches_agent_with_report_path(self):
         self.call('record', [self.event()])
         self.call('open')
@@ -61,6 +87,37 @@ class Diagnostics(unittest.TestCase):
         self.assertIn('agent_invalid_state', report)
         self.assertIn('backend', report)
         self.assertEqual((self.folder / 'report.txt').stat().st_mode & 0o777, 0o600)
+
+    def test_open_does_not_kill_a_running_agent_window(self):
+        # omarchy-agent execs a terminal that stays in the foreground. A wait
+        # with timeout=15 used to SIGKILL that window. The fake launcher here
+        # sleeps like that TUI; open must return without reaping it.
+        launcher = self.bin / 'omarchy-agent'
+        launcher.write_text(
+            '#!/usr/bin/env python3\n'
+            'import json, os, sys, time\n'
+            'from pathlib import Path\n'
+            'state = Path(os.environ["XDG_STATE_HOME"])\n'
+            'state.joinpath("launched").write_text(json.dumps(sys.argv[1:]))\n'
+            'state.joinpath("pid").write_text(str(os.getpid()))\n'
+            'time.sleep(30)\n'
+        )
+        launcher.chmod(0o700)
+        pid_file = self.root / 'state/pid'
+
+        def stop_agent():
+            if not pid_file.exists():
+                return
+            try:
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+            except (ProcessLookupError, ValueError):
+                pass
+
+        self.addCleanup(stop_agent)
+        started = time.monotonic()
+        self.call('open')
+        self.assertLess(time.monotonic() - started, 5)
+        os.kill(int(pid_file.read_text()), 0)
 
     def test_untrusted_existing_log_is_sanitized_again(self):
         self.call('record', [self.event()])

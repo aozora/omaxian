@@ -81,6 +81,7 @@ Panel {
   // shellDir is the Omarchy shell root, not this plugin's directory.
   readonly property string helperPath: String(Qt.resolvedUrl("weather-helper.py")).replace(/^file:\/\//, "")
   readonly property string pythonPath: "/usr/bin/python3"
+  property string systemTimeZone: ""
   readonly property int maxProcBytes: 262144
   readonly property int procDeadlineMs: 45000
   // QML does not always track dependencies read indirectly from JavaScript
@@ -95,6 +96,7 @@ Panel {
   property string dailyForecastBuf: ""
   property string geocodeBuf: ""
   property string locationProcBuf: ""
+  property string systemTimeZoneBuf: ""
 
   function helperCmd() {
     var cmd = [root.pythonPath, "-I", "-S", root.helperPath]
@@ -119,6 +121,8 @@ Panel {
   function radarCoordinate(value) {
     var configured = parseFloat(String(value === "lat" ? configuredLocationState.latitude : configuredLocationState.longitude))
     if (!isNaN(configured)) return String(configured)
+    var detected = parseFloat(String(value === "lat" ? autoLocationState.latitude : autoLocationState.longitude))
+    if (!isNaN(detected)) return String(detected)
     var cached = value === "lat" ? radarLatitude : radarLongitude
     if (cached !== "") return cached
     var field = value === "lat" ? "latitude" : "longitude"
@@ -218,8 +222,12 @@ Panel {
   // (coordinates when stored, else the encoded name); empty means IP
   // auto-detect. The watch makes hand edits take effect live.
   property var configuredLocationState: ({ name: "", latitude: null, longitude: null })
+  property var autoLocationState: ({ name: "", latitude: null, longitude: null })
   readonly property string configuredLocation: configuredLocationState.name
-  readonly property string locationQuery: Model.wttrLocationQuery(configuredLocationState.name, configuredLocationState.latitude, configuredLocationState.longitude)
+  readonly property var activeLocationState: (configuredLocationState.name !== "" || !isNaN(parseFloat(String(configuredLocationState.latitude))))
+    ? configuredLocationState
+    : autoLocationState
+  readonly property string locationQuery: Model.wttrLocationQuery(activeLocationState.name, activeLocationState.latitude, activeLocationState.longitude)
 
   // Keep the previous report visible while the new location loads. The
   // editor remains open with a spinner, so stale data is never presented
@@ -262,6 +270,28 @@ Panel {
   }
   Timer { id: locationFileDeadline; interval: root.procDeadlineMs; onTriggered: { locationFile.signal(15); locationFileKill.start() } }
   Timer { id: locationFileKill; interval: 2000; onTriggered: locationFile.signal(9) }
+
+  Process {
+    id: systemTimeZoneProc
+    command: root.helperCmd("timezone")
+    running: true
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var next = root.appendBounded(root.systemTimeZoneBuf, chunk)
+        if (next === null) { root.systemTimeZoneBuf = ""; systemTimeZoneProc.signal(15); systemTimeZoneKill.start(); return }
+        root.systemTimeZoneBuf = next
+      }
+    }
+    onRunningChanged: if (running) systemTimeZoneDeadline.restart(); else { systemTimeZoneDeadline.stop(); systemTimeZoneKill.stop() }
+    onExited: function(exitCode) {
+      var text = root.systemTimeZoneBuf
+      root.systemTimeZoneBuf = ""
+      root.systemTimeZone = exitCode === 0 ? String(text || "").trim() : ""
+    }
+  }
+  Timer { id: systemTimeZoneDeadline; interval: root.procDeadlineMs; onTriggered: { systemTimeZoneProc.signal(15); systemTimeZoneKill.start() } }
+  Timer { id: systemTimeZoneKill; interval: 2000; onTriggered: systemTimeZoneProc.signal(9) }
 
   Process {
     id: panelStateFile
@@ -330,9 +360,14 @@ Panel {
   readonly property var activities: Model.activityForecast(openMeteoCurrent, todayForecast)
   readonly property string reportCountry: areaInfo && areaInfo.country && areaInfo.country[0] ? areaInfo.country[0].value : ""
 
-  // Default must match manifest/schema ("metric"). Empty used to mean "auto
-  // from locale/country", which made Settings show °C while en_US still got °F.
-  readonly property bool useImperial: Model.shouldUseImperial(setting("unit", "metric"), Qt.locale().name, reportCountry)
+  // Default "auto" follows system timezone / locale measurement (see Model.js).
+  readonly property bool useImperial: Model.shouldUseImperial(
+    setting("unit", ""),
+    Qt.locale().name,
+    reportCountry,
+    Qt.locale().measurementSystem,
+    systemTimeZone
+  )
 
   // Auto-refresh interval in minutes; clamped to a sane minimum.
   readonly property int refreshMinutes: Math.max(1, parseInt(setting("refreshMinutes", 15), 10) || 15)
@@ -365,6 +400,10 @@ Panel {
 
     var lat = parseFloat(String(root.configuredLocationState.latitude))
     var lon = parseFloat(String(root.configuredLocationState.longitude))
+    if (isNaN(lat) || isNaN(lon)) {
+      lat = parseFloat(String(root.autoLocationState.latitude))
+      lon = parseFloat(String(root.autoLocationState.longitude))
+    }
     if (isNaN(lat) || isNaN(lon)) {
       var area = sourceReport && sourceReport.nearest_area && sourceReport.nearest_area[0] ? sourceReport.nearest_area[0] : root.areaInfo
       if (!area) return
@@ -429,9 +468,11 @@ Panel {
 
   function clearLocation() {
     configuredLocationState = { name: "", latitude: null, longitude: null }
+    autoLocationState = { name: "", latitude: null, longitude: null }
     persistLocation("", null, null)
     wttrLocation = ""
     cancelEditingLocation()
+    Qt.callLater(root.refresh)
   }
 
   function pickSuggestion(suggestion) {
@@ -475,7 +516,7 @@ Panel {
   function startGeocode() {
     geocodeActiveQuery = geocodePendingQuery
     geocodeProc.command = root.helperCmd("fetch",
-      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json", "5")
+      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=10&language=en&format=json", "5")
     geocodeProc.running = true
   }
 
@@ -724,7 +765,10 @@ Panel {
 
   Process {
     id: locationProc
-    command: root.helperCmd("fetch", "https://wttr.in/?format=%l", "4")
+    // wttr.in's IP lookup can fail with "location not found" even when its
+    // weather service is reachable. Use a dedicated IP geolocation fallback
+    // so Open-Meteo can still provide the complete forecast.
+    command: root.helperCmd("fetch", "https://ipwho.is/", "8")
     stdout: SplitParser {
       splitMarker: ""
       onRead: function(chunk) {
@@ -738,9 +782,11 @@ Panel {
       var text = root.locationProcBuf
       root.locationProcBuf = ""
       if (exitCode !== 0) return
-      var raw = String(text || "").trim()
-      if (!raw) return
-      root.wttrLocation = raw.split(",")[0].slice(0, 128)
+      var detected = Model.parseIpLocation(text)
+      if (!detected) return
+      root.autoLocationState = detected
+      root.wttrLocation = detected.name
+      root.mapRevision++
     }
   }
   Timer { id: locationProcDeadline; interval: root.procDeadlineMs; onTriggered: { locationProc.signal(15); locationProcKill.start() } }
@@ -749,6 +795,7 @@ Panel {
   Component.onDestruction: {
     radarGeocodeProc.signal(15)
     locationFile.signal(15)
+    systemTimeZoneProc.signal(15)
     panelStateFile.signal(15)
     panelStateSaveProc.signal(15)
     forecastProc.signal(15)
