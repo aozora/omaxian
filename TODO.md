@@ -1,5 +1,6 @@
 # TODO
 
+- support both pipewire & pulseaudio
 - integrate some apps from `omarchy-quattro/applications/`
   - `omarchy-quattro/applications/imv.desktop`
   - `omarchy-quattro/applications/Disk Usage.desktop`
