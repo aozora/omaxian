@@ -95,6 +95,7 @@ Super+Ctrl+L / `omarchy-system-lock`.
 
 Lid / suspend: `xss-lock -l` locks before sleep. `omarchy-idle-lock-apply`
 (and `i3_autostart`) also point XFCE’s `LockCommand` at `loginctl lock-session`,
-turn off `xfce4-power-manager`’s lock-on-suspend (it only races xss-lock and
-shows “none of the screen lock tools…” under bare i3), and stop leftover
-`xfce4-screensaver` so you are not asked to unlock twice.
+turn off xfpm lock-on-suspend / screensaver sleep-activation, set
+`logind-handle-lid-switch=true` with lid-action=suspend (xfpm’s defaults are
+lock-screen and steal the lid from elogind — that is the
+“none of the screen lock tools…” dialog), and stop leftover `xfce4-screensaver`.

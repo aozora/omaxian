@@ -123,12 +123,15 @@ stop_xfce_screensaver() {
   pkill -u "$UID" -x xfce4-screensaver 2>/dev/null || true
 }
 
-# xfce4-power-manager (started from i3_autostart) locks before suspend via
-# libxfce4ui's xfce_screensaver_lock(). Without a LockCommand it tries XFCE /
-# xdg / xscreensaver / light-locker — all fail under bare i3 and pop:
-# "None of the screen lock tools ran successfully…". xss-lock -l already owns
-# PrepareForSleep, so turn off xfpm's redundant pre-suspend lock and point
-# session LockCommand at loginctl so any remaining XFCE lock UI delegates here.
+# xfce4-power-manager (started from i3_autostart) defaults are hostile to bare
+# i3 + xss-lock:
+#   lid-action-on-{ac,battery} = LOCK_SCREEN (enum 3)
+#   logind-handle-lid-switch   = false  → xfpm steals the lid from elogind
+# Closing the lid then calls xfce_screensaver_lock(), which fails under i3 and
+# pops "None of the screen lock tools ran successfully…", while xss-lock may
+# still lock → double unlock. Hand lid back to elogind (HandleLidSwitch=suspend)
+# so xss-lock -l is the single lock-before-sleep path; set lid-action to SUSPEND
+# (enum 1) as a fallback if the logind-handle flag is ever cleared.
 configure_xfce_lock_delegation() {
   command -v xfconf-query >/dev/null 2>&1 || return 0
 
@@ -146,6 +149,17 @@ configure_xfce_lock_delegation() {
     xfconf-query -c xfce4-screensaver -p /lock/sleep-activation -n -t bool -s false \
       >/dev/null 2>&1 || true
     xfconf-query -c xfce4-session -p /shutdown/LockScreen -n -t bool -s false \
+      >/dev/null 2>&1 || true
+
+    # Lid: let elogind suspend; xss-lock -l locks. Enum: SUSPEND=1 LOCK_SCREEN=3.
+    xfconf-query -c xfce4-power-manager \
+      -p /xfce4-power-manager/logind-handle-lid-switch -n -t bool -s true \
+      >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-power-manager \
+      -p /xfce4-power-manager/lid-action-on-ac -n -t uint -s 1 \
+      >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-power-manager \
+      -p /xfce4-power-manager/lid-action-on-battery -n -t uint -s 1 \
       >/dev/null 2>&1 || true
   fi
 }

@@ -74,10 +74,9 @@ timeout 10 omarchy-keyboard-apply
 # before xfce4-power-manager (below) can D-Bus-activate xfce4-notifyd into it.
 "$idir"/scripts/i3_dunst
 
-# Before xfpm: drop leftover xfce4-screensaver and hand XFCE lock-on-sleep to
-# loginctl / xss-lock. Otherwise lid-close pops "none of the screen lock
-# tools…" and a second XFCE unlock after i3lock-omaxian. Full xss-lock start
-# stays delayed below (omarchy-idle-lock-apply) so we do not lock mid-startup.
+# Before xfpm: drop leftover xfce4-screensaver and fix XFCE power defaults that
+# steal lid-close (LOCK_SCREEN) from elogind/xss-lock. Full xss-lock start stays
+# delayed below so we do not lock mid-startup.
 pkill -u "$UID" -x xfce4-screensaver 2>/dev/null || true
 if command -v xfconf-query >/dev/null 2>&1; then
 	if command -v loginctl >/dev/null 2>&1; then
@@ -91,6 +90,17 @@ if command -v xfconf-query >/dev/null 2>&1; then
 		xfconf-query -c xfce4-screensaver -p /lock/sleep-activation -n -t bool -s false \
 			>/dev/null 2>&1 || true
 		xfconf-query -c xfce4-session -p /shutdown/LockScreen -n -t bool -s false \
+			>/dev/null 2>&1 || true
+		# Lid → elogind suspend (xss-lock -l locks). Defaults are LOCK_SCREEN=3
+		# with logind-handle-lid-switch=false, which pops the XFCE lock-tools error.
+		xfconf-query -c xfce4-power-manager \
+			-p /xfce4-power-manager/logind-handle-lid-switch -n -t bool -s true \
+			>/dev/null 2>&1 || true
+		xfconf-query -c xfce4-power-manager \
+			-p /xfce4-power-manager/lid-action-on-ac -n -t uint -s 1 \
+			>/dev/null 2>&1 || true
+		xfconf-query -c xfce4-power-manager \
+			-p /xfce4-power-manager/lid-action-on-battery -n -t uint -s 1 \
 			>/dev/null 2>&1 || true
 	fi
 fi
