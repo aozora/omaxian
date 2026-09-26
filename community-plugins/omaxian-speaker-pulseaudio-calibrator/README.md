@@ -7,9 +7,13 @@ Port of
 [thefreshoffice/omarchy-speaker-calibrator](https://github.com/thefreshoffice/omarchy-speaker-calibrator)
 (upstream commit `08be2c30c74ed9dfa845aab2d3d64185056502f3`).
 
-Plugin id: `omaxian-speaker-pulseaudio-calibrator`. Optional — not installed by
-`./deploy.sh`. See [`../README.md`](../README.md) for the catalog install
-pattern.
+Plugin id: `omaxian-speaker-pulseaudio-calibrator`. **PulseAudio only.** On
+PipeWire, install
+[`omaxian-speaker-pipewire-calibrator`](../omaxian-speaker-pipewire-calibrator/)
+instead. Do not enable both.
+
+Optional — not installed by `./deploy.sh`. See [`../README.md`](../README.md)
+for the catalog install pattern.
 
 ## Omaxian deltas
 

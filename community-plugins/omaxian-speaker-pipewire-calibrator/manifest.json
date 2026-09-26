@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "omaxian-speaker-pipewire-calibrator",
+  "name": "Speaker Calibrator (PipeWire)",
+  "version": "1.2.0-omaxian.1",
+  "author": "Michael de By (Omaxian port)",
+  "license": "MIT",
+  "description": "Measure with one or many microphones and generate adaptive, repeat-validated, protected parametric speaker tuning (PipeWire filter-chain only).",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Speaker Calibrator (PipeWire)",
+    "description": "PipeWire only. Calibrate speakers with a filter-chain; use the PulseAudio plugin on PulseAudio hosts.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

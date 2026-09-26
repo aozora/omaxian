@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "id": "omaxian-speaker-pulseaudio-calibrator",
-  "name": "Speaker Calibrator",
+  "name": "Speaker Calibrator (PulseAudio)",
   "version": "1.0.2-omaxian.3",
   "author": "Michael de By (Omaxian port)",
   "license": "MIT",
-  "description": "Measure with one or many microphones and generate adaptive, repeat-validated, protected parametric speaker tuning (PulseAudio port).",
+  "description": "Measure with one or many microphones and generate adaptive, repeat-validated, protected parametric speaker tuning (PulseAudio DSP only).",
   "kinds": [
     "bar-widget"
   ],
@@ -13,8 +13,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Speaker Calibrator",
-    "description": "Calibrate the speakers in one step, with Loudness and Make-it-louder toggles; advanced details on request.",
+    "displayName": "Speaker Calibrator (PulseAudio)",
+    "description": "PulseAudio only. Calibrate speakers with a userspace DSP; use the PipeWire plugin on PipeWire hosts.",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right"
