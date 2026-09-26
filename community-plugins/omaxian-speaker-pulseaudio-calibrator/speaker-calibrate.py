@@ -141,8 +141,8 @@ LEVEL_SEARCH_START_OFFSET_DB = -12.0
 LEVEL_SEARCH_BOUNDS_DB = (-24.0, 6.0)
 
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-DATA = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "omaxian-speaker-calibrator"
-RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "omaxian-speaker-calibrator"
+DATA = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "omaxian-speaker-pulseaudio-calibrator"
+RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "omaxian-speaker-pulseaudio-calibrator"
 DSP_SOCKET = RUNTIME / "dsp.sock"
 DSP_PID = RUNTIME / "dsp.pid"
 LOUDNESS_PID = RUNTIME / "loudness.pid"

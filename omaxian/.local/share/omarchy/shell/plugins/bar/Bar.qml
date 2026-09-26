@@ -1183,8 +1183,17 @@ Item {
 
   function popoutOwnerIsOpen(owner) {
     if (!owner) return false
+    // Panels use `opened`; PopupCard/KeyboardPanel owners often mirror the
+    // card via `open`. Bar widgets keep their own flags (`popupOpen` for
+    // media, `menuOpen` for power/help/theme/wallpaper, `runnerOpen` for
+    // the app launcher). Missing those names made X11 re-click dismiss a
+    // no-op: grabFocus does not reliably clear a popup anchored to the bar,
+    // so modulePointer must call close() — and must see the flag as open.
     if ("opened" in owner) return owner.opened === true
     if ("open" in owner) return owner.open === true
+    if ("popupOpen" in owner) return owner.popupOpen === true
+    if ("menuOpen" in owner) return owner.menuOpen === true
+    if ("runnerOpen" in owner) return owner.runnerOpen === true
     if ("trayMenuOpen" in owner || "managePopupOpen" in owner)
       return owner.trayMenuOpen === true || owner.managePopupOpen === true
     // Unknown shape: never assume open — that wedged every bar click on a

@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -sB
-"""PulseAudio userspace DSP graph for omaxian.speaker-calibrator.
+"""PulseAudio userspace DSP graph for omaxian-speaker-pulseaudio-calibrator.
 
 Replaces upstream's PipeWire filter-chain client. Apps play into a null sink;
 this process reads the monitor, applies high-pass / peaking EQ / balance, a
@@ -46,7 +46,7 @@ LIMITER_CEILING_DBFS = -1.0
 RUNTIME = Path(
     os.environ.get("XDG_RUNTIME_DIR")
     or f"/run/user/{os.getuid()}"
-) / "omaxian-speaker-calibrator"
+) / "omaxian-speaker-pulseaudio-calibrator"
 SOCKET_PATH = RUNTIME / "dsp.sock"
 PID_PATH = RUNTIME / "dsp.pid"
 LOG_PATH = RUNTIME / "dsp.log"

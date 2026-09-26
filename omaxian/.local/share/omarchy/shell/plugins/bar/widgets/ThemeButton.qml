@@ -210,6 +210,8 @@ BarWidget {
 
   QtObject {
     id: themeOwner
+    // Expose open state so Bar.modulePointer can dismiss on re-click.
+    readonly property bool open: root.menuOpen
     function close() { root.menuOpen = false }
   }
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "omaxian-speaker-calibrator",
+  "id": "omaxian-speaker-pulseaudio-calibrator",
   "name": "Speaker Calibrator",
   "version": "1.0.2-omaxian.3",
   "author": "Michael de By (Omaxian port)",

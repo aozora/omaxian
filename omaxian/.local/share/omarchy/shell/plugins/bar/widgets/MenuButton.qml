@@ -55,7 +55,11 @@ BarWidget {
   }
   function ipcHideRunner() { root.runnerOpen = false }
 
-  property QtObject runnerOwner: QtObject { function close() { root.runnerOpen = false } }
+  property QtObject runnerOwner: QtObject {
+    // Expose open state so Bar.modulePointer can dismiss on re-click.
+    readonly property bool open: root.runnerOpen
+    function close() { root.runnerOpen = false }
+  }
 
   WidgetButton {
     id: button
