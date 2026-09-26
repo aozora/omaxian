@@ -12,7 +12,9 @@ if [[ -z $node_id || -z $source_name ]]; then
   exit 1
 fi
 
-wpctl set-default "$node_id" 2>/dev/null || true
+# pactl by source name works on PulseAudio and on PipeWire via pipewire-pulse.
+# Do not call wpctl with this node_id — it is a PulseAudio source index, not a
+# WirePlumber object id, and can select the wrong node on PipeWire.
 pactl set-default-source "$source_name" 2>/dev/null || true
 
 pactl list short source-outputs 2>/dev/null | awk '{ print $1 }' | while read -r output; do

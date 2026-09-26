@@ -143,7 +143,7 @@ OPTIONAL=(
 	# NVIDIA: nvidia-smi comes with the proprietary driver package, not listed here
 	power-profiles-daemon  # omarchy-powerprofiles-* (needs D-Bus; works w/ elogind)
 	openresolv             # lets omarchy-dns flush the resolver cache
-	wireplumber            # wpctl fallback when pactl is absent
+	wireplumber            # PipeWire session manager only; not a pactl stand-in (skip on PulseAudio hosts)
 )
 
 # No systemd (Devuan / sysvinit Debian): pull elogind so loginctl / xss-lock /

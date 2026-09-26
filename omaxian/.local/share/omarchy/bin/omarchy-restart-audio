@@ -1,18 +1,48 @@
 #!/bin/bash
-# omarchy:summary=Restart the audio server (PulseAudio).
+# omarchy:summary=Restart the audio server (PulseAudio or PipeWire).
 # omarchy:examples=omarchy restart audio
 #
-# X11/Devuan port: upstream restarts pipewire/wireplumber via `systemctl --user`.
-# This box runs PulseAudio with autospawn — killing it makes the next client
-# (or `pactl`) respawn a fresh daemon.
+# Detects the live server from `pactl info` so PulseAudio and PipeWire
+# sessions both restart cleanly. Never run `pulseaudio --start` on a
+# PipeWire host — that can steal the ALSA device.
 set -uo pipefail
-echo "Restarting PulseAudio..."
-pulseaudio -k 2>/dev/null || true
-sleep 1
-pactl info >/dev/null 2>&1 || pulseaudio --start 2>/dev/null || true
-if pactl info >/dev/null 2>&1; then
-  echo "PulseAudio is back up."
+
+server_name="$(pactl info 2>/dev/null | awk -F': ' '/^Server Name:/{print $2; exit}')"
+
+on_pipewire=0
+[[ $server_name == *"on PipeWire"* || $server_name == PipeWire* ]] && on_pipewire=1
+
+if (( on_pipewire )); then
+  if command -v systemctl >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
+    echo "Restarting PipeWire..."
+    systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || {
+      echo "Could not restart PipeWire user services." >&2
+      exit 1
+    }
+    sleep 1
+    if pactl info >/dev/null 2>&1; then
+      echo "PipeWire is back up."
+    else
+      echo "PipeWire did not come back — check pipewire / pipewire-pulse / wireplumber." >&2
+      exit 1
+    fi
+  else
+    # Devuan / no user systemd: killing pipewire-pulse without a supervisor
+    # leaves the session silent until the next login. Do not start pulseaudio.
+    echo "PipeWire is running, but there is no systemd --user session to restart it." >&2
+    echo "Restart pipewire, pipewire-pulse, and wireplumber from your session manager," >&2
+    echo "or log out and back in." >&2
+    exit 1
+  fi
 else
-  echo "PulseAudio did not come back — try 'pulseaudio --start' manually." >&2
-  exit 1
+  echo "Restarting PulseAudio..."
+  pulseaudio -k 2>/dev/null || true
+  sleep 1
+  pactl info >/dev/null 2>&1 || pulseaudio --start 2>/dev/null || true
+  if pactl info >/dev/null 2>&1; then
+    echo "PulseAudio is back up."
+  else
+    echo "PulseAudio did not come back — try 'pulseaudio --start' manually." >&2
+    exit 1
+  fi
 fi

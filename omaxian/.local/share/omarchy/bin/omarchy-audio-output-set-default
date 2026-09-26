@@ -12,7 +12,9 @@ if [[ -z $node_id || -z $sink_name ]]; then
   exit 1
 fi
 
-timeout 2 wpctl set-default "$node_id" 2>/dev/null || true
+# pactl by sink name works on PulseAudio and on PipeWire via pipewire-pulse.
+# Do not call wpctl with this node_id — it is a PulseAudio sink index, not a
+# WirePlumber object id, and can select the wrong node on PipeWire.
 timeout 2 pactl set-default-sink "$sink_name" 2>/dev/null || true
 
 # Move only real application streams. A DSP filter-chain's own output is also a
