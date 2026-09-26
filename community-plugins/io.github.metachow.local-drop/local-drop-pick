@@ -1,0 +1,81 @@
+#!/bin/bash
+# Pick files for LocalDrop send. Same CLI shape as omarchy-file-select.
+#
+# Omaxian does not ship omarchy-file-select; fall back to zenity when the
+# portal helper is missing. Exit codes match the portal helper:
+#   0  paths printed (one per line)
+#   1  nothing picked / cancelled
+#   2  chooser failed to open
+
+set -euo pipefail
+
+title="Select file"
+multiple=0
+directory=0
+extensions=""
+
+while (($# > 0)); do
+  case "$1" in
+    --title)
+      title=${2:-Select file}
+      shift 2
+      ;;
+    --multiple)
+      multiple=1
+      shift
+      ;;
+    --directory)
+      directory=1
+      shift
+      ;;
+    --extensions)
+      extensions=${2:-}
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: local-drop-pick [--title <title>] [--multiple] [--directory] [--extensions \"ext ext...\"]" >&2
+      exit 2
+      ;;
+    *)
+      echo "local-drop-pick: unknown option $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if command -v omarchy-file-select >/dev/null 2>&1; then
+  args=(--title "$title")
+  ((multiple)) && args+=(--multiple)
+  ((directory)) && args+=(--directory)
+  [[ -n $extensions ]] && args+=(--extensions "$extensions")
+  exec omarchy-file-select "${args[@]}"
+fi
+
+if ! command -v zenity >/dev/null 2>&1; then
+  echo "local-drop-pick: need omarchy-file-select or zenity" >&2
+  exit 2
+fi
+
+args=(--file-selection --title="$title")
+((multiple)) && args+=(--multiple --separator=$'\n')
+((directory)) && args+=(--directory)
+
+if [[ -n $extensions && $directory -eq 0 ]]; then
+  # zenity --file-filter takes a single "Name | *.ext *.EXT" pattern.
+  patterns=()
+  for ext in $extensions; do
+    ext=${ext#.}
+    patterns+=("*.${ext}" "*.${ext^^}")
+  done
+  args+=(--file-filter="$(printf '%s ' "${patterns[@]}" | sed 's/ $//')")
+fi
+
+# zenity prints nothing and exits 1 on cancel; other failures are also 1.
+# Map empty output to exit 1 so Service.qml treats it as a cancelled pick.
+list=$(zenity "${args[@]}" 2>/dev/null) || {
+  [[ -z ${list:-} ]] && exit 1
+  exit 2
+}
+[[ -z $list ]] && exit 1
+printf '%s\n' "$list"
+exit 0

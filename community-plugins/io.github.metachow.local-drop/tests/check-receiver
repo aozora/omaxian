@@ -1,0 +1,415 @@
+#!/usr/bin/python3
+"""Regression checks for the receive server, against a sandboxed daemon.
+
+    ./tests/check-receiver
+
+Launches local-dropd on port 53318 with its own HOME, config, runtime and
+download directory under a throwaway sandbox, exercises the three properties
+the last security review asked for, prints PASS/FAIL per check, tears the
+sandbox down, and exits non-zero if anything failed. It never touches the real
+download folder or the daemon the shell is running.
+
+The checks:
+  deadline  a connection that sends nothing is closed by the server on its own
+  cap       connections past the handler cap do not all stay open at once
+  sizes     missing / zero / negative / non-int / oversized declared sizes are
+            refused; a body shorter or longer than declared is refused for both
+            sized and chunked framing; an exact body is accepted
+  landing   an incoming name that already exists leaves the existing file
+            untouched and lands beside it; a symlink in the folder is never
+            followed and its target is left untouched; no .part files remain
+  normal    a plain sized upload and a chunked upload land byte-identical
+"""
+
+import http.client
+import json
+import os
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DAEMON = (sys.argv[1] if len(sys.argv) > 1
+          else os.path.join(os.path.dirname(HERE), "local-dropd"))
+HOST, PORT = "127.0.0.1", 53318
+
+failures = []
+
+
+def check(name, ok, detail=""):
+    print("  %s  %s%s" % ("PASS" if ok else "FAIL", name,
+                          ("  — " + detail) if detail else ""), flush=True)
+    if not ok:
+        failures.append(name)
+
+
+# --------------------------------------------------------------- HTTP helpers
+
+def prepare(files, info_alias="Checker"):
+    body = {"info": {"alias": info_alias, "version": "2.1", "deviceModel": "Test",
+                     "deviceType": "desktop", "fingerprint": uuid.uuid4().hex * 2,
+                     "port": 53399, "protocol": "http", "download": False},
+            "files": files}
+    conn = http.client.HTTPConnection(HOST, PORT, timeout=30)
+    conn.request("POST", "/api/localsend/v2/prepare-upload",
+                 body=json.dumps(body).encode(),
+                 headers={"Content-Type": "application/json"})
+    r = conn.getresponse()
+    raw = r.read()
+    conn.close()
+    try:
+        return r.status, json.loads(raw)
+    except ValueError:
+        return r.status, None
+
+
+def make_files(entries):
+    """entries: list of (name, size_value). Returns (files_dict, [file_ids])."""
+    files, ids = {}, []
+    for name, size in entries:
+        fid = uuid.uuid4().hex
+        files[fid] = {"id": fid, "fileName": name, "size": size,
+                      "fileType": "application/octet-stream"}
+        ids.append(fid)
+    return files, ids
+
+
+def upload_sized(session, fid, token, data, content_length=None):
+    """POST an upload with a Content-Length body. Returns HTTP status, 0 if hung up."""
+    if content_length is None:
+        content_length = len(data)
+    q = "?sessionId=%s&fileId=%s&token=%s" % (session, fid, token)
+    conn = http.client.HTTPConnection(HOST, PORT, timeout=30)
+    try:
+        conn.putrequest("POST", "/api/localsend/v2/upload" + q)
+        conn.putheader("Content-Type", "application/octet-stream")
+        conn.putheader("Content-Length", str(content_length))
+        conn.endheaders()
+        conn.send(data)
+        return conn.getresponse().status
+    except (http.client.HTTPException, OSError):
+        return 0
+    finally:
+        conn.close()
+
+
+def upload_chunked(session, fid, token, data):
+    q = "?sessionId=%s&fileId=%s&token=%s" % (session, fid, token)
+    conn = http.client.HTTPConnection(HOST, PORT, timeout=30)
+    try:
+        conn.putrequest("POST", "/api/localsend/v2/upload" + q)
+        conn.putheader("Content-Type", "application/octet-stream")
+        conn.putheader("Transfer-Encoding", "chunked")
+        conn.endheaders()
+        for i in range(0, len(data), 65536):
+            block = data[i:i + 65536]
+            conn.send(b"%x\r\n" % len(block) + block + b"\r\n")
+        conn.send(b"0\r\n\r\n")
+        return conn.getresponse().status
+    except (http.client.HTTPException, OSError):
+        return 0
+    finally:
+        conn.close()
+
+
+def send_one(name, payload, chunked=False, content_length=None):
+    """prepare + upload one file; returns (prepare_status, upload_status)."""
+    files, ids = make_files([(name, len(payload))])
+    st, body = prepare(files)
+    if st != 200 or not body:
+        return st, None
+    fid = ids[0]
+    token = body["files"][fid]
+    if chunked:
+        up = upload_chunked(body["sessionId"], fid, token, payload)
+    else:
+        up = upload_sized(body["sessionId"], fid, token, payload, content_length)
+    return st, up
+
+
+# ------------------------------------------------------------------- sandbox
+
+def start_daemon(sandbox):
+    home = os.path.join(sandbox, "home")
+    downloads = os.path.join(home, "Downloads")
+    cfgdir = os.path.join(home, ".config")
+    runtime = os.path.join(sandbox, "run")
+    for d in (downloads, os.path.join(cfgdir, "omarchy"), runtime):
+        os.makedirs(d, exist_ok=True)
+    with open(os.path.join(cfgdir, "user-dirs.dirs"), "w") as f:
+        f.write('XDG_DOWNLOAD_DIR="$HOME/Downloads"\n')
+    with open(os.path.join(cfgdir, "omarchy", "local-drop.json"), "w") as f:
+        json.dump({"fingerprint": uuid.uuid4().hex * 2, "alias": "Sandbox",
+                   "receiveMode": "auto", "port": PORT}, f)
+    env = dict(os.environ,
+               HOME=home, XDG_CONFIG_HOME=cfgdir, XDG_RUNTIME_DIR=runtime)
+    proc = subprocess.Popen([sys.executable, DAEMON], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(50):
+        try:
+            c = http.client.HTTPConnection(HOST, PORT, timeout=2)
+            c.request("GET", "/api/localsend/v2/info")
+            c.getresponse().read()
+            c.close()
+            return proc, downloads
+        except OSError:
+            time.sleep(0.2)
+    proc.terminate()
+    raise SystemExit("daemon did not come up on port %d" % PORT)
+
+
+# --------------------------------------------------------------------- checks
+
+def check_deadline():
+    """A connection that never sends a request should be closed by the server."""
+    s = socket.create_connection((HOST, PORT), timeout=5)
+    s.settimeout(HEADER_WAIT)
+    try:
+        # Send nothing. When the header deadline fires, the server shuts the
+        # socket down and our recv returns b"" (EOF) rather than timing out.
+        data = s.recv(1)
+        check("deadline: idle connection is closed by the server",
+              data == b"", "server sent %r" % data)
+    except socket.timeout:
+        check("deadline: idle connection is closed by the server",
+              False, "still open after %gs" % HEADER_WAIT)
+    finally:
+        s.close()
+
+
+def daemon_threads(pid):
+    try:
+        return len(os.listdir("/proc/%d/task" % pid))
+    except OSError:
+        return -1
+
+
+def check_cap(pid):
+    """Handler threads must stay bounded no matter how many peers connect.
+
+    The old code spawned a thread per accepted connection; opening many idle
+    connections would balloon the thread count without limit. The bounded
+    server hands out at most MAX_CONNECTIONS handler threads and closes the
+    rest at once. Each live handler also holds one deadline Timer thread, so the
+    bound to prove is ~2x the cap and, crucially, flat in the connection count:
+    doubling the connections must not move the thread count.
+    """
+    base = daemon_threads(pid)
+    conns = []
+    try:
+        for _ in range(MAX_CONN_PROBE):
+            try:
+                conns.append(socket.create_connection((HOST, PORT), timeout=2))
+            except OSError:
+                break
+        time.sleep(1.5)
+        peak = daemon_threads(pid)
+        # A handler plus its deadline Timer is two threads, so the ceiling is
+        # 2x the cap; the point is that it does not scale with len(conns).
+        ceiling = 2 * CAP_LIMIT + 6
+        check("cap: handler threads stay bounded under many connections",
+              0 <= peak - base <= ceiling,
+              "threads %d -> %d (delta %d, ceiling %d) over %d connections (cap %d)"
+              % (base, peak, peak - base, ceiling, len(conns), CAP_LIMIT))
+    finally:
+        for s in conns:
+            s.close()
+
+
+def check_sizes():
+    payload = b"x" * 4096
+    files, _ = make_files([("a.bin", 4096)])
+
+    bad = {
+        "missing size": [("f.bin", None)],
+        "zero size": [("f.bin", 0)],
+        "negative size": [("f.bin", -1)],
+        "string size": [("f.bin", "4096")],
+        "oversized file": [("f.bin", (64 << 30) + 1)],
+    }
+    for label, entries in bad.items():
+        fdict, _ = make_files(entries)
+        # strip the None so it is genuinely absent, matching a real client
+        for f in fdict.values():
+            if f["size"] is None:
+                del f["size"]
+        st, _ = prepare(fdict)
+        check("sizes: %s refused at prepare" % label, st in (400, 413),
+              "got HTTP %d" % st)
+
+    # An oversized *session* (many files, each legal) is refused with 413.
+    huge = [("f%d.bin" % i, 32 << 30) for i in range(9)]   # 9 * 32 GiB > 256 GiB
+    fdict, _ = make_files(huge)
+    st, _ = prepare(fdict)
+    check("sizes: oversized session refused", st == 413, "got HTTP %d" % st)
+
+    # Body longer than declared: declare 4096, send 8192.
+    fdict, ids = make_files([("long.bin", 4096)])
+    st, body = prepare(fdict)
+    up = upload_sized(body["sessionId"], ids[0], body["files"][ids[0]],
+                      b"x" * 8192, content_length=8192) if st == 200 else -1
+    check("sizes: body longer than declared refused", up not in (200,),
+          "prepare %d, upload %s" % (st, up))
+
+    # Body shorter than declared: declare 4096, send 2048.
+    fdict, ids = make_files([("short.bin", 4096)])
+    st, body = prepare(fdict)
+    up = upload_sized(body["sessionId"], ids[0], body["files"][ids[0]],
+                      b"x" * 2048, content_length=2048) if st == 200 else -1
+    check("sizes: body shorter than declared refused", up not in (200,),
+          "prepare %d, upload %s" % (st, up))
+
+    # Chunked body longer than declared.
+    fdict, ids = make_files([("chlong.bin", 4096)])
+    st, body = prepare(fdict)
+    up = upload_chunked(body["sessionId"], ids[0], body["files"][ids[0]],
+                        b"x" * 8192) if st == 200 else -1
+    check("sizes: chunked body longer than declared refused", up not in (200,),
+          "prepare %d, upload %s" % (st, up))
+
+    # Exact body is accepted.
+    st, up = send_one("exact.bin", payload)
+    check("sizes: exact body accepted", (st, up) == (200, 200),
+          "prepare %d, upload %s" % (st, up))
+
+
+def check_landing(downloads):
+    # (1) An existing regular file with the same name must be left untouched.
+    victim = os.path.join(downloads, "keep.bin")
+    with open(victim, "wb") as f:
+        f.write(b"ORIGINAL")
+    st, up = send_one("keep.bin", b"INCOMING-DATA-DIFFERENT")
+    with open(victim, "rb") as f:
+        kept = f.read()
+    landed = sorted(n for n in os.listdir(downloads) if n.startswith("keep"))
+    check("landing: existing file not overwritten",
+          kept == b"ORIGINAL" and (st, up) == (200, 200) and len(landed) >= 2,
+          "content=%r names=%s" % (kept, landed))
+
+    # (2) A symlink at the FINAL name must not be followed. Both the old and
+    # new code sidestep this via name-collision handling, so it is a property
+    # test, not a discriminator.
+    outside = os.path.join(downloads, "..", "secret.txt")
+    with open(outside, "wb") as f:
+        f.write(b"SECRET")
+    link = os.path.join(downloads, "link.bin")
+    os.symlink(os.path.abspath(outside), link)
+    st, up = send_one("link.bin", b"ATTACKER-CONTROLLED")
+    secret = open(outside, "rb").read()
+    check("landing: symlink at final name not followed",
+          secret == b"SECRET" and os.path.islink(link) and (st, up) == (200, 200),
+          "target=%r" % secret)
+    os.unlink(link)
+    os.unlink(outside)
+
+    # (3) THE decisive one for finding #3: a symlink pre-placed at the temporary
+    # "<name>.part" path. The old code opened <target>.part with "wb", which
+    # follows the symlink and truncates whatever it points at. The new code
+    # writes to a random O_EXCL|O_NOFOLLOW temp, so the pointed-at file is safe.
+    victim = os.path.join(downloads, "..", "victim.txt")
+    with open(victim, "wb") as f:
+        f.write(b"VICTIM-DATA")
+    part_link = os.path.join(downloads, "boobytrap.bin.part")
+    os.symlink(os.path.abspath(victim), part_link)
+    st, up = send_one("boobytrap.bin", b"OVERWRITE-ATTEMPT-PAYLOAD")
+    victim_after = open(victim, "rb").read()
+    check("landing: symlink at <name>.part does not truncate its target",
+          victim_after == b"VICTIM-DATA",
+          "victim now %r (prepare=%s upload=%s)" % (victim_after, st, up))
+    for pth in (part_link, victim):
+        try:
+            os.unlink(pth)
+        except OSError:
+            pass
+
+    # (3) No temporary .part files left behind.
+    leftovers = [n for n in os.listdir(downloads) if ".part" in n or n.startswith(".localdrop")]
+    check("landing: no temporary files left behind", not leftovers,
+          "found %s" % leftovers)
+
+
+def check_normal(downloads):
+    import hashlib
+    sized = os.urandom(200000)
+    chunked = os.urandom(500000)
+    st1, up1 = send_one("normal-sized.bin", sized)
+    st2, up2 = send_one("normal-chunked.bin", chunked, chunked=True)
+    ok = True
+    detail = []
+    for name, data, st, up in [("normal-sized.bin", sized, st1, up1),
+                               ("normal-chunked.bin", chunked, st2, up2)]:
+        path = os.path.join(downloads, name)
+        got = open(path, "rb").read() if os.path.exists(path) else b""
+        if (st, up) != (200, 200) or got != data:
+            ok = False
+            detail.append("%s prepare=%d upload=%s match=%s"
+                          % (name, st, up, got == data))
+    check("normal: sized and chunked uploads land byte-identical", ok,
+          "; ".join(detail))
+
+
+# ------------------------------------------------------------ constants pulled from the daemon
+
+def load_constants():
+    """Read the timing/cap constants straight from the daemon source."""
+    src = open(DAEMON).read()
+    ns = {}
+    for line in src.splitlines():
+        line = line.strip()
+        for key in ("HEADER_DEADLINE", "MAX_CONNECTIONS"):
+            if line.startswith(key + " ="):
+                ns[key] = eval(line.split("=", 1)[1].split("#")[0].strip())
+    return ns
+
+
+def main():
+    global HEADER_WAIT, MAX_CONN_PROBE, CAP_LIMIT
+    consts = load_constants()
+    HEADER_WAIT = consts.get("HEADER_DEADLINE", 15.0) + 8
+    CAP_LIMIT = consts.get("MAX_CONNECTIONS", 16)
+    MAX_CONN_PROBE = CAP_LIMIT * 4
+
+    sandbox = tempfile.mkdtemp(prefix="ldcheck-")
+    proc = None
+    try:
+        proc, downloads = start_daemon(sandbox)
+        daemon_pid = proc.pid
+        print("daemon up in sandbox %s\n" % sandbox, flush=True)
+        # CHECKS=landing,sizes limits the run to those groups; default is all.
+        # Running a single group in isolation matters for differential testing
+        # against the old code, whose single stuck session otherwise masks the
+        # later groups behind 409s.
+        want = os.environ.get("CHECKS")
+        groups = set(want.split(",")) if want else None
+        def run(name, fn):
+            if groups is None or name in groups:
+                print("%s:" % name, flush=True)
+                fn()
+        run("sizes", check_sizes)
+        run("landing", lambda: check_landing(downloads))
+        run("normal", lambda: check_normal(downloads))
+        run("cap", lambda: check_cap(daemon_pid))
+        if groups is None or "deadline" in groups:
+            print("deadline (waits ~%gs):" % HEADER_WAIT, flush=True)
+            check_deadline()
+    finally:
+        if proc:
+            proc.send_signal(signal.SIGTERM)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+    print("\n%d check(s) failed: %s" % (len(failures), ", ".join(failures))
+          if failures else "\nall checks passed", flush=True)
+    sys.exit(1 if failures else 0)
+
+
+if __name__ == "__main__":
+    main()

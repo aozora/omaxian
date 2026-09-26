@@ -62,6 +62,7 @@ community-plugins/
 | [`jmaeder.swissweather`](jmaeder.swissweather/)                 | `jmaeder.swissweather`         | [omarchy-swissweather](https://github.com/jmaeder/omarchy-swissweather) — MeteoSwiss bar weather; QML compatible as-is                     | Ported |
 | [`io.github.guiestrela.weather`](io.github.guiestrela.weather/) | `io.github.guiestrela.weather` | [guiestrela/weather](https://github.com/guiestrela/weather) — Better Weather (Open-Meteo / wttr.in / RainViewer); helper accepts Debian `775` ancestors under `$HOME` | Ported |
 | [`io.github.kaiizu.runcat`](io.github.kaiizu.runcat/)           | `io.github.kaiizu.runcat`      | [kaiizu/runningcat](https://github.com/kaiizu/runningcat) — RunCat-style CPU cat; click → sysmon, settings via `setBarWidget` | Ported |
+| [`io.github.metachow.local-drop`](io.github.metachow.local-drop/) | `io.github.metachow.local-drop` | [omarchy-local-drop](https://github.com/metachow/omarchy-local-drop) — LocalSend bar share; `xclip`, `xdg-open`, `zenity`/`local-drop-pick` | Ported |
 | [`mkelk.keepass-picker`](mkelk.keepass-picker/)                 | `mkelk.keepass-picker`         | [keepass-picker](https://github.com/mkelk/keepass-picker) — KeePassXC paste picker; T1 CenteredModal, `xclip`/`xdotool`                     | Ported |
 | [`omaxian-speaker-calibrator`](omaxian-speaker-calibrator/) | `omaxian-speaker-calibrator` | [omarchy-speaker-calibrator](https://github.com/thefreshoffice/omarchy-speaker-calibrator) — speaker PEQ; PipeWire filter-chain → PulseAudio DSP daemon + apt | Ported |
 | [`omamail`](omamail/)                                           | `omamail`                      | [huacnlee/omamail](https://github.com/huacnlee/omamail) — Gmail/HEY/JMAP/IMAP + Rust backend; Wayland clipboard → Qt clipboard / `xclip` | Ported |
@@ -88,11 +89,15 @@ omarchy-plugin-add https://github.com/example/omarchy-foo.git --enable
 
 ### From this repo (local copy)
 
-Until `omarchy-plugin-add` accepts a directory:
+Until `omarchy-plugin-add` accepts a directory. Run from the **repo root**.
+The `PLUGIN` / `ID` checks matter: an empty source makes `rsync` copy `/`.
 
 ```bash
+set -euo pipefail
 PLUGIN=community-plugins/<plugin-id>   # path from repo root
+[[ -f $PLUGIN/manifest.json ]] || { echo "missing $PLUGIN/manifest.json (cwd=$(pwd))" >&2; exit 1; }
 ID=$(jq -r .id "$PLUGIN/manifest.json")
+[[ -n $ID && $ID != null ]] || { echo "bad plugin id" >&2; exit 1; }
 
 omarchy-plugin-check "$PLUGIN"
 omarchy-plugin-validate "$PLUGIN"

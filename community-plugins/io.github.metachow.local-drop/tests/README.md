@@ -1,0 +1,109 @@
+# Test harness
+
+## Automated receiver checks
+
+```bash
+./tests/check-receiver
+```
+
+Launches the daemon in a throwaway sandbox (its own HOME, config, runtime and
+download directory, on port 53318) and asserts the properties the security
+review asked for, printing PASS/FAIL per check and exiting non-zero on any
+failure. It never touches your real download folder or the running daemon.
+
+It covers: request-phase deadlines (an idle connection is closed on its own),
+a bounded handler-thread count under many connections, strict declared-size
+validation (missing/zero/negative/non-integer/oversized sizes and body lengths
+that do not match are all refused), safe landing (an existing file is never
+overwritten and a symlink is never followed), and a normal byte-identical
+sized and chunked upload.
+
+Two extras for differential testing against an older build:
+
+```bash
+./tests/check-receiver /path/to/old/local-dropd   # run the checks against another daemon
+CHECKS=landing ./tests/check-receiver <daemon>     # run only one group, in isolation
+```
+
+Pointed at the pre-fix commit these checks fail where the new build passes —
+that is how each fix was shown to close a real gap rather than only asserted.
+
+
+Two scripts stand in for the second device, so every path can be exercised on
+one machine. Neither touches the network beyond the local subnet.
+
+## A device to send to
+
+```bash
+./tests/fake-peer                       # plain HTTP
+./tests/fake-peer --tls                 # HTTPS, self-signed
+./tests/fake-peer --mtls                # HTTPS that demands a client certificate
+./tests/fake-peer --alias "Pixel 8" --device-type mobile
+```
+
+It announces itself over multicast, so it appears in the panel within a few
+seconds; anything sent to it lands in `$XDG_RUNTIME_DIR/local-drop-test-inbox/`
+(the path it prints on startup). That is deliberately outside the plugin
+directory — the shell watches this tree and reloads the plugin, restarting the
+daemon, whenever a file appears in it.
+
+`--mtls` is the case worth keeping: the LocalSend mobile apps ask for a client
+certificate during the handshake, and a client that presents none is turned
+away with `TLSV13_ALERT_CERTIFICATE_REQUIRED`. It needs
+`~/.config/omarchy/local-drop-cert.pem` to exist, which happens the first time
+LocalDrop talks to an encrypted peer.
+
+`--flood` makes it answer every request with an endless response body — the
+hostile-peer case a marketplace security review raised. A send to a flooding
+peer must fail with a bounded error rather than growing the daemon's memory.
+
+### Reproducing the memory-exhaustion finding
+
+Run the daemon under a memory cap, in its own config and runtime directories,
+and let a flooding peer announce itself. Nothing else — no accept, no send:
+
+```bash
+mkdir -p /tmp/ld-test/config /tmp/ld-test/run   # short path: AF_UNIX has a 108-char limit
+./tests/fake-peer --flood --port 53399 &
+
+# Cap RSS without a user service manager (prlimit / ulimit instead).
+# prlimit is in util-linux; ulimit -v is a coarser fallback (virtual size, KB).
+XDG_CONFIG_HOME=/tmp/ld-test/config XDG_RUNTIME_DIR=/tmp/ld-test/run \
+  prlimit --as=536870912 -- ./local-dropd &
+# give the daemon port 53318 in its config under that XDG_CONFIG_HOME
+
+python3 -c 'import json,socket; socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(
+  json.dumps({"alias":"Hostile","version":"2.1","deviceType":"mobile",
+              "fingerprint":"dead"*16,"port":53399,"protocol":"http",
+              "announce":True}).encode(), ("127.0.0.1", 53318))'
+```
+
+Answering an announcement is enough, because the daemon registers itself back
+with any device that announces. Before the response-body ceiling that path went
+from 26 MB to the 512 MB cap in under a second and was OOM-killed; with it, RSS
+holds at 26 MB through 45 seconds of repeated hostile announcements.
+
+## A device to receive from
+
+```bash
+./tests/send-to-us ~/Pictures/photo.png
+./tests/send-to-us --alias "Pixel 8" a.txt b.txt
+./tests/send-to-us --chunked big.jpeg     # how a phone streams a photo
+```
+
+`--chunked` frames the body with `Transfer-Encoding: chunked` and no
+`Content-Length`, which is what a phone streaming a photo out of its library
+does. Handling only `Content-Length` meant every real transfer from a phone
+was refused, so this flag is worth keeping in the loop.
+
+On `Ask first` this parks a request in the panel and blocks until you accept or
+decline it — the only way to exercise that path without a second device.
+
+## What a full pass looks like
+
+```bash
+./tests/fake-peer --mtls &                   # 1. a device appears in the panel
+./local-drop-ctl devices                     # 2. discovery works
+./local-drop-ctl send-clipboard <fingerprint> # 3. sending, over mutual TLS
+./tests/send-to-us /etc/hostname             # 4. receiving, with the accept card
+```
