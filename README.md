@@ -95,7 +95,7 @@ Pick the i3 / Omaxian session in your greeter (or start X however you usually do
 
 ### Quickshell
 
-The bar needs [Quickshell](https://quickshell.org) ≥ 0.2 (0.3.x tested).
+The shell needs [Quickshell](https://quickshell.org) ≥ 0.2 (0.3.x tested).
 Debian 13+ can `apt install quickshell`. 
 On **Debian &lt; 13 / Devuan** it is not in apt — `setup.sh` warns and skips it. 
 You can build it from source <https://quickshell.org/docs/guide/install/> or install it from the `testing` repository (see below).
@@ -386,6 +386,32 @@ quickshell -n -p ~/.local/share/omarchy/shell
 
 If your display manager does not run `/etc/X11/Xsession`, export `OMARCHY_PATH`
 and put the omarchy `bin` on `PATH` wherever the session starts.
+
+---
+
+## Community plugins (ported)
+
+Curated third-party Omarchy plugins already ported for X11/Debian live in
+[`community-plugins/`](community-plugins/). They are **opt-in** — not installed
+by `setup.sh` / `install.sh` / `deploy.sh`. Install and enable from that
+README (or Menu → Setup → Plugins).
+
+| Plugin | What it does |
+| ------ | ------------ |
+| [Nag](community-plugins/jankeesvw.nag/) | Disposable bar alarms from a one-line timer |
+| [Swiss Weather](community-plugins/jmaeder.swissweather/) | MeteoSwiss station weather on the bar |
+| [Better Weather](community-plugins/io.github.guiestrela.weather/) | Open-Meteo / wttr.in forecast + RainViewer radar |
+| [Running Cat](community-plugins/io.github.kaiizu.runcat/) | RunCat-style CPU load cat |
+| [System Monitor](community-plugins/harshith.system-monitor/) | Low-overhead `/proc`/`/sys` dashboard |
+| [KeePass Picker](community-plugins/mkelk.keepass-picker/) | Search KeePassXC and paste into the focused window |
+| [Speaker Calibrator (PulseAudio)](community-plugins/omaxian-speaker-pulseaudio-calibrator/) | Mic-based parametric speaker tuning (PulseAudio) |
+| [Speaker Calibrator (PipeWire)](community-plugins/omaxian-speaker-pipewire-calibrator/) | Same upstream, PipeWire-only port |
+| [Omamail](community-plugins/omamail/) | Gmail / HEY / JMAP / IMAP client with Rust backend |
+| [Voxtype Aura](community-plugins/io.github.adamcbrewer.voxtype-aura/) | Voxtype dictation overlay |
+| [Calculator](community-plugins/io.github.canclini.calculator/) | Spotlight-style quick calculator |
+
+Details, upstream links, and install steps:
+[`community-plugins/README.md`](community-plugins/README.md).
 
 ---
 
