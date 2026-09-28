@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Ensure a Pulse-compatible audio server for bare i3.
+#
+# On Devuan / non-systemd hosts the systemd user units never start, and bare
+# i3 does not run /etc/xdg/autostart/{pipewire,pulseaudio}.desktop. Without
+# this, volume keys / the bar / pavucontrol see "Connection refused".
+#
+# Preference:
+#   1. PipeWire (+ WirePlumber + pipewire-pulse) when pipewire-pulse is installed
+#      and classic pulseaudio is not already owning the session.
+#   2. Classic PulseAudio otherwise (start-pulseaudio-x11 / pulseaudio --start).
+#
+# No-op when neither stack is installed.
+
+runtime=${XDG_RUNTIME_DIR:-}
+[[ -n $runtime && -d $runtime ]] || exit 0
+
+wait_gone() {
+	local p=$1 i=0
+	while pgrep -x -u "$UID" "$p" >/dev/null 2>&1 && (( i < 30 )); do
+		sleep 0.1
+		(( ++i ))
+	done
+}
+
+start_one() {
+	local p=$1
+	command -v "$p" >/dev/null 2>&1 || return 0
+	pgrep -x -u "$UID" "$p" >/dev/null 2>&1 && return 0
+	"$p" &
+	disown "$!" 2>/dev/null || true
+}
+
+# --- PipeWire ---------------------------------------------------------------
+# Exact name only for the pulseaudio guard — do not match pipewire-pulse.
+if command -v pipewire >/dev/null 2>&1 \
+	&& command -v pipewire-pulse >/dev/null 2>&1 \
+	&& ! pgrep -x -u "$UID" pulseaudio >/dev/null 2>&1; then
+	# Stale daemons from a previous login keep running under init, but their
+	# sockets vanished with the old runtime dir. Kill them so we can start fresh.
+	if [[ ! -S $runtime/pipewire-0 ]]; then
+		for p in pipewire-pulse wireplumber pipewire; do
+			pkill -x -u "$UID" "$p" 2>/dev/null || true
+			wait_gone "$p"
+		done
+	fi
+
+	start_one pipewire
+
+	i=0
+	while [[ ! -S $runtime/pipewire-0 ]] && (( i < 50 )); do
+		sleep 0.1
+		(( ++i ))
+	done
+	# Do not block the rest of i3 autostart if the core never comes up.
+	[[ -S $runtime/pipewire-0 ]] || exit 0
+
+	start_one wireplumber
+	start_one pipewire-pulse
+	exit 0
+fi
+
+# --- classic PulseAudio -----------------------------------------------------
+command -v pulseaudio >/dev/null 2>&1 || exit 0
+pgrep -x -u "$UID" pulseaudio >/dev/null 2>&1 && exit 0
+
+if command -v start-pulseaudio-x11 >/dev/null 2>&1; then
+	start-pulseaudio-x11 >/dev/null 2>&1 &
+	disown "$!" 2>/dev/null || true
+else
+	pulseaudio --start >/dev/null 2>&1 &
+	disown "$!" 2>/dev/null || true
+fi

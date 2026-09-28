@@ -121,6 +121,12 @@ xsetroot -cursor_name left_ptr
 # Monitor lid / hotplug and re-apply xrandr layout
 "$idir"/scripts/i3_display_watch.sh &
 
+# Audio server (PipeWire via pipewire-pulse, or classic PulseAudio). Bare i3
+# never runs /etc/xdg/autostart/{pipewire,pulseaudio}.desktop; without this,
+# volume/pavucontrol fail with "Connection refused" after login. Before i3_mpd
+# — that script waits on `pactl info`.
+"$idir"/scripts/i3_audio
+
 # Start mpd before the status bar (omaxian.media needs the daemon)
 "$idir"/scripts/i3_mpd
 
