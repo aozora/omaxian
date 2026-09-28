@@ -8,6 +8,12 @@ import QtQuick
 // origin and pulse `remapping` when it moves; the owning window folds that
 // into its `visible` binding so the compositor re-places the surface at the
 // monitor's new origin.
+//
+// X11 / Omaxian: the same pulse is needed when the screen *size* changes
+// (Control Panel → Monitor mode switch, xrandr). Quickshell updates the
+// PanelWindow geometry and Bounding shape, but ShapeInput can stay at the
+// previous width — clicks past the old edge fall through the bar even though
+// icons still paint there. Remapping rebuilds both shapes.
 Item {
   id: root
 
@@ -39,5 +45,7 @@ Item {
     target: root.screen
     function onXChanged() { settleTimer.restart() }
     function onYChanged() { settleTimer.restart() }
+    function onWidthChanged() { settleTimer.restart() }
+    function onHeightChanged() { settleTimer.restart() }
   }
 }

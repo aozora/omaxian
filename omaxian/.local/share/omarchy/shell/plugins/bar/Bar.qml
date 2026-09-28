@@ -1483,6 +1483,22 @@ Item {
       item: islandPill
     }
 
+    // Island mask: Quickshell can refresh ShapeBounding on resize while leaving
+    // ShapeInput at the previous width (clicks past that edge fall through).
+    // Rebind the Region after geometry settles; ScreenMoveRemap also remaps.
+    Timer {
+      id: maskRefreshTimer
+      interval: 50
+      onTriggered: {
+        if (!root.island) return
+        barWindow.mask = null
+        barWindow.mask = islandMask
+      }
+    }
+
+    onWidthChanged: if (root.island) maskRefreshTimer.restart()
+    onHeightChanged: if (root.island) maskRefreshTimer.restart()
+
     Item {
       id: barContent
       anchors.fill: parent

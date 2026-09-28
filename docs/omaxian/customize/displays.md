@@ -85,6 +85,13 @@ still “connected” in xrandr but has no CRTC (lid closed, `omarchy-monitor-se
 negative Y, stole process-wide click targets, and opened popups off-screen so
 every widget looked dead.
 
+After a **resolution / mode change** on an already-mapped output, the bar
+window can resize and repaint while its X11 `ShapeInput` stays at the old
+width. Icons on the right still draw, but clicks fall through to the window
+below. `ScreenMoveRemap` remaps the surface when screen width/height change;
+island/dock masks also rebind. If an older shell still shows the symptom:
+log out and back in, or run `omarchy-restart-shell` from a terminal.
+
 Clicks talk to i3 via `i3-msg` (with `unset I3SOCK`), not Quickshell’s in-process
 I3 socket. That keeps switching working after an i3 IPC restart even when the
 bar’s highlight freezes. A full logout / log in (or `omarchy-restart-shell`)

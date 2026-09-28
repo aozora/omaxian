@@ -7,6 +7,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Services
+import qs.Ui
 import "Model.js" as Model
 
 // Persistent bottom dock. One PanelWindow per screen.
@@ -425,6 +426,15 @@ Item {
   component DockPanel: PanelWindow {
     id: dockWindow
 
+    // Remap when the screen moves *or* changes size so X11 ShapeInput cannot
+    // stick at a previous mode width (same failure mode as the top bar).
+    visible: !remapGuard.remapping
+
+    ScreenMoveRemap {
+      id: remapGuard
+      window: dockWindow
+    }
+
     anchors {
       bottom: true
       left: true
@@ -448,6 +458,19 @@ Item {
       id: pillMask
       item: pillBackground
     }
+
+    Timer {
+      id: maskRefreshTimer
+      interval: 50
+      onTriggered: {
+        if (root.fullWidth && root.islandGap <= 0) return
+        dockWindow.mask = null
+        dockWindow.mask = pillMask
+      }
+    }
+
+    onWidthChanged: if (!root.fullWidth || root.islandGap > 0) maskRefreshTimer.restart()
+    onHeightChanged: if (!root.fullWidth || root.islandGap > 0) maskRefreshTimer.restart()
 
     HoverHandler {
       onHoveredChanged: root.setDockHovered(hovered)
