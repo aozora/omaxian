@@ -399,7 +399,6 @@ README (or Menu → Setup → Plugins).
 | Plugin | What it does |
 | ------ | ------------ |
 | [Nag](community-plugins/jankeesvw.nag/) | Disposable bar alarms from a one-line timer |
-| [Swiss Weather](community-plugins/jmaeder.swissweather/) | MeteoSwiss station weather on the bar |
 | [Better Weather](community-plugins/io.github.guiestrela.weather/) | Open-Meteo / wttr.in forecast + RainViewer radar |
 | [Running Cat](community-plugins/io.github.kaiizu.runcat/) | RunCat-style CPU load cat |
 | [System Monitor](community-plugins/harshith.system-monitor/) | Low-overhead `/proc`/`/sys` dashboard |
