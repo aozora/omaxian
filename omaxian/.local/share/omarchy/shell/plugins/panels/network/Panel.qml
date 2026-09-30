@@ -417,8 +417,7 @@ Panel {
   }
 
   // Enter/Space on the highlighted row. Mirrors row-click semantics:
-  // connected → disconnect, credentials-required/unknown → prompt,
-  // passwordless/known → connect.
+  // connected → disconnect, credentials needed → prompt, else connect.
   function activateSelected() {
     if (busy || selectedIndex < 0 || selectedIndex >= wifiNetworks.length) return
     var net = wifiNetworks[selectedIndex]
@@ -428,7 +427,7 @@ Panel {
     // connectedWifiNetwork when handed null, so a row left stale by scan churn
     // would otherwise tear down whatever is connected now instead.
     if (net.connected) { disconnectRow(net.ssid); return }
-    if (requiresCredentials(net.security) && !net.known) { openPasswordPrompt(net.ssid); return }
+    if (shouldPromptForCredentials(net)) { openPasswordPrompt(net.ssid); return }
     connectDirectly(net.ssid)
   }
 
@@ -701,6 +700,17 @@ Panel {
     passwordSsid = ssid
   }
 
+  // Unknown protected SSIDs always need a prompt. Known ones normally use the
+  // saved profile via connect(), but after NoSecrets / wrong-PSK the row is
+  // stuck showing that failure — clicking again must reopen the prompt instead
+  // of silently retrying connect() with no way to supply a passphrase.
+  function shouldPromptForCredentials(net) {
+    if (!net || !requiresCredentials(net.security)) return false
+    if (!net.known) return true
+    if (failureSsid !== (net.ssid || "")) return false
+    return failureReason === "Passphrase required" || failureReason === "Wrong password"
+  }
+
   function networkForSsid(ssid) {
     var networks = wifiNetworkObjects || []
     for (var i = 0; i < networks.length; i++) {
@@ -743,10 +753,27 @@ Panel {
   function failNetworkAction(network, reason) {
     if (!network || actionKind === "" || actionSsid !== (network.name || "")) return
     actionTimeout.stop()
-    failureSsid = actionSsid
-    failureReason = networkFailureReason(reason, requiresCredentials(network.security))
+    var ssid = actionSsid
+    var wasConnect = actionKind === "connect"
+    var needsCreds = requiresCredentials(network.security)
+    failureSsid = ssid
+    failureReason = networkFailureReason(reason, needsCreds)
     actionSsid = ""
     actionKind = ""
+    // Reprompt before refresh(): syncWifiNetworks replaces the ListView model
+    // and can tear down the NetworkRow Connections mid-handler. Doing the
+    // openPasswordPrompt from that handler after refresh hit
+    // "ReferenceError: root is not defined" and left the row stuck on
+    // "Passphrase required" with no input field.
+    if (wasConnect && shouldRepromptPassphrase(reason, needsCreds)) {
+      openPasswordPrompt(ssid)
+      // NoSecrets never collected a passphrase — skip the 2s failure flash that
+      // hides the TextField. Wrong-password still flashes then reveals the field.
+      if (reason === connectionFailReasons.NoSecrets) {
+        failureSsid = ""
+        failureReason = ""
+      }
+    }
     refresh()
   }
 
@@ -1777,12 +1804,10 @@ Panel {
     Connections {
       target: row.net ? root.networkForSsid(row.net.ssid) : null
       function onConnectionFailed(reason) {
-        // Background auto-connect retries fire this too; only reprompt for
-        // the connect started from this panel. Checked before
-        // failNetworkAction, which clears the action state.
-        var ours = root.actionKind === "connect" && root.actionSsid === (row.net.ssid || "")
+        // failNetworkAction ignores background auto-connect failures (no
+        // matching actionKind) and opens the passphrase prompt itself before
+        // refresh so ListView delegate teardown cannot skip the reprompt.
         root.failNetworkAction(root.networkForSsid(row.net.ssid), reason)
-        if (ours && root.shouldRepromptPassphrase(reason, row.requiresCredentials)) root.openPasswordPrompt(row.net.ssid)
       }
       function onConnectedChanged() {
         if (row.net) root.checkActionCompletion(root.networkForSsid(row.net.ssid))
@@ -1843,7 +1868,7 @@ Panel {
           root.disconnectRow(row.net.ssid)
           return
         }
-        if (row.requiresCredentials && !row.isKnown) {
+        if (root.shouldPromptForCredentials(row.net)) {
           root.openPasswordPrompt(row.net.ssid)
           return
         }
@@ -2052,7 +2077,7 @@ Panel {
           anchors.fill: parent
           horizontalAlignment: Text.AlignHCenter
           verticalAlignment: Text.AlignVCenter
-          text: row.isFailed ? "Wrong password" : "Connecting..."
+          text: row.isFailed ? (root.failureReason || "Failed") : "Connecting..."
           color: row.isFailed ? root.bar.urgent : root.bar.foreground
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.bodySmall

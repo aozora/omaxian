@@ -12,7 +12,7 @@ fi
 
 display_state() {
 	{
-		xrandr --query 2>/dev/null
+		xrandr --current 2>/dev/null
 		for f in /proc/acpi/button/lid/LID*/state /sys/class/lid/LID*/state; do
 			[[ -r "$f" ]] && cat "$f"
 		done
@@ -61,7 +61,7 @@ while sleep 2; do
 	"$idir/scripts/i3_bar"
 
 	# Re-sample after applying: omarchy-monitor-apply's own xrandr calls move
-	# `xrandr --query`, so sampling before it guarantees a redundant re-apply
+	# `xrandr --current`, so sampling before it guarantees a redundant re-apply
 	# (and its RandR events) next cycle.
 	last=$(display_state)
 done
