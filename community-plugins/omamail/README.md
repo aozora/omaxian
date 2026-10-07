@@ -2,7 +2,7 @@
 
 Email client for the Omaxian bar and shell. Port of
 [huacnlee/omamail](https://github.com/huacnlee/omamail)
-(upstream commit `2a5a26c`, plugin version `0.10.7`).
+(upstream commit `2d5f2bd`, plugin version `0.10.8`).
 
 Plugin id: `omamail` (unchanged). Optional — not installed by `./deploy.sh`.
 See [`../README.md`](../README.md) for the catalog install pattern.
@@ -16,6 +16,7 @@ keyboard navigation, AI assistance and your desktop theme.
 | ------------------ | --------- |
 | `Service.copyText` → Wayland clipboard CLI | Qt clipboard in `Service.copyText` |
 | Wayland paste CLI then `xclip` for compose paste | `xclip` only |
+| `default-mail.sh` → Hyprland `bindings.lua` + compositor reload | `~/.config/i3/config.d/99-omamail-default-mail.conf` + `i3-msg reload` |
 | Hyprland bind example | i3 bind example below |
 | Standalone Qt host under `app/` | Omitted (shell plugin only) |
 | `omarchy-mise-install` for `hey` | [hey-cli](https://github.com/basecamp/hey-cli) / setup-page install line |
@@ -35,8 +36,8 @@ as on Omarchy. File attach uses `omarchy-file-select` when present, otherwise
 - **Multiple mailboxes:** Gmail, Outlook, HEY, JMAP and IMAP/SMTP, including Fastmail, iCloud and self-hosted servers.
 - **Mail and calendar:** read, search, compose, manage attachments and respond to meeting invitations. Available actions depend on your provider.
 - **Keyboard navigation:** `j`/`k` to move, `r` to reply, `c` to compose, `/` to search and `?` for all shortcuts.
-- **AI assistance:** ask about selected messages and review suggested drafts using your Omarchy AI setup. See [AI assistance](docs/AGENT.md). Optional: suggest calendar events from mail (`suggestEvents` in Settings).
-- **Desktop integration:** theme matching, unread counts, notifications, `mailto:` links and a compact layout for smaller windows.
+- **AI assistance:** ask about selected messages and review suggested drafts using your Omarchy AI setup (Claude, Codex, or OpenCode). Optional: suggest calendar events from mail (`suggestEvents` in Settings). See the [keyboard guide](docs/KEYS.md) for the AI dock shortcuts.
+- **Desktop integration:** theme matching, unread counts, notifications, `mailto:` links, optional default mail client registration, and a compact layout for smaller windows.
 - **Privacy controls:** credentials stored in the system keyring and remote images blocked until you choose to load them.
 
 <img width="265" alt="Omamail calendar" src="docs/images/full-calendar.webp" /> <img width="265" alt="Writing a message" src="docs/images/full-compose.webp" /> <img width="265" alt="Compact message list" src="docs/images/mini-list.webp" />
