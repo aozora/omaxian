@@ -1,0 +1,160 @@
+{
+  "projectName": "omastorm",
+  "projectOwner": "wesleygrimes",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "commitConvention": "angular",
+  "contributorsPerLine": 7,
+  "linkToUsage": false,
+  "contributors": [
+    {
+      "login": "wesleygrimes",
+      "name": "Wes Grimes",
+      "avatar_url": "https://avatars.githubusercontent.com/u/324308?v=4",
+      "profile": "https://omastorm.com/",
+      "contributions": [
+        "code",
+        "doc",
+        "maintenance"
+      ]
+    },
+    {
+      "login": "scottjones",
+      "name": "Scott Jones",
+      "avatar_url": "https://avatars.githubusercontent.com/u/444693?v=4",
+      "profile": "https://github.com/scottjones",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "shieldsworks",
+      "name": "Casey Shields",
+      "avatar_url": "https://avatars.githubusercontent.com/u/92273925?v=4",
+      "profile": "https://github.com/shieldsworks",
+      "contributions": [
+        "infra",
+        "code"
+      ]
+    },
+    {
+      "login": "airtwo",
+      "name": "Chance Griffin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/3505656?v=4",
+      "profile": "https://github.com/airtwo",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "TheFifeDawg",
+      "name": "Michael Pfeifer",
+      "avatar_url": "https://avatars.githubusercontent.com/u/226545193?v=4",
+      "profile": "https://github.com/TheFifeDawg",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "nixfred",
+      "name": "Fred Nix",
+      "avatar_url": "https://avatars.githubusercontent.com/u/15384894?v=4",
+      "profile": "https://github.com/nixfred",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "nmorton13",
+      "name": "Nathan Morton",
+      "avatar_url": "https://avatars.githubusercontent.com/u/16527730?v=4",
+      "profile": "https://github.com/nmorton13",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "mrcobas",
+      "name": "javi",
+      "avatar_url": "https://avatars.githubusercontent.com/u/41881817?v=4",
+      "profile": "http://mrcobas.com",
+      "contributions": [
+        "test",
+        "review"
+      ]
+    },
+    {
+      "login": "ryrobes",
+      "name": "Ryan Robitaille",
+      "avatar_url": "https://avatars.githubusercontent.com/u/757387?v=4",
+      "profile": "https://ryrob.es/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "gw7523",
+      "name": "gw7523",
+      "avatar_url": "https://avatars.githubusercontent.com/u/199144018?v=4",
+      "profile": "https://github.com/gw7523",
+      "contributions": [
+        "code",
+        "bug"
+      ]
+    },
+    {
+      "login": "Yani3rt",
+      "name": "Yaniert Pascual",
+      "avatar_url": "https://avatars.githubusercontent.com/u/170105839?v=4",
+      "profile": "https://github.com/Yani3rt",
+      "contributions": [
+        "userTesting",
+        "code"
+      ]
+    },
+    {
+      "login": "yock",
+      "name": "Michael Yockey",
+      "avatar_url": "https://avatars.githubusercontent.com/u/306343?v=4",
+      "profile": "https://mikeyockey.com",
+      "contributions": [
+        "bug"
+      ]
+    },
+    {
+      "login": "fearjet44",
+      "name": "Justin Hagemeier",
+      "avatar_url": "https://avatars.githubusercontent.com/u/314382095?v=4",
+      "profile": "https://github.com/fearjet44",
+      "contributions": [
+        "code",
+        "doc"
+      ]
+    },
+    {
+      "login": "Noah-Brown",
+      "name": "Noah-Brown",
+      "avatar_url": "https://avatars.githubusercontent.com/u/14036855?v=4",
+      "profile": "https://github.com/Noah-Brown",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "demian0311",
+      "name": "Demian Neidetcher",
+      "avatar_url": "https://avatars.githubusercontent.com/u/21937?v=4",
+      "profile": "http://neidetcher.com",
+      "contributions": [
+        "code",
+        "doc"
+      ]
+    }
+  ],
+  "commitType": "docs"
+}

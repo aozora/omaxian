@@ -1,0 +1,12 @@
+{
+  "source": "https://tiles.openfreemap.org/planet",
+  "version": "20260830_080001_pt",
+  "retrieved": "2026-09-06",
+  "attribution": "OpenFreeMap © OpenMapTiles Data from OpenStreetMap",
+  "license": "Data © OpenStreetMap contributors, Open Database License; OpenMapTiles schema, BSD/CC-BY",
+  "tiles": {
+    "7-29-50.pbf": "z7 tile holding KTLX: central Oklahoma at about 500 m/px, 131,709 bytes as served",
+    "11-470-808.pbf": "z11 tile holding KTLX and Midwest City: the road network the roads channels are checked against, 21,446 bytes as served"
+  },
+  "notes": "Recorded once for the engine's offline tile tests (engine/src/osm.rs, engine/tests/protocol.rs); the daemon never reads them. Fetched with curl and the engine's User-Agent from the URL template TileJSON named that day."
+}

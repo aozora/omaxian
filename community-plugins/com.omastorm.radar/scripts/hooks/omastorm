@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Optional Omarchy theme-set.d hook. Symlink this file from the hook directory.
+set -euo pipefail
+omastorm_root="${OMASTORM_ROOT:-$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/../.." && pwd)}"
+# A closed radar is normal; never launch it from a theme switch.
+quickshell ipc -p "$omastorm_root/ui/shell.qml" call theme reload >/dev/null 2>&1 || true

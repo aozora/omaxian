@@ -68,6 +68,7 @@ community-plugins/
 | [`omamail`](omamail/)                                           | `omamail`                      | [huacnlee/omamail](https://github.com/huacnlee/omamail) — Gmail/HEY/JMAP/IMAP + Rust backend; Wayland clipboard → Qt clipboard / `xclip` | Ported |
 | [`io.github.adamcbrewer.voxtype-aura`](io.github.adamcbrewer.voxtype-aura/) | `io.github.adamcbrewer.voxtype-aura` | [voxtype-aura](https://github.com/adamcbrewer/voxtype-aura) — Voxtype dictation overlay; T1 PopupWindow + T3 I3; plugin-local status/audio helpers | Ported |
 | [`io.github.canclini.calculator`](io.github.canclini.calculator/) | `io.github.canclini.calculator` | [omarchy-calculator](https://github.com/canclini/omarchy-calculator) — quick calculator overlay; T1 CenteredModal, `xclip`/`xsel` | Ported |
+| [`com.omastorm.radar`](com.omastorm.radar/) | `com.omastorm.radar` | [omastorm](https://github.com/wesleygrimes/omastorm) — live NEXRAD/OPERA radar; `omarchy-shell` / `omarchy-restart-shell`, no Hyprland | Ported |
 
 ## Install (opt-in)
 

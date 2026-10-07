@@ -1,0 +1,16 @@
+singleton PluginSession 1.0 PluginSession.qml
+singleton Runtime 1.0 Runtime.qml
+Config 1.0 Config.qml
+Engine 1.0 Engine.qml
+LocationPicker 1.0 LocationPicker.qml
+LocationPrompt 1.0 LocationPrompt.qml
+Metars 1.0 Metars.qml
+Remembered 1.0 Remembered.qml
+KeysSheet 1.0 KeysSheet.qml
+Panel 1.0 Panel.qml
+Popover 1.0 Popover.qml
+RadarBar 1.0 RadarBar.qml
+RadarMap 1.0 RadarMap.qml
+RadarMark 1.0 RadarMark.qml
+RadarWindow 1.0 RadarWindow.qml
+Theme 1.0 Theme.qml

@@ -1,0 +1,9 @@
+[workspace]
+members = ["engine"]
+resolver = "3"
+
+# Debug builds keep our code unoptimized and debuggable, but decompression,
+# Level II decoding, and PNG encoding at daemon startup are all in dependencies
+# and ran 5-10x slower unoptimized, eating the launcher's readiness window.
+[profile.dev.package."*"]
+opt-level = 2
