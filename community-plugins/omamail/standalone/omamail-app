@@ -1,0 +1,65 @@
+#!/bin/bash
+# Omamail as its own window (no omarchy-shell). Usage:
+#   omamail-app [--floating] [mailto:ADDR | --compose | --calendar]
+# A second launch hands its request to the running window instead of opening
+# another one. The window is tiled unless --floating / OMAMAIL_FLOATING=1.
+
+home=${OMAMAIL_APP_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/omamail-app}
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
+export OMARCHY_PATH
+
+if [[ ! -f $home/shell.qml ]]; then
+  echo "omamail-app: not installed ($home); run standalone/install.sh" >&2
+  exit 1
+fi
+
+floating=${OMAMAIL_FLOATING:-0}
+payload="{}"
+while (( $# )); do
+  case $1 in
+    --floating) floating=1 ;;
+    --compose) payload='{"compose":true}' ;;
+    --calendar) payload='{"view":"calendar"}' ;;
+    mailto:*) payload=$(python3 -c 'import json,sys; print(json.dumps({"mailto": sys.argv[1]}))' "$1") ;;
+    *) echo "usage: omamail-app [--floating] [mailto:ADDR | --compose | --calendar]" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+focus_window() {
+  command -v i3-msg >/dev/null && i3-msg '[title="^Omamail$"] focus' >/dev/null 2>&1
+}
+
+# Waits for the window, gives it a real WM_CLASS (Quickshell's is "quickshell",
+# which the dock and desktop entries cannot match), then floats it on request.
+prepare_window() {
+  local i id
+  for i in {1..50}; do
+    id=$(i3-msg -t get_tree 2>/dev/null | python3 -c 'import json,sys
+def find(n):
+  if n.get("name") == "Omamail" and n.get("window"): return n["window"]
+  for c in n.get("nodes", []) + n.get("floating_nodes", []):
+    r = find(c)
+    if r: return r
+r = find(json.load(sys.stdin))
+if r: print(r)' 2>/dev/null)
+    if [[ -n $id ]]; then
+      python3 "$home/set-wm-class.py" "$id" omamail Omamail
+      [[ $floating == "1" ]] && i3-msg '[title="^Omamail$"] floating enable' >/dev/null 2>&1
+      return
+    fi
+    sleep 0.2
+  done
+}
+
+if quickshell ipc -p "$home" call omamail summon "$payload" >/dev/null 2>&1; then
+  focus_window
+  exit 0
+fi
+
+if command -v i3-msg >/dev/null; then
+  prepare_window &
+fi
+
+export OMAMAIL_PAYLOAD=$payload
+exec quickshell --no-duplicate -p "$home"

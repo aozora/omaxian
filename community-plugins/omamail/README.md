@@ -18,13 +18,13 @@ keyboard navigation, AI assistance and your desktop theme.
 | Wayland paste CLI then `xclip` for compose paste | `xclip` only |
 | `default-mail.sh` → Hyprland `bindings.lua` + compositor reload | `~/.config/i3/config.d/99-omamail-default-mail.conf` + `i3-msg reload` |
 | Hyprland bind example | i3 bind example below |
-| Standalone Qt host under `app/` | Omitted (shell plugin only) |
+| Standalone Qt host under `app/` | Omitted; [`standalone/`](standalone/) runs the plugin UI in its own Quickshell window instead |
 | `omarchy-mise-install` for `hey` | [hey-cli](https://github.com/basecamp/hey-cli) / setup-page install line |
 | `omarchy plugin add` / `make install` | rsync into `~/.config/omarchy/plugins/`; later `omarchy-plugin-update --from` |
 
 `FloatingWindow`, `KeyboardPanel`, `secret-tool`, `curl`, and `notify-send` work
 as on Omarchy. File attach uses `omarchy-file-select` when present, otherwise
-`zenity`. Agent instruction files (`.agents/`, `AGENTS.md`) and the standalone Qt host
+`zenity`. Agent instruction files (`.agents/`, `AGENTS.md`) and the upstream Qt host
 (`app/`) are omitted from this tree.
 
 ---
@@ -96,6 +96,38 @@ paste. Attach picker: `zenity` (or `omarchy-file-select` if you have it).
 ```bash
 sudo apt install libsecret-tools xdg-utils python3 curl xclip zenity
 ```
+
+## Run as a standalone app
+
+Omamail can also run as its own window, with no `omarchy-shell` and no bar
+widget. It reuses the plugin UI unchanged, in plugin mode (not upstream's
+`platform.standalone` mode), so credentials, notifications, clipboard and
+attachments use the same scripts as the plugin.
+
+```bash
+community-plugins/omamail/standalone/install.sh --build-backend
+omamail-app
+```
+
+- `install.sh` links `~/.local/share/omamail-app/` to this checkout (no copies)
+  and the Omaxian shell's `Commons`/`Ui`, and puts `omamail-app` in
+  `~/.local/bin`. `--build-backend` runs `cargo build --release` and installs
+  the result (about 2 minutes); without it, use the in-app backend setup.
+  `--claim-mailto` makes it the `mailto:` handler; `--uninstall` removes it.
+- The window is **tiled** by default. `omamail-app --floating` (or
+  `OMAMAIL_FLOATING=1`) floats it on open, or add an i3 rule such as
+  `for_window [title="^Omamail$"] floating enable`.
+- A second `omamail-app [mailto:… | --compose | --calendar]` hands the request
+  to the running window and focuses it. Closing the window quits the app and its
+  backend.
+- Quickshell windows always report the X11 class `quickshell`, so the launcher
+  sets `WM_CLASS` to `omamail`/`Omamail` once the window maps
+  (`standalone/set-wm-class.py`). That is what lets the Omaxian dock and the
+  `.desktop` entry (`StartupWMClass=Omamail`) recognise it as Omamail.
+- Accounts, backend and cache are shared with the plugin install
+  (`~/.config/omamail`, `~/.local/share/omamail`). Do not run both at once.
+- Needs `quickshell`, the Omaxian shell files (`$OMARCHY_PATH/shell`),
+  `libsecret-tools`, `python3` and `xclip`, plus `cargo` for `--build-backend`.
 
 ## Add your mailbox
 
