@@ -54,10 +54,20 @@ Item {
   readonly property var _anchorWindow: root.anchorWindow || host
   readonly property bool _useFallbackHost: !root.anchorWindow
 
+  // grabFocus dismissal assigns `card.visible = false` and breaks the
+  // binding. Restore it without toggling `open` (toggling remounts the
+  // PopupWindow, re-runs focus-window.py, and closes under a moving cursor).
+  // Same idea as Ui/KeyboardPanel.rearmVisible.
+  function rearmVisible() {
+    card.visible = Qt.binding(function() { return root.open || card.opacity > 0 })
+    if (root.open && root.focusTarget)
+      root.focusTarget.forceActiveFocus()
+  }
+
   onOpenChanged: {
     if (root.open) {
       // grabFocus dismissal clobbers the declarative `visible` binding; re-arm.
-      card.visible = Qt.binding(function() { return root.open || card.opacity > 0 })
+      root.rearmVisible()
       focusNudge.restart()
       return
     }

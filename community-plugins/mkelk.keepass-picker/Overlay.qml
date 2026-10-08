@@ -17,10 +17,10 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// Omaxian (X11/i3): upstream used a full-screen layer-shell scrim overlay
-// (picom blacks that out). The picker card lives in Ui/CenteredModal — same
-// pattern as ReminderFlow / wifiqr. Capture the target window BEFORE the
-// modal maps: a grabFocus PopupWindow becomes X11's active window.
+// Omaxian (X11/i3): upstream used a full-screen layer-shell scrim. CenteredModal
+// (grabFocus PopupWindow) kept auto-dismissing under the cursor here, so this
+// port uses a real FloatingWindow — i3-managed toplevel, same shape as
+// omaxian.settings. Capture the paste target BEFORE the window maps.
 
 Item {
   id: root
@@ -54,14 +54,6 @@ Item {
     return env
   }
 
-  // Anchor the card to the live bar PanelWindow so opening does not map a
-  // second DOCK surface (i3 restack flash of bar + dock).
-  readonly property var modalAnchorWindow: {
-    var bar = root.shell && root.shell.bar
-    if (!bar || typeof bar.panelWindowForScreen !== "function") return null
-    return bar.panelWindowForScreen(Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
-  }
-
   readonly property var screenGeom: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
   readonly property int screenW: screenGeom ? screenGeom.width : 1920
   readonly property int screenH: screenGeom ? screenGeom.height : 1080
@@ -91,9 +83,9 @@ Item {
   property int totalMatches: 0
   property int shownMatches: 0
 
-  // The window a paste will land in, captured BEFORE the modal maps. On X11 a
-  // grabFocus PopupWindow becomes the active window, so asking afterwards
-  // would name the picker itself.
+  // The window a paste will land in, captured BEFORE the FloatingWindow maps.
+  // On X11 the picker becomes the active window, so asking afterwards would
+  // name the picker itself.
   //
   // The ADDRESS ONLY. Nothing about the window steers what a key does. An
   // earlier version varied Enter by window class — fill in a browser, password
@@ -189,53 +181,31 @@ Item {
   readonly property int glyphGap: Style.spacing.xl
   readonly property int textInset: root.markerInset + root.glyphColumn + root.glyphGap
 
-  // Height follows the content. A fixed card left seven results floating in a
-  // sea of empty space, which is the most visible flaw in the picker as
-  // shipped. Clamped so a 60-row list still fits the screen and a one-row list
-  // still looks like a card rather than a strip.
-  // Measured off the two blocks that actually exist, so it cannot drift from
-  // what the results area computes for itself -- which it no longer does. It
-  // takes exactly what is between them.
-  // CenteredModal already applies BorderSurface padding around the holder;
-  // chromeHeight is only the blocks inside that holder.
+  // Ten rows — near 5:3 on a FloatingWindow; past that, another keystroke
+  // beats a longer list. Height is fixed so the i3 float does not resize
+  // under the pointer while results load. BorderSurface padding is applied
+  // around keyCatcher; chromeHeight is only the blocks inside that holder.
   readonly property int chromeHeight: topBlock.height + bottomBlock.height
     + root.contentSpacing * 2
-  // The pane has a floor of its own: a one-row result must not shrink the card
-  // until the details it is showing no longer fit beside it.
-  // Ten. Seven made the card a 2:1 strip; ten brings it near 5:3, which sits
-  // better on the screen, and the extra rows are still one glance rather than
-  // a scan. Past that, another keystroke beats a longer list.
   readonly property int visibleRows: 10
-  // Fixed list height while open. Growing with result count recentres the
-  // CenteredModal card under the pointer and Qt::Popup grabFocus treats that
-  // as an outside click — the picker then closes itself (same failure mode
-  // as omaxian.controlpanel before sticky sizing).
   readonly property int listHeight: root.rowHeight * root.visibleRows
-  readonly property int liveCardHeight: Math.min(
+  readonly property int cardHeight: Math.min(
     Style.space(640),
     root.screenH - Style.gapsOut * 2,
-    Math.max(Style.space(150),
+    Math.max(Style.space(280),
              root.chromeHeight + root.listHeight + root.contentMargin * 2))
-  // Grow-only lock once the card has laid out, so chrome/footer changes cannot
-  // shrink-and-recenter either.
-  property int stickyCardHeight: 0
-  property int cardHeight: root.stickyCardHeight > 0
-    ? Math.max(root.stickyCardHeight, root.liveCardHeight)
-    : root.liveCardHeight
 
-  // Survive the opening click / key-release eating the Qt::Popup grab.
-  property bool holdDismiss: false
+  readonly property string windowTitle: "KeePass Picker"
 
   function open(payloadJson) {
-    // Capture the focused window FIRST, then map the modal. On X11 the card
-    // steals focus as soon as it is visible.
+    // Capture the focused window FIRST, then map the FloatingWindow. On X11
+    // the picker becomes the active window as soon as it is visible.
     root.filterText = ""
     root.selectedIndex = 0
     root.notice = ""
     root.unlockOffered = false
     root.totalMatches = 0
     root.shownMatches = 0
-    root.stickyCardHeight = 0
     resultModel.clear()
     root.pendingOpen = true
     targetProc.running = false
@@ -243,29 +213,17 @@ Item {
   }
 
   function finishOpen() {
-    root.holdDismiss = true
-    holdDismissTimer.restart()
     root.opened = true
     root.refresh()
-    Qt.callLater(function() {
-      if (root.opened && root.stickyCardHeight <= 0)
-        root.stickyCardHeight = root.liveCardHeight
-      keyCatcher.forceActiveFocus()
-    })
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function close() {
     root.opened = false
-    root.stickyCardHeight = 0
-    root.holdDismiss = false
-    holdDismissTimer.stop()
   }
 
   function dismiss() {
     root.opened = false
-    root.stickyCardHeight = 0
-    root.holdDismiss = false
-    holdDismissTimer.stop()
     resultModel.clear()
     root.filterText = ""
     if (root.shell && typeof root.shell.hide === "function")
@@ -273,9 +231,6 @@ Item {
   }
 
   function toggle() {
-    // While pinentry is up this surface is deliberately hidden. Summoning it
-    // again would put it back in front of the prompt and steal the keyboard a
-    // second time.
     if (root.busy) return
     if (root.opened) root.dismiss()
     else root.open("{}")
@@ -530,50 +485,35 @@ Item {
   // request so the agent can refuse if focus moved in between.
   function deliver(mode, field) {
     if (root.selectedIndex < 0 || root.selectedIndex >= resultModel.count) return
-    var entryPath = resultModel.get(root.selectedIndex).entryPath
+    root.deliverEntry(mode, field, resultModel.get(root.selectedIndex).entryPath)
+  }
+
+  function deliverEntry(mode, field, entryPath) {
+    var path = String(entryPath || "")
+    if (!path) return
     var target = root.targetAddress
     Qt.callLater(function() {
       root.dismiss()
       if (mode === "fill")
-        Quickshell.execDetached(root.ctl(["fill", entryPath, target]))
+        Quickshell.execDetached(root.ctl(["fill", path, target]))
       else
-        Quickshell.execDetached(root.ctl(["insert", entryPath, field || "Password", target]))
+        Quickshell.execDetached(root.ctl(["insert", path, field || "Password", target]))
     })
   }
 
-  // Step aside for pinentry.
-  //
-  // The CenteredModal holds a grabFocus PopupWindow, so a normal toplevel —
-  // which pinentry is — would fight it for keyboard focus. Left as it was, the
-  // unlock prompt was visible but untypeable.
-  //
-  // omarchy.polkit avoids this by drawing its own password field in QML. That
-  // is not open to us: the master password would then live in the long-lived,
-  // unsandboxed shell heap, which is the one thing this plugin is built to
-  // avoid. So the overlay hides itself instead, and comes back when the agent
-  // is done.
-  //
-  // `opened = false` rather than dismiss(): it drops the focus grab, but leaves
-  // the component loaded so unlockProc's callback still has somewhere to land.
+  // Pinentry is a normal toplevel; the FloatingWindow does not hold an X11
+  // pointer grab, so the prompt can take keyboard focus without us hiding.
+  // The master password still never enters QML — pinentry talks to the agent.
   function unlock() {
     root.busy = true
-    root.holdDismiss = false
-    holdDismissTimer.stop()
-    root.opened = false
     unlockProc.running = false
     unlockProc.running = true
   }
 
   function reopenAfterUnlock() {
     root.busy = false
-    root.holdDismiss = true
-    holdDismissTimer.restart()
-    root.opened = true
-    Qt.callLater(function() {
-      if (root.opened && root.stickyCardHeight <= 0)
-        root.stickyCardHeight = root.liveCardHeight
-      keyCatcher.forceActiveFocus()
-    })
+    if (!root.opened) root.opened = true
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function configure() {
@@ -633,12 +573,6 @@ Item {
   }
 
   ListModel { id: resultModel }
-
-  Timer {
-    id: holdDismissTimer
-    interval: 400
-    onTriggered: root.holdDismiss = false
-  }
 
   Timer {
     id: searchDebounce
@@ -703,37 +637,41 @@ Item {
     }
   }
 
-  CenteredModal {
-    id: modal
-    open: root.opened
-    anchorWindow: root.modalAnchorWindow
-    focusTarget: keyCatcher
-    contentWidth: root.cardWidth
-    contentHeight: root.cardHeight
-    padding: root.contentMargin
-    background: root.background
-    borderSpec: root.borderSpec
-    onDismissed: {
-      // Unlock hides us on purpose (busy). Opening click / resize can clear the
-      // Qt::Popup grab while holdDismiss is set — remount instead of closing.
-      if (root.busy) return
-      if (root.holdDismiss) {
-        Qt.callLater(function() {
-          if (!root.holdDismiss || root.busy) return
-          root.opened = false
-          Qt.callLater(function() {
-            if (root.busy) return
-            root.opened = true
-          })
-        })
-        return
-      }
-      root.dismiss()
+  FloatingWindow {
+    id: win
+    title: root.windowTitle
+    visible: root.opened
+    // Transparent host so BorderSurface radiusPopup corners are real alpha
+    // (opaque window color + rounded card = square silhouette).
+    color: "transparent"
+    surfaceFormat.opaque: false
+    implicitWidth: root.cardWidth
+    implicitHeight: Math.max(Style.space(320), root.cardHeight)
+    minimumSize: Qt.size(Style.space(420), Style.space(280))
+
+    // WM close ($mod+Shift+q / titlebar destroy).
+    onClosed: root.dismiss()
+
+    onVisibleChanged: {
+      if (visible)
+        Qt.callLater(function() { keyCatcher.forceActiveFocus() })
     }
+
+    BorderSurface {
+      id: frame
+      anchors.fill: parent
+      color: root.background
+      borderSpec: root.borderSpec
+      radius: Style.radiusPopup
+      padding: root.contentMargin
 
       Item {
         id: keyCatcher
         anchors.fill: parent
+        anchors.topMargin: frame.contentTopInset
+        anchors.rightMargin: frame.contentRightInset
+        anchors.bottomMargin: frame.contentBottomInset
+        anchors.leftMargin: frame.contentLeftInset
         focus: true
 
         Keys.priority: Keys.BeforeItem
@@ -1059,9 +997,12 @@ Item {
 
                 MouseArea {
                   anchors.fill: parent
-                  onClicked: {
+                  // Capture the path on press, then dismiss+insert — same
+                  // order as keyboard Enter (focus must return to the target).
+                  onPressed: {
+                    var path = model.entryPath
                     root.selectedIndex = index
-                    root.activate()
+                    root.deliverEntry("insert", "Password", path)
                   }
                 }
               }
@@ -1306,5 +1247,6 @@ Item {
         }
         }
       }
+    }
   }
 }

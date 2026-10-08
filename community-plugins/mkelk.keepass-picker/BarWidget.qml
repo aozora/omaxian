@@ -114,8 +114,21 @@ BarWidget {
     // A missing status file is the normal state before the agent's first run,
     // not a fault worth a stack trace.
     printErrors: false
-    onLoaded: root.applyStatus(text())
-    onLoadFailed: root.applyStatus("")
+    onLoaded: {
+      // Atomic replace of the status file can briefly look empty (same race
+      // shell.qml guards against for shell.json). Clearing here flips the
+      // padlock to "unknown"/locked for a frame every republish — the icon
+      // looks like it disappeared. Keep the last good reading instead.
+      var raw = String(text() || "")
+      if (!raw.trim()) return
+      root.applyStatus(raw)
+    }
+    onLoadFailed: {
+      // Missing before first publish is fine; a mid-replace race is not a
+      // reason to wipe a status we already painted.
+      if (root.statusUpdated > 0) return
+      root.applyStatus("")
+    }
     onFileChanged: reload()
   }
 
@@ -127,6 +140,10 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: root.glyph
+    // Always reserve the slot: a zero-width flash (glyph metrics / FileView
+    // reload) must not collapse the ModuleSlot to width 0 and look like the
+    // widget was removed from the bar.
+    keepSpace: true
     // Unlocked is the state worth noticing, so it carries the weight; a locked
     // vault is the resting state and recedes.
     active: root.unlocked

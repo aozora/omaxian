@@ -15,13 +15,23 @@ pattern.
 
 | Upstream (Omarchy / Hyprland) | This port |
 | ----------------------------- | --------- |
-| Full-screen layer-shell overlay | `Ui/CenteredModal` (T1; no picom black-out) |
+| Full-screen layer-shell overlay | `FloatingWindow` (i3-managed toplevel; same shape as Settings) |
 | Compositor `activewindow` probe | `xdotool getactivewindow` (X11 window id) |
 | Wayland sensitive clipboard + type | `xclip` + wipe on EXIT; `xdotool key` |
-| Target captured while layer-shell is up | Target captured **before** the modal maps (X11 steals focus) |
-| Card height follows result count | Fixed `visibleRows` height + sticky size (avoids grabFocus auto-dismiss on grow/recenter) |
-| Hyprland bind / `windows.lua` pinentry rules | i3 bind example below |
+| Target captured while layer-shell is up | Target captured **before** the window maps (X11 steals focus) |
+| Card height follows result count | Fixed `visibleRows` list height |
+| Hyprland bind / `windows.lua` pinentry rules | i3 float rule + bind example below |
 | `omarchy-menu-file` only | Falls back to `find` + `omarchy-menu-select`, then `zenity` |
+
+Bar-widget reliability (this port): ignore empty/`LoadFailed` flashes from atomic
+status rewrites (padlock no longer flickers off), `keepSpace` so the slot cannot
+collapse to width 0, and a 45s agent status heartbeat so a live locked vault is
+not marked stale after 60s.
+
+A `CenteredModal` (grabFocus PopupWindow) kept auto-dismissing under the cursor
+on X11/i3, so the picker is a normal floating window titled **KeePass Picker**
+(`for_window` in `omaxian/.config/i3/config.d/05_rules.conf`). Pinentry can take
+focus without the picker hiding first.
 
 Security contract is unchanged: **no secret ever enters QML or crosses the
 agent socket**; `keepassxc-cli` stays the vault boundary; paste goes stdin →
@@ -66,6 +76,13 @@ Then pick a `.kdbx` (path only — never a password):
 
 ```bash
 ~/.config/omarchy/plugins/mkelk.keepass-picker/bin/keepass-picker-ctl configure
+```
+
+i3 float rule (shipped in `omaxian/.config/i3/config.d/05_rules.conf` — deploy
+then `i3-msg reload`):
+
+```
+for_window [title="^KeePass Picker$"] floating enable, focus, border none, move position center
 ```
 
 i3 keybind example (put in `~/.config/i3/config.d/` or similar):

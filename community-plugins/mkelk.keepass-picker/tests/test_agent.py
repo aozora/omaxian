@@ -729,12 +729,23 @@ class TheStatusFile(AgentTestCase):
     def test_it_does_not_churn_while_nothing_changes(self):
         # The agent republishes on every loop pass. A per-second countdown in
         # the payload would rewrite this file forever and make the bar's
-        # FileView reload for nothing.
+        # FileView reload for nothing. Heartbeats are slower than this window.
         self.ctl("lock")
         time.sleep(6)
         first = os.stat(self.path()).st_mtime_ns
         time.sleep(12)
         self.assertEqual(os.stat(self.path()).st_mtime_ns, first)
+
+    def test_a_live_locked_agent_heartbeats_before_the_bar_calls_it_stale(self):
+        # While locked the payload is stable. Without a heartbeat `updated`
+        # freezes and BarWidget marks a live agent stale after 60s. Default
+        # STATUS_HEARTBEAT_SEC is 45.
+        self.ctl("lock")
+        time.sleep(6)
+        first = self.read()["updated"]
+        time.sleep(50)
+        second = self.read()["updated"]
+        self.assertGreater(second, first)
 
     def test_a_clean_shutdown_leaves_it_saying_locked(self):
         # Otherwise the bar keeps showing an unlocked padlock for a vault that

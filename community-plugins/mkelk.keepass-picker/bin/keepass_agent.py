@@ -94,6 +94,11 @@ def load_config():
 # would otherwise hold the password in the clipboard forever.
 MAX_DELAY = 2.0
 
+# BarWidget treats a status file older than 60s as a dead agent. While locked
+# the payload is otherwise unchanged, so republish on this cadence to keep
+# `updated` fresh without rewriting every select() loop.
+STATUS_HEARTBEAT_SEC = 45
+
 
 def validate_config(cfg):
     def number(key, low, high):
@@ -997,6 +1002,7 @@ class Agent:
         self.meta_cache = {}             # path -> username/url, for display
         self.usage = self.load_usage()
         self.published = None
+        self.published_at = 0.0
         try:
             self.config_stamp = os.stat(config_path()).st_mtime_ns
         except OSError:
@@ -1286,15 +1292,20 @@ class Agent:
             "database": os.path.basename(self.vault.database or ""),
             "relocks_in": relocks_in,
         }
-        if payload == self.published:
+        now = time.time()
+        # While locked the payload is stable, so without a heartbeat `updated`
+        # freezes and the bar marks a live agent stale after 60s. Touch the
+        # file often enough to stay under that threshold, but not every loop.
+        if payload == self.published and (now - self.published_at) < STATUS_HEARTBEAT_SEC:
             return
         # `updated` is outside the comparison on purpose: it is how a reader
         # tells a live agent from a file left behind by a dead one, and it must
-        # not itself be a reason to rewrite.
-        payload = dict(payload, updated=int(time.time()))
+        # not itself be a reason to rewrite more often than the heartbeat.
+        payload = dict(payload, updated=int(now))
         try:
             write_private_json(status_path(), payload)
             self.published = {k: v for k, v in payload.items() if k != "updated"}
+            self.published_at = now
         except OSError as exc:
             log(f"could not publish status: {exc}")
 
@@ -1410,6 +1421,7 @@ class Agent:
             self.vault.lock()
             self.entry_index = None
             self.published = None
+            self.published_at = 0.0
             self.publish()          # so the bar does not keep showing "unlocked"
             try:
                 os.unlink(path)

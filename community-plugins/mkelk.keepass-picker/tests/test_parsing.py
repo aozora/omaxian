@@ -520,6 +520,13 @@ class BarWidgetRunsNoProcess(unittest.TestCase):
         self.assertNotIn("root.statusUpdated = root.statusUpdated", self.src)
         self.assertIn("root.now = Date.now()", self.src)
 
+    def test_empty_status_reads_do_not_wipe_the_last_good_state(self):
+        # Atomic republish can make FileView look empty for a frame; clearing
+        # then makes the padlock flicker off the bar.
+        self.assertIn("if (!raw.trim()) return", self.src)
+        self.assertIn("if (root.statusUpdated > 0) return", self.src)
+        self.assertIn("keepSpace: true", self.src)
+
     def test_it_uses_the_shared_base_class(self):
         # Where vertical-bar support comes from.
         self.assertRegex(self.src, r"\bBarWidget\s*\{")
@@ -582,16 +589,15 @@ class OverlayKeepsSecretsOut(unittest.TestCase):
         opened = opened[:opened.index("function close(")]
         self.assertIn("root.unlockOffered = false", opened)
 
-    def test_it_steps_aside_for_pinentry(self):
-        # The CenteredModal holds keyboard focus via grabFocus, so pinentry —
-        # a normal toplevel — would fight it. The unlock prompt was visible but
-        # untypeable until the overlay learned to hide itself.
+    def test_unlock_leaves_the_floating_window_up(self):
+        # FloatingWindow has no grabFocus, so pinentry can take keyboard focus
+        # without the picker hiding. The master password still never enters QML.
         unlock = self.src[self.src.index("function unlock()"):]
         unlock = unlock[:unlock.index("function reopenAfterUnlock")]
-        self.assertIn("root.opened = false", unlock)
-        # Not dismiss(): that would unload the component and the unlock
-        # callback would have nowhere to land.
+        self.assertNotIn("root.opened = false", unlock)
         self.assertNotIn("dismiss()", unlock)
+        self.assertIn("FloatingWindow", self.src)
+        self.assertIn('windowTitle: "KeePass Picker"', self.src)
 
     def test_it_opens_only_after_the_target_window_is_captured(self):
         # On X11 the modal becomes the active window; capturing afterwards
@@ -786,14 +792,14 @@ class OverlayKeepsSecretsOut(unittest.TestCase):
 
     def test_ten_rows_are_shown_and_the_card_can_hold_them(self):
         # Seven made a 2:1 strip. Ten sits near 5:3 and is still one glance.
-        # On X11 the list height is fixed at visibleRows so the CenteredModal
-        # card cannot grow-and-recenter under the pointer (grabFocus dismiss).
+        # List height is fixed at visibleRows so the FloatingWindow does not
+        # resize under the pointer while results load.
         self.assertIn("readonly property int visibleRows: 10", self.src)
         self.assertIn("root.rowHeight * root.visibleRows", self.src)
-        self.assertIn("stickyCardHeight", self.src)
-        self.assertIn("holdDismiss", self.src)
+        self.assertNotIn("stickyCardHeight", self.src)
+        self.assertNotIn("holdDismiss", self.src)
         # The height cap must leave room for them, or the last rows are cut.
-        cap = re.search(r"liveCardHeight: Math\.min\(\s*Style\.space\((\d+)\)", self.src)
+        cap = re.search(r"cardHeight: Math\.min\(\s*Style\.space\((\d+)\)", self.src)
         self.assertIsNotNone(cap)
         self.assertGreaterEqual(int(cap.group(1)), 640)
 
@@ -882,6 +888,25 @@ class OverlayKeepsSecretsOut(unittest.TestCase):
         act = act[:act.index("readonly property string keyColor")]
         self.assertIn('root.deliver("insert", "Password")', act)
         self.assertNotIn("fillIsSafe", act)
+
+    def test_a_row_press_captures_the_path_before_dismiss(self):
+        # Deliver from onPressed with the path already in hand, then dismiss
+        # and insert — same order as keyboard Enter.
+        mouse = self.src[self.src.rindex("MouseArea {"):]
+        mouse = mouse[:mouse.index("}") + 1]
+        self.assertIn("onPressed:", mouse)
+        self.assertNotIn("onClicked:", mouse)
+        self.assertIn("deliverEntry(", mouse)
+        self.assertIn("model.entryPath", mouse)
+        self.assertIn("function deliverEntry(", self.src)
+
+    def test_the_picker_is_a_floating_window_not_a_modal(self):
+        # CenteredModal's grabFocus PopupWindow auto-dismissed under the cursor
+        # on X11/i3. Settings already uses FloatingWindow for the same reason.
+        self.assertIn("FloatingWindow {", self.src)
+        self.assertNotIn("CenteredModal {", self.src)
+        self.assertNotIn("onDismissed:", self.src)
+        self.assertIn("onClosed: root.dismiss()", self.src)
 
     def test_tab_moves_the_selection_rather_than_pasting(self):
         tab = self.src[self.src.index("Qt.Key_Tab"):]
