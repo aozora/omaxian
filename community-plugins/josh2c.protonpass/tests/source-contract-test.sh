@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Behavioral and security contracts for the QML layer, which CI cannot
+# instantiate. Presentation, wording, layout, and file-shape details are
+# deliberately not pinned here: they are owned by the release walkthrough.
+# Secret-hygiene invariants over every runtime source file are owned by
+# tests/security-test.sh.
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+SERVICE_SOURCE=$(<"$ROOT/Service.qml")
+PANEL_SOURCE=$(<"$ROOT/Panel.qml")
+HELPER_SOURCE=$(<"$ROOT/omarchy-protonpass")
+
+command -v node >/dev/null || {
+  printf 'FAIL: node is required for keybind parser assertions\n' >&2
+  exit 1
+}
+node "$ROOT/tests/keybinds-test.js" "$ROOT/Keybinds.js"
+
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+assert_contains() {
+  [[ $SERVICE_SOURCE == *"$1"* ]] || fail "$2"
+}
+assert_not_contains() {
+  [[ $SERVICE_SOURCE != *"$1"* ]] || fail "$2"
+}
+assert_panel_contains() {
+  [[ $PANEL_SOURCE == *"$1"* ]] || fail "$2"
+}
+
+# --- Helper path resolution ---------------------------------------------
+assert_contains 'Quickshell.env("OMARCHY_PROTONPASS_HELPER")' \
+  "the test helper override is missing"
+assert_contains 'Qt.resolvedUrl("omarchy-protonpass").toString().replace(/^file:\/\//, "")' \
+  "the installed helper is not resolved relative to Service.qml"
+assert_panel_contains 'ipcTarget: "josh2c.protonpass"' \
+  "the panel is missing ipcTarget for external shell IPC and hotkeys"
+
+# --- Response trust boundary --------------------------------------------
+assert_contains 'schemaVersion !== 1' \
+  "schemaVersion 1 is not enforced"
+assert_contains 'data.command !== expectedCommand' \
+  "helper responses are not bound to their requested command"
+assert_contains 'typeof data.message !== "string"' \
+  "the common message field is not type checked"
+assert_contains 'typeof vault.shareId !== "string"' \
+  "index vault share IDs are not validated"
+assert_contains 'typeof vault.name !== "string"' \
+  "index vault names are not validated"
+assert_contains '"clear-now": ["cleared", "not-owner", "error"]' \
+  "clear-now response states are not validated"
+assert_contains 'waitForEnd: true' \
+  "process output collectors are not waiting for complete responses"
+
+# --- The bounds the service keeps for itself mirror the helper's ---------
+# Service.qml refuses an index envelope wider than its own bounds before the
+# metadata reaches the model, and the helper refuses to build one wider than
+# its budget. The two bounds stay independent on purpose: the helper is a
+# separate process on PATH, so the shell keeps a bound it owns rather than
+# trusting a file it does not own. Independent is not the same as unrelated.
+# They are one number written twice, and nothing at runtime ties them. Raise
+# the helper alone and it emits a valid envelope that the service then
+# rejects; the user sees the generic error, which is indistinguishable from a
+# real failure. This is the tie. It is static and offline on purpose: the
+# runtime alternative is to let the envelope declare its own bounds, which
+# hands the size of the shell's memory back to the helper.
+readonly_value() {
+  local file=$1 name=$2 value
+  value=$(grep -E "^readonly $name=[0-9]+\$" "$file" | cut -d= -f2)
+  [[ -n $value ]] || fail "could not read $name from $file"
+  printf '%s' "$value"
+}
+service_int_property() {
+  local name=$1 value
+  value=$(grep -E "^ *readonly property int $name: [0-9]+\$" "$ROOT/Service.qml" |
+    sed -E 's/.*: ([0-9]+)$/\1/')
+  [[ -n $value ]] || fail "could not read $name from Service.qml"
+  printf '%s' "$value"
+}
+assert_mirrors() {
+  local helper_name=$1 service_name=$2 helper_value service_value
+  helper_value=$(readonly_value "$ROOT/omarchy-protonpass" "$helper_name")
+  service_value=$(service_int_property "$service_name")
+  [[ $helper_value == "$service_value" ]] || fail \
+    "$service_name is $service_value but $helper_name is $helper_value: move both or neither"
+}
+assert_mirrors INDEX_MAX_ITEMS_TOTAL maxIndexItems
+assert_mirrors INDEX_MAX_VAULTS maxIndexVaults
+# The recents bound is the same pairing without a named property to hold it.
+recents_limit=$(readonly_value "$ROOT/omarchy-protonpass" RECENTS_LIMIT)
+assert_contains "data.recents.length > $recents_limit" \
+  "the recents envelope bound is not RECENTS_LIMIT ($recents_limit)"
+
+# --- The two sanitizer classes are one contract written twice ------------
+# index_command strips control and format characters twice: once over vault
+# names as the vault list is read, once over item titles as each vault's items
+# are mapped. Those are two jq programs in two passes, so each carries its own
+# `def sanitize:`. The duplication stays: building the class in a shell variable
+# and interpolating it into both programs would put a runtime seam in the helper
+# for a test's benefit, and the budget numbers above already set the shape for a
+# contract stated twice. But nothing at runtime keeps the copies equal. Drop a
+# class from one of them and the behavioural suites only notice where a mock
+# happens to carry that class on that side; drop one no mock carries, such as
+# the vertical tab, and nothing notices at all. The panel draws a vault name
+# beside every row it draws a title for, so a character worth stripping from a
+# title is worth stripping from a vault name. This is the tie, offline and byte
+# for byte, for the same reason the budget mirror is: move both or neither.
+mapfile -t sanitize_defs < <(grep -oE 'def sanitize: .*$' "$ROOT/omarchy-protonpass")
+(( ${#sanitize_defs[@]} == 2 )) || fail \
+  "the helper defines sanitize ${#sanitize_defs[@]} times, not 2: every copy has to be checked against the others"
+[[ ${sanitize_defs[0]} == "${sanitize_defs[1]}" ]] || fail \
+  "the vault-name and item-title sanitizer classes differ: move both or neither"
+
+# --- Generation fencing over cached metadata ----------------------------
+assert_contains 'property int _indexGeneration: 0' \
+  "index generations are not tracked"
+assert_contains 'if (responseGeneration !== root._indexGeneration)' \
+  "stale index responses are not discarded"
+# Closing the panel leaves an in-flight index running: on a large vault the
+# fetch costs tens of seconds, and killing it on every close meant it never
+# finished. What still holds is the fencing around it -- an auth transition
+# invalidates and stops the request, and a later refresh supersedes it -- so
+# the pin moved from "close must invalidate" to the two paths that must.
+assert_not_contains 'panelOpen = false;
+        _doctorContinueIndex = false;
+        _indexPending = false;' \
+  "closing the panel still discards an in-flight index request"
+assert_contains $'_indexGeneration++;\n        _indexPending = false;\n        if (indexProcess.running)\n            indexProcess.running = false;' \
+  "an auth transition does not invalidate before stopping an index request"
+assert_contains $'_indexGeneration++;\n        staleWarning = false;' \
+  "an explicit refresh does not supersede the generation in flight"
+[[ $(grep -c '_indexGeneration++' "$ROOT/Service.qml") -ge 2 ]] || \
+  fail "an explicit refresh and an auth transition must both invalidate in-flight index metadata"
+
+# --- The panel open path does not refetch a fresh index -----------------
+assert_contains 'Date.now() - lastSuccessfulIndexAt >= indexFreshnessMs' \
+  "the panel open path does not age the in-memory index"
+assert_contains $'} else {\n            refreshIfStale();\n        }' \
+  "opening the panel still forces a fetch"
+assert_contains $'if (response.state === "logged-out-ok") {\n                root._clearIndex();\n                root.state = "LOGGED_OUT";' \
+  "successful logout does not drop the model and enter LOGGED_OUT"
+
+# --- argv-array discipline ----------------------------------------------
+assert_contains 'indexProcess.command = [helperPath(), "index", "--exclude-vaults"' \
+  "index arguments are not passed as an argv array"
+assert_contains 'copyProcess.command = commandLine;' \
+  "copy arguments are not passed as an argv array"
+assert_contains 'lockProcess.command = [helperPath(), "lock"]' \
+  "lock is not passed as an argv array"
+assert_contains 'clearClipboardProcess.command = [helperPath(), "clear-now"]' \
+  "clear-now is not passed as a fixed argv array"
+assert_contains 'logoutProcess.command = [helperPath(), "logout"]' \
+  "logout is not passed as a fixed argv array"
+assert_contains 'recentsProcess.command = [helperPath(), "recents", operation]' \
+  "recents operations are not passed as a fixed argv array"
+assert_contains 'createProcess.command = [helperPath(), "create", "--share-id", share]' \
+  "create is not passed as a metadata-free fixed argv array"
+assert_not_contains 'createProcess.command = [helperPath(), "create", "--share-id", share, title' \
+  "create metadata can enter argv"
+assert_panel_contains 'function launchPassCli(subcommand)' \
+  "login/unlock do not go through launchPassCli"
+assert_panel_contains 'Qt.resolvedUrl("protonpass-cli")' \
+  "the pass-cli wrapper is not resolved relative to Panel.qml"
+assert_panel_contains 'action: "signin"' \
+  "Sign in is not routed through the signin action"
+assert_panel_contains 'action: "unlock"' \
+  "Unlock is not routed through the unlock action"
+[[ -x $ROOT/protonpass-cli ]] || fail "protonpass-cli wrapper is missing or not executable"
+grep -Fq 'PROTON_PASS_KEY_PROVIDER="${PROTON_PASS_KEY_PROVIDER:-fs}"' "$ROOT/protonpass-cli" ||
+  fail "protonpass-cli does not default the local-key provider to fs"
+
+# --- Create metadata travels over stdin, never argv, and is not retained -
+assert_contains 'write(root._createInput);' \
+  "create input is not sent over stdin"
+assert_contains 'root._createInput = "";' \
+  "create input is not cleared after use"
+assert_contains 'function validCreateInput(shareId, title, identifierField, identifier)' \
+  "QML create validation does not mirror the helper wall"
+
+# --- Copy guards --------------------------------------------------------
+assert_contains $'if (copyBusy\n                || !/^[A-Za-z0-9+/=_-]{1,256}$/.test(share)' \
+  "copy is not guarded by the panel-wide busy flag and id validation"
+assert_not_contains 'copyProcess.running = false' \
+  "copy processes can be killed before completion"
+
+# --- Nothing unreviewed reaches the log ---------------------------------
+assert_not_contains 'console.warn(String(raw' \
+  "a raw helper response can reach logs"
+assert_not_contains 'console.log(' \
+  "Service.qml writes unreviewed data to logs"
+
+# --- User data is never interpreted as markup ---------------------------
+# Row title, vault name and subtitle all render helper-supplied text. The
+# subtitle is computed in the delegate rather than carried on the row, so it is
+# matched by its binding rather than by a model property.
+[[ $(grep -A1 -E 'text: (loginRow\.modelData\.(title|vaultName)|svc\.subtitleFor\(loginRow\.modelData\))' "$ROOT/Panel.qml" \
+  | grep -c 'textFormat: Text.PlainText') -eq 3 ]] || \
+  fail "every user-data render must use Text.PlainText"
+assert_panel_contains $'text: createVaultOption.modelData.name\n                      textFormat: Text.PlainText' \
+  "create-form vault names are not forced to plain text"
+
+# --- Destructive actions keep their confirmation seam -------------------
+assert_panel_contains 'if (typeof root.requestLogout === "function") root.requestLogout()' \
+  "the logout chord bypasses the two-step confirmation seam"
+[[ $PANEL_SOURCE != *'case "logout": svc.logout()'* ]] || \
+  fail "a keybinding can invoke destructive logout without confirmation"
+assert_panel_contains 'if (typeof svc.clearClipboard === "function") svc.clearClipboard()' \
+  "the clear-clipboard chord is not routed to the helper-backed service seam"
+
+# --- Remappable keybinds remain configurable ----------------------------
+jq -e '
+  .barWidget.defaults.keybinds == "" and
+  ([.barWidget.schema[] | select(.key == "keybinds" and .type == "string" and .defaultValue == "")] | length) == 1
+' "$ROOT/manifest.json" >/dev/null || fail "the keybinds setting schema is missing"
+
+# --- Busy feedback fires before the helper responds ---------------------
+# Copies take 1.4-1.8 s of Proton round trip; the panel must state that it
+# is working in the same frame as the click, not after the response.
+assert_panel_contains $'  function requestCopy(shareId, itemId, field) {\n    if (!svc.copy(shareId, itemId, field)) return false\n    copyPendingKey = String(field) + "@" + String(itemId)\n    showPendingToast("Copying\u2026")' \
+  "copy triggers do not show busy feedback before the helper responds"
+# The three copy icons render from one Repeater, so the contract is that the
+# spec table names both states and the delegate binds the pair -- the same
+# guarantee the three unrolled bindings used to give.
+assert_panel_contains 'Accessible.name: pending ? modelData.busyName : modelData.name' \
+  "the copy icon delegate does not name both its idle and busy state"
+for action in "username" "password" "TOTP code"; do
+  assert_panel_contains \
+    "name: \"Copy $action\", busyName: \"Copying $action…\"" \
+    "the Copy $action icon button lacks an accessible name for both states"
+done
+
+
+# --- The logged-out kind survives the envelope --------------------------
+# Not a wording test: the helper classifies "expired session" and "never
+# signed in" separately, the envelope carries only state + message, and the
+# panel re-derives the split from the expired message so a first run is not
+# shown in the alarm tone. The two strings are one contract -- reword the
+# classifier without the panel and the first-run view silently turns red.
+[[ $HELPER_SOURCE == *'CLASSIFIED_KIND=session-expired'* ]] || \
+  fail "the helper no longer classifies an expired session separately"
+[[ $HELPER_SOURCE == *'CLASSIFIED_MESSAGE="Session expired'* ]] || \
+  fail "the expired-session message the panel keys off has been reworded"
+assert_panel_contains 'String(svc.message).indexOf("Session expired") === 0' \
+  "the panel no longer tells an expired session apart from a first run"
+
+printf 'service and panel source contract tests passed\n'

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Mock for the helper's X11 clipboard path. Write mode (default) hashes stdin and
+# logs argv; -o reads MOCK_XCLIP_VALUE. Empty stdin is how the helper clears.
+# Write and paste exit codes are separate so clear-failure tests can still read.
+
+if [[ ${MOCK_XCLIP_SLEEP_SECONDS:-0} != 0 ]]; then
+  sleep "$MOCK_XCLIP_SLEEP_SECONDS"
+fi
+
+is_output=false
+for arg in "$@"; do
+  if [[ $arg == -o || $arg == -out ]]; then
+    is_output=true
+    break
+  fi
+done
+
+if [[ $is_output == true ]]; then
+  if [[ -n ${MOCK_XCLIP_PASTE_LOG:-} ]]; then
+    jq -cn --args '$ARGS.positional' -- "$@" >>"$MOCK_XCLIP_PASTE_LOG"
+  fi
+  printf '%s' "${MOCK_XCLIP_VALUE:-}"
+  exit "${MOCK_XCLIP_PASTE_EXIT:-0}"
+fi
+
+hash=$(sha256sum | cut -d' ' -f1)
+
+if [[ -n ${MOCK_XCLIP_LOG:-} ]]; then
+  jq -cn --arg sha256 "$hash" --args \
+    '$ARGS.positional as $args | {args:$args,sha256:$sha256}' -- "$@" \
+    >>"$MOCK_XCLIP_LOG"
+fi
+
+exit "${MOCK_XCLIP_EXIT:-0}"

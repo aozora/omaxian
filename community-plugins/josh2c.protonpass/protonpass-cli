@@ -1,0 +1,11 @@
+#!/bin/bash
+# Omaxian wrapper: run pass-cli with a working local-key provider.
+#
+# Stock pass-cli defaults to the system keyring. On many X11/i3 sessions that
+# fails with NoStorageAccess(AccessDenied) even when gnome-keyring is unlocked.
+# The filesystem provider (fs) is an official pass-cli value; override by
+# exporting PROTON_PASS_KEY_PROVIDER=keyring (or env) before calling this.
+
+set -euo pipefail
+export PROTON_PASS_KEY_PROVIDER="${PROTON_PASS_KEY_PROVIDER:-fs}"
+exec pass-cli "$@"

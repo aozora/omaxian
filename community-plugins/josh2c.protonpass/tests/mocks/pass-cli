@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mock_self=$(readlink -f "${BASH_SOURCE[0]}")
+MOCK_ROOT=$(cd "$(dirname "$mock_self")/.." && pwd)
+FIXTURES=${MOCK_FIXTURES_DIR:-"$MOCK_ROOT/fixtures"}
+# shellcheck disable=SC1091
+source "$FIXTURES/contracts.sh"
+scenario=${MOCK_SCENARIO:-ready}
+
+record_call() {
+  [[ -n ${MOCK_CALLS_LOG:-} ]] || return 0
+  jq -cn --args '$ARGS.positional' -- "$@" >>"$MOCK_CALLS_LOG"
+}
+
+fixture_exit() {
+  local name=$1
+  local exit_code
+  exit_code=$(<"$FIXTURES/$name.exit")
+  cat "$FIXTURES/$name.stderr" >&2
+  exit "$exit_code"
+}
+
+arg_value() {
+  local wanted=$1
+  shift
+  while (( $# > 0 )); do
+    if [[ $1 == "$wanted" && $# -gt 1 ]]; then
+      printf '%s' "$2"
+      return 0
+    fi
+    shift
+  done
+  return 1
+}
+
+emit_ready_vaults() {
+  cat "$FIXTURES/vault-list.json"
+}
+
+emit_multivault_vaults() {
+  cat "$FIXTURES/vault-list-multiple.json"
+}
+
+emit_empty_items() {
+  cat "$FIXTURES/item-list-empty.json"
+}
+
+emit_ready_items() {
+  cat "$FIXTURES/item-list.json"
+}
+
+emit_multivault_items() {
+  local share_id=$1
+  case "$share_id" in
+    share_fixture_1) emit_ready_items ;;
+    share_fixture_2)
+      jq -cn '{items:[
+        {id:"item_work_1",share_id:"share_fixture_2",vault_id:"vault_fixture_2",state:"Active",flags:[],create_time:"2026-08-20T22:45:00",modify_time:"2026-08-20T22:45:00",title:"T0 Synthetic Login",item_type:"login"}
+      ]}'
+      ;;
+    *) jq -cn '{items:[]}' ;;
+  esac
+}
+
+emit_oversized_items() {
+  jq -cn '{items:[
+    {id:"item_oversized",share_id:"share_fixture_1",vault_id:"vault_fixture_1",state:"Active",flags:[],create_time:"2026-08-20T22:46:00",modify_time:"2026-08-20T22:46:00",title:("T" * 900),item_type:"login"},
+    {id:"item_fixture_1",share_id:"share_fixture_1",vault_id:"vault_fixture_1",state:"Active",flags:[],create_time:"2026-08-20T22:44:15",modify_time:"2026-08-20T22:44:15",title:"T0 Synthetic Login",item_type:"login"}
+  ]}'
+}
+
+emit_unicode_items() {
+  cat <<'JSON'
+{"items":[
+  {"id":"item_quote","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:45:01","modify_time":"2026-08-20T22:45:01","title":"Quote \"login\"","item_type":"login"},
+  {"id":"item_newline","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:45:02","modify_time":"2026-08-20T22:45:02","title":"Line\nbreak","item_type":"login"},
+  {"id":"item_emoji","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:45:03","modify_time":"2026-08-20T22:45:03","title":"Emoji 🔐","item_type":"login"},
+  {"id":"item_rtl","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:45:04","modify_time":"2026-08-20T22:45:04","title":"RTL مثال","item_type":"login"},
+  {"id":"item_shell","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:45:05","modify_time":"2026-08-20T22:45:05","title":"Shell $(touch /tmp/never-run); `id` & | < >","item_type":"login"}
+]}
+JSON
+}
+
+emit_control_character_items() {
+  # The two padded titles carry more stripped characters than the display limit.
+  # Their visible text only survives if the cap runs after the strip: cap first
+  # and the lead item is nothing but padding, so it falls back to the literal,
+  # while the split item loses everything past its padding.
+  local pad
+  pad=$(jq -rn '"\u200b" * 300')
+  jq -c --arg pad "$pad" '.items += [
+    {id:"item_padded_lead",share_id:"share_fixture_1",vault_id:"vault_fixture_1",state:"Active",flags:[],create_time:"2026-08-20T22:47:06",modify_time:"2026-08-20T22:47:06",title:($pad + "Payment"),item_type:"login"},
+    {id:"item_padded_split",share_id:"share_fixture_1",vault_id:"vault_fixture_1",state:"Active",flags:[],create_time:"2026-08-20T22:47:07",modify_time:"2026-08-20T22:47:07",title:("Pay" + $pad + "ment"),item_type:"login"}
+  ]' <<'JSON'
+{"items":[
+  {"id":"item_escape","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:47:00","modify_time":"2026-08-20T22:47:00","title":"Pay\u001b]8;;http://evil.test\u0007Pal","item_type":"login"},
+  {"id":"item_bidi","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:47:01","modify_time":"2026-08-20T22:47:01","title":"invoice\u202egnp.exe","item_type":"login"},
+  {"id":"item_controls","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:47:02","modify_time":"2026-08-20T22:47:02","title":"\u0001\u0002\u001b\u200b\u2066","item_type":"login"},
+  {"id":"item_invisible","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:47:03","modify_time":"2026-08-20T22:47:03","title":"Pa\u00ady\u2060m\u2061e\u2062n\u2063t\u2064\u061c","item_type":"login"},
+  {"id":"item_separators","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:47:04","modify_time":"2026-08-20T22:47:04","title":"One\u2028Two\u2029Three","item_type":"login"},
+  {"id":"item_tag_block","share_id":"share_fixture_1","vault_id":"vault_fixture_1","state":"Active","flags":[],"create_time":"2026-08-20T22:47:05","modify_time":"2026-08-20T22:47:05","title":"\udb40\udc01\udb40\udc41Sneaky\udb40\udc7f","item_type":"login"}
+]}
+JSON
+}
+
+record_call "$@"
+
+# Opt-in: the umask this process inherited, and the mode of the helper's stderr
+# scratch file when one is up. That file is the single file the helper creates
+# without a later chmod, so its mode is whatever mask the helper process had, and
+# a test can use the pair to prove a child really was handed the mask main() sets
+# (see tests/helper-test.sh).
+if [[ -n ${MOCK_UMASK_LOG:-} ]]; then
+  scratch_mode=absent
+  for scratch_candidate in "${XDG_RUNTIME_DIR:-/nonexistent}"/.omarchy-protonpass.stderr.*; do
+    if [[ -f $scratch_candidate ]]; then
+      scratch_mode=$(stat -c '%a' "$scratch_candidate") || scratch_mode=unknown
+    fi
+  done
+  printf '%s %s\n' "$(umask)" "$scratch_mode" >>"$MOCK_UMASK_LOG"
+fi
+
+if [[ ${MOCK_ASSERT_SAFE_ENV:-0} == 1 ]]; then
+  [[ ${PASS_LOG_LEVEL:-} == off && ${MUON_LOG_LEVEL:-} == off ]]
+  [[ ${PROTON_PASS_KEY_PROVIDER:-} == fixture-provider ]]
+  [[ ${PROTON_PASS_SESSION_DIR:-} == /tmp/fixture-session ]]
+  [[ ${PROTON_PASS_PERSONAL_ACCESS_TOKEN:-} == fixture-credential ]]
+  [[ ${PROTON_PASS_DISABLE_TELEMETRY:-} == fixture-telemetry ]]
+fi
+
+if [[ $# -eq 1 && $1 == --version ]]; then
+  printf 'Proton Pass CLI %s (mock)\n' "${MOCK_PASS_CLI_VERSION:-2.3.2}"
+  exit 0
+fi
+
+case "$scenario" in
+  logged-out) fixture_exit logged-out ;;
+  already-logged-out) fixture_exit logged-out ;;
+  locked) fixture_exit locked ;;
+  expired) fixture_exit invalidated ;;
+  offline) fixture_exit network-down ;;
+  timeout-sleeps)
+    if [[ ${MOCK_TIMEOUT_EXIT:-0} == 1 ]]; then exit 124; fi
+    sleep "${MOCK_SLEEP_SECONDS:-30}"
+    ;;
+esac
+
+if [[ $scenario == malformed-json ]]; then
+  printf '{not valid json\n'
+  exit 0
+fi
+
+if [[ ${1:-} == vault && ${2:-} == list ]]; then
+  case "$scenario" in
+    ready-multivault|empty-vault|zero-logins) emit_multivault_vaults ;;
+    zero-vaults) jq -cn '{vaults:[]}' ;;
+    malformed-vault-entry) jq -cn '{vaults:[{name:"",vault_id:"vault_fixture_1",share_id:"share_fixture_1"}]}' ;;
+    # Both vault names carry one character from every class the sanitizer
+    # strips, so the vault-name copy of the class is exercised as widely as the
+    # item-title copy. The first still reads "Personal" once stripped; the
+    # second is nothing but stripped characters.
+    control-vault-name) jq -cn '{vaults:[{name:"\u202e\u0001Per\u001b\u007f\u0085\u00ad\u061c\u200b\u200e\u2028\u2029s\u2060\u2062\u2066\ufeffonal\udb40\udc41\udb40\udc7f",vault_id:"vault_fixture_1",share_id:"share_fixture_1"}]}' ;;
+    control-only-vault-name) jq -cn '{vaults:[{name:"\u0001\u001b\u007f\u0085\u00ad\u061c\u200b\u200e\u2028\u2029\u202e\u2060\u2062\u2066\ufeff\udb40\udc41\udb40\udc7f",vault_id:"vault_fixture_1",share_id:"share_fixture_1"}]}' ;;
+    oversized-title)
+      jq -cn '{vaults:[{name:("V" * 700),vault_id:"vault_fixture_1",share_id:"share_fixture_1"}]}'
+      ;;
+    *) emit_ready_vaults ;;
+  esac
+  exit 0
+fi
+
+if [[ ${1:-} == item && ${2:-} == list ]]; then
+  # A slow item walk with a healthy vault list: the shape a large vault has,
+  # where the panel sits in LOADING for a long time but the fetch does succeed.
+  [[ -n ${MOCK_ITEM_SLEEP_SECONDS:-} ]] && sleep "$MOCK_ITEM_SLEEP_SECONDS"
+  share_id=$(arg_value --share-id "$@") || share_id=""
+  if [[ -n ${MOCK_FAIL_SHARE_ID:-} && $share_id == "$MOCK_FAIL_SHARE_ID" ]]; then
+    printf 'Error: Synthetic per-vault failure\n' >&2
+    exit 1
+  fi
+  if [[ -n ${MOCK_MALFORMED_SHARE_ID:-} && $share_id == "$MOCK_MALFORMED_SHARE_ID" ]]; then
+    printf '{not valid json\n'
+    exit 0
+  fi
+  case "$scenario" in
+    ready-multivault) emit_multivault_items "$share_id" ;;
+    empty-vault)
+      if [[ $share_id == share_fixture_2 ]]; then emit_empty_items
+      else emit_ready_items
+      fi
+      ;;
+    zero-logins) emit_empty_items ;;
+    zero-vaults) emit_empty_items ;;
+    oversized-title) emit_oversized_items ;;
+    unicode-titles) emit_unicode_items ;;
+    control-characters) emit_control_character_items ;;
+    *) emit_ready_items ;;
+  esac
+  exit 0
+fi
+
+if [[ ${1:-} == item && ${2:-} == create && ${3:-} == login ]]; then
+  if [[ $# -eq 4 && $4 == --get-template ]]; then
+    cat "$FIXTURES/login-create-template.json"
+    exit 0
+  fi
+  if [[ $# -eq 3 ]]; then
+    fixture_exit create-no-args
+  fi
+
+  create_body=$(cat)
+  if ! jq -e "$FIXTURE_CREATE_TEMPLATE_SHAPE" <<<"$create_body" >/dev/null 2>&1; then
+    printf 'Error: Invalid synthetic create template\n' >&2
+    exit 2
+  fi
+  case $scenario in
+    create-username)
+      jq -e '.title == "T20 Synthetic Login" and .username == "test-user@example.test"' \
+        <<<"$create_body" >/dev/null || exit 2
+      ;;
+    create-email)
+      jq -e '.title == "T20 Email Login" and .email == "mailbox@example.test"' \
+        <<<"$create_body" >/dev/null || exit 2
+      ;;
+    create-error)
+      printf 'Error: Synthetic create failure\n' >&2
+      exit 1
+      ;;
+  esac
+  create_body=""
+  unset create_body
+  if [[ -n ${MOCK_CREATE_SLEEP_SECONDS:-} ]]; then
+    sleep "$MOCK_CREATE_SLEEP_SECONDS"
+  fi
+  printf 'item_created_1\n'
+  exit 0
+fi
+
+if [[ ${1:-} == item && ${2:-} == view ]]; then
+  field=$(arg_value --field "$@") || field=""
+  item_id=$(arg_value --item-id "$@") || item_id=""
+  if [[ $scenario == security-marker ]]; then
+    printf 'OMPP-T7-MARKER-7f43d2a9\n'
+    exit 0
+  fi
+  if [[ -n ${MOCK_EMPTY_FIELD:-} && $field == "$MOCK_EMPTY_FIELD" ]]; then
+    printf '\n'
+    exit 0
+  fi
+  if [[ $scenario == no-username && ( $field == username || $field == email ) ]]; then
+    fixture_exit "no-$field"
+  fi
+  if [[ $scenario == value-with-trailing-newlines ]]; then
+    cat "$FIXTURES/field-output-newline.txt"
+    printf '\n\n'
+    exit 0
+  fi
+  case "$field" in
+    username)
+      [[ $item_id != item_email_1 ]] || fixture_exit no-username
+      cat "$FIXTURES/field-output-newline.txt"
+      ;;
+    email)
+      [[ $item_id == item_email_1 || $item_id == item_empty_username ]] || fixture_exit no-email
+      cat "$FIXTURES/field-output-newline.txt"
+      ;;
+    password) cat "$FIXTURES/field-output-newline.txt" ;;
+    *)
+      printf 'Error: Field does not exist: %s\n' "$field" >&2
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+
+if [[ ${1:-} == item && ${2:-} == totp ]]; then
+  if [[ $scenario == no-totp ]]; then fixture_exit no-totp; fi
+  case ${MOCK_TOTP_VARIANT:-canonical} in
+    canonical) cat "$FIXTURES/item-totp.json" ;;
+    canonical-multiple) cat "$FIXTURES/item-totp-multiple.json" ;;
+    canonical-reversed) jq -cn '{totp_uri:"654321",totp:"123456"}' ;;
+    custom) jq -cn '{custom_code:"234567",custom_code_uri:"765432"}' ;;
+    uri-only) jq -cn '{only_uri:"345678"}' ;;
+    empty) jq -cn '{}' ;;
+    *) printf '{not valid json\n' ;;
+  esac
+  exit 0
+fi
+
+if [[ ${1:-} == session && ${2:-} == lock ]]; then
+  if [[ $scenario == no-lock ]]; then fixture_exit no-lock; fi
+  printf 'Session locked successfully\n'
+  exit 0
+fi
+
+if [[ ${1:-} == logout && $# -eq 1 ]]; then
+  if [[ $scenario == logout-error ]]; then
+    printf 'Error: Synthetic logout failure\n' >&2
+    exit 1
+  fi
+  printf 'Successfully performed logout\n'
+  exit 0
+fi
+
+printf 'mock pass-cli: unsupported arguments\n' >&2
+exit 64
