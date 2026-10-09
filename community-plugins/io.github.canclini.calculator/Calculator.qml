@@ -6,7 +6,7 @@ import "CalcModel.js" as CalcModel
 
 // Omaxian (X11/i3): upstream used a full-screen layer-shell scrim overlay
 // (picom blacks that out). The card lives in Ui/CenteredModal — same pattern
-// as ReminderFlow / wifiqr / keepass-picker. Enter copies via xclip (X11).
+// as ReminderFlow / wifiqr. Enter copies via xclip (X11).
 
 Item {
   id: root

@@ -402,7 +402,6 @@ README (or Menu → Setup → Plugins).
 | [Better Weather](community-plugins/io.github.guiestrela.weather/) | Open-Meteo / wttr.in forecast + RainViewer radar |
 | [Running Cat](community-plugins/io.github.kaiizu.runcat/) | RunCat-style CPU load cat |
 | [System Monitor](community-plugins/harshith.system-monitor/) | Low-overhead `/proc`/`/sys` dashboard |
-| [KeePass Picker](community-plugins/mkelk.keepass-picker/) | Search KeePassXC and paste into the focused window |
 | [Speaker Calibrator (PulseAudio)](community-plugins/omaxian-speaker-pulseaudio-calibrator/) | Mic-based parametric speaker tuning (PulseAudio) |
 | [Speaker Calibrator (PipeWire)](community-plugins/omaxian-speaker-pipewire-calibrator/) | Same upstream, PipeWire-only port |
 | [Omamail](community-plugins/omamail/) | Gmail / HEY / JMAP / IMAP client with Rust backend |
