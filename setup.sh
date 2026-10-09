@@ -141,7 +141,7 @@ OPTIONAL=(
 	radeontop              # AMD GPU load in omaxian.sysstats (scripts/gpu.sh)
 	intel-gpu-tools        # Intel GPU load via intel_gpu_top (same script)
 	# NVIDIA: nvidia-smi comes with the proprietary driver package, not listed here
-	power-profiles-daemon  # omarchy-powerprofiles-* (needs D-Bus; works w/ elogind)
+	power-profiles-daemon  # omarchy-powerprofiles-*; sysvinit unit installed below
 	openresolv             # lets omarchy-dns flush the resolver cache
 	# PipeWire audio stack (Devuan/non-systemd: i3_audio starts these).
 	# Use this *or* classic `pulseaudio` (usually already installed on PA-only
@@ -226,6 +226,26 @@ DNS_DST=/usr/local/libexec/omaxian/omarchy-dns
 if [ -f "$DNS_SRC" ]; then
 	install -D -o root -g root -m 0755 "$DNS_SRC" "$DNS_DST"
 	echo ":: installed root-owned $DNS_DST"
+fi
+
+# --- power-profiles-daemon on sysvinit/Devuan ---------------------------------
+# Debian's package only ships a systemd unit (D-Bus Exec=/bin/false). Without
+# an init script the daemon never starts and powerprofilesctl fails. Skip on
+# systemd hosts where the packaged unit owns startup.
+PPD_INIT_SRC="$REPO_DIR/packaging/sysvinit/power-profiles-daemon"
+PPD_INIT_DST=/etc/init.d/power-profiles-daemon
+if [ ! -d /run/systemd/system ] \
+	&& [ -x /usr/libexec/power-profiles-daemon ] \
+	&& [ -f "$PPD_INIT_SRC" ]; then
+	install -D -o root -g root -m 0755 "$PPD_INIT_SRC" "$PPD_INIT_DST"
+	update-rc.d power-profiles-daemon defaults >/dev/null
+	if service power-profiles-daemon status >/dev/null 2>&1; then
+		echo ":: $PPD_INIT_DST already running"
+	elif service power-profiles-daemon start; then
+		echo ":: started power-profiles-daemon via sysvinit"
+	else
+		echo "!! power-profiles-daemon init script installed but start failed" >&2
+	fi
 fi
 
 # --- bundled fonts (JetBrainsMono/Iosevka Nerd, Weather Icons, Feather) --------

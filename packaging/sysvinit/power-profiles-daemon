@@ -1,0 +1,64 @@
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides:          power-profiles-daemon
+# Required-Start:    $remote_fs $syslog dbus
+# Required-Stop:     $remote_fs $syslog dbus
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Power Profiles daemon
+# Description:       Makes power profiles (power-saver/balanced/performance)
+#                    available over D-Bus for powerprofilesctl and the
+#                    Omaxian power panel. Debian ships only a systemd unit;
+#                    this script is the sysvinit/Devuan bootstrap.
+### END INIT INFO
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+DAEMON=/usr/libexec/power-profiles-daemon
+NAME=power-profiles-daemon
+DESC="Power Profiles daemon"
+PIDFILE=/run/power-profiles-daemon.pid
+STATE_DIR=/var/lib/power-profiles-daemon
+
+test -x "$DAEMON" || exit 0
+
+. /lib/lsb/init-functions
+
+# Foreground D-Bus daemon (systemd Type=dbus); start-stop-daemon backgrounds it.
+SSD_START="--start --quiet --oknodo --pidfile $PIDFILE --make-pidfile --background --exec $DAEMON"
+SSD_STOP="--stop --quiet --oknodo --pidfile $PIDFILE --retry 5 --exec $DAEMON"
+
+case "$1" in
+  start)
+    log_daemon_msg "Starting $DESC" "$NAME" || true
+    mkdir -p "$STATE_DIR"
+    # shellcheck disable=SC2086
+    if start-stop-daemon $SSD_START; then
+      log_end_msg 0 || true
+    else
+      log_end_msg 1 || true
+    fi
+    ;;
+  stop)
+    log_daemon_msg "Stopping $DESC" "$NAME" || true
+    # shellcheck disable=SC2086
+    if start-stop-daemon $SSD_STOP; then
+      rm -f "$PIDFILE"
+      log_end_msg 0 || true
+    else
+      log_end_msg 1 || true
+    fi
+    ;;
+  restart|force-reload)
+    "$0" stop
+    "$0" start
+    ;;
+  status)
+    status_of_proc -p "$PIDFILE" "$DAEMON" "$NAME" && exit 0 || exit $?
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|force-reload|status}" >&2
+    exit 3
+    ;;
+esac
+
+exit 0
