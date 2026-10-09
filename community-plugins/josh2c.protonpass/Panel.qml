@@ -46,10 +46,13 @@ Panel {
 
   // Row-level copy actions. Both accessible names are part of the busy-feedback
   // contract: every icon names its idle state and its in-flight state.
+  // Material Design strokes — same family as headerActionSpecs. Font Awesome
+  // PUA codepoints collide with Nerd Font MDI mapping here; username/TOTP
+  // rendered as a couple of pixels while only the key stayed legible.
   readonly property var copyActionSpecs: [
-    {icon: "", field: "username", name: "Copy username", busyName: "Copying username…"},
-    {icon: "", field: "password", name: "Copy password", busyName: "Copying password…"},
-    {icon: "", field: "totp", name: "Copy TOTP code", busyName: "Copying TOTP code…"}
+    {icon: "󰀄", field: "username", name: "Copy username", busyName: "Copying username…"},
+    {icon: "󰌆", field: "password", name: "Copy password", busyName: "Copying password…"},
+    {icon: "󰅐", field: "totp", name: "Copy TOTP code", busyName: "Copying TOTP code…"}
   ]
 
   // Header actions. Labels and enablement are resolved per frame by the
@@ -1224,7 +1227,7 @@ Panel {
                   anchors.right: parent.right
                   anchors.verticalCenter: parent.verticalCenter
                   anchors.rightMargin: Style.space(8)
-                  iconText: ""
+                  iconText: "󰆏"
                   tooltipText: spec.name
                   Accessible.role: Accessible.Button
                   Accessible.name: spec.name
