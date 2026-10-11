@@ -3,6 +3,7 @@ import "compose/Recipients.js" as AgentRecipients
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import "account"
 import "calendar"
 import "agent"
@@ -2647,8 +2648,8 @@ Item {
       CalendarReminders {
         service: root
         pluginDir: root.pluginDir
-        notificationForeground: Color.foreground
-        notificationAccent: Color.accent
+        notificationForeground: Commons.Color.foreground
+        notificationAccent: Commons.Color.accent
       }
     }
   }
@@ -2678,8 +2679,8 @@ Item {
         return index < accounts.length ? accounts[index] : null
       }
 
-      notificationForeground: Color.foreground
-      notificationAccent: Color.accent
+      notificationForeground: Commons.Color.foreground
+      notificationAccent: Commons.Color.accent
       pluginDir: root.pluginDir
       accountId: entry ? entry.id : ""
       backend: root.backend

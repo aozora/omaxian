@@ -2,7 +2,7 @@
 
 Disposable alarms for the Omaxian bar. Port of
 [jankeesvw/omarchy-nag](https://github.com/jankeesvw/omarchy-nag)
-(upstream commit `fdf7314`).
+(upstream commit `bea1680`).
 
 Type `15:15 pick up the kids` into one field and it is set. The bar counts down
 to it, turns red in the last five minutes, and keeps ringing until you answer.
