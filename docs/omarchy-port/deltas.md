@@ -166,15 +166,26 @@ note: [v4_0_4.md](v4_0_4.md).
 | `bin/omarchy-menu{,-select,-input,-plugin,-keybindings,-timezone}` + `omarchy-launch-{webapp,floating-terminal-with-presentation,config-editor}` + `omarchy-system-{lock,logout,reboot,shutdown}` + `omarchy-toggle-{enabled,idle,notification-silencing}` + `omarchy-plugin-{list,enable,disable,add,clone,remove}` | Hyprland/`uwsm`/`systemctl`/`timedatectl` originals | X11/elogind/i3 wrappers. Timezone writes `/etc/timezone` + `/etc/localtime`. Notifications toggle is `dunstctl`. | `local` | **keep** | Only the helpers kept JSONC rows actually call. |
 | Port-authored plugin ids | `local.*` | **Renamed 2026-09-03** to `omaxian.*` (`id`, `moduleName`, IPC targets, `shell.json`, i3 `shell toggle`). | `local` | **keep** | Distinguishes from upstream `omarchy.*`. Retired `local.weather` / `local.volume` / `local.mpd` names left as history (plugins already gone). |
 
+## Agents meter (2026-10-11)
+
+| File | Upstream | omaxian | Transform | Status | Notes |
+|---|---|---|---|---|---|
+| `plugins/agents/` | `Panel.qml` + `Main.qml` + `Agent.qml` + assets; bar-widget `omarchy.agents` | **copied** — QML/assets/README/manifest; `launchAgent()` → `omarchy-notification-send` (meter-only; no `omarchy-agent`) | — | **keep** | Opt-in: not in stock `shell.json`. Self-hides until usage JSON exists. |
+| `bin/omarchy-agent-usage-{update,claude,codex,fireworks}` | collectors → `~/.local/state/omarchy/agents/usage/` | **vendored**; `update` adds `: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"` | `local` | **keep** | Pure Python/bash + HTTPS; no Wayland/systemd. |
+| `bin/omarchy-agent`, `omarchy-default-agent`, `omarchy-launch-tui`, menu/hotkey | launch stack | **not ported** | — | — | Scope B follow-up. |
+
 ## Not ported (absent from omaxian by decision — not a divergence to track)
 
-`plugins/{lock,background,clipboard,emojis,notifications,image-picker,dev-gallery,agents,model-usage}`,
+`plugins/{lock,background,clipboard,emojis,notifications,image-picker,dev-gallery}`,
 `plugins/panels/{tailscale,dropbox}` (`monitor` is no longer in this list — see
 the Phase 10 row above; a `local`-authored plugin now covers resolution
 picking, upstream's brightness/scale panel remains deliberately unported),
 `bar/indicators/Dictation.qml`,
 `plugins/bar/widgets/ActiveWindow.qml` (excluded for now, not rejected — see
 the Phase 6/8 rows above for the adaptation path if it's wanted later).
+(`plugins/agents` meter is ported — see the Agents meter section above;
+`model-usage` was renamed into `agents` upstream and does not exist as a
+separate plugin in this pin.)
 
 `plugins/services/tmux/` + `bar/indicators/TmuxAlert.qml` — **removed
 2026-09-01, not a divergence to reconsider.** Upstream deleted the whole
