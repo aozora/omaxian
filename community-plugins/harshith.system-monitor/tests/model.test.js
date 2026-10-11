@@ -197,6 +197,8 @@ test("panel exposes bar cycling, btop launch, and live hostname title", () => {
   const qml = fs.readFileSync(path.join(root, "Panel.qml"), "utf8")
   assert.match(qml, /function cycleBarMode\(\)/)
   assert.match(qml, /function launchBtop\(\)/)
+  assert.match(qml, /bar\.run\(script\)/)
+  assert.doesNotMatch(qml, /bar\.runArgv\(/)
   assert.match(qml, /metrics\.hostname !== "" \? metrics\.hostname : "System Monitor"/)
   assert.doesNotMatch(qml, /\/home\//)
 })

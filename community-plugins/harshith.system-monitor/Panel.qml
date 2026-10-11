@@ -282,15 +282,15 @@ Panel {
   }
 
   function launchBtop() {
-    // Omaxian: no omarchy-launch-or-focus-tui; same opener as SysStats / runcat
-    // (i3 floating term → btop, else x-terminal-emulator → btop/htop).
-    if (bar)
-      bar.runArgv([Quickshell.shellDir + "/scripts/sysmon.sh"])
+    // Omaxian: no omarchy-launch-or-focus-tui. Third-party widgets receive
+    // PluginBarApi, which only has run() — the host bar's runArgv() is not
+    // on that facade, so calling it throws and the click does nothing.
+    // sysmon.sh opens i3's terminal helper on btop, else btop/htop.
+    var script = "${OMARCHY_PATH:-$HOME/.local/share/omarchy}/shell/scripts/sysmon.sh"
+    if (bar && typeof bar.run === "function")
+      bar.run(script)
     else
-      Quickshell.execDetached([
-        "bash", "-lc",
-        "${OMARCHY_PATH:-$HOME/.local/share/omarchy}/shell/scripts/sysmon.sh"
-      ])
+      Quickshell.execDetached(["bash", "-lc", script])
     close()
   }
 
