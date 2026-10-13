@@ -70,6 +70,7 @@ community-plugins/
 | [`io.github.canclini.calculator`](io.github.canclini.calculator/) | `io.github.canclini.calculator` | [omarchy-calculator](https://github.com/canclini/omarchy-calculator) — quick calculator overlay; T1 CenteredModal, `xclip`/`xsel` | Ported |
 | [`com.omastorm.radar`](com.omastorm.radar/) | `com.omastorm.radar` | [omastorm](https://github.com/wesleygrimes/omastorm) — live NEXRAD/OPERA radar; `omarchy-shell` / `omarchy-restart-shell`, no Hyprland | Ported |
 | [`io.github.kristoferlund.webcam`](io.github.kristoferlund.webcam/) | `io.github.kristoferlund.webcam` | [omarchy-webcam](https://github.com/kristoferlund/omarchy-webcam) — V4L2 preview + controls; Debian `qml6-module-qtmultimedia` / `v4l-utils` | Ported |
+| [`alexzeitler.ytdlp`](alexzeitler.ytdlp/) | `alexzeitler.ytdlp` | [omarchy-yt-dlp-plugin](https://github.com/AlexZeitler/omarchy-yt-dlp-plugin) — yt-dlp download queue; `xclip`/`xsel`, floating terminal for checkout sync | Ported |
 
 ## Install (opt-in)
 
