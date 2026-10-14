@@ -140,6 +140,8 @@ RECOMMENDED=(
 	fastfetch
 	# honours ~/.config/xdg-terminals.list from Setup → Defaults → Terminal
 	xdg-terminal-exec
+	# default editor for Setup → Config / omarchy-launch-editor (falls back to nvim)
+	neovim
 )
 
 # Optional: hardware- or host-specific; nothing breaks without them.
