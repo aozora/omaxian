@@ -218,11 +218,17 @@ work differently or are missing:
 - **Display panel is layout only** (resolution, on/off, position). Omarchy's
   brightness / fractional-scale panel is not ported; use the brightness keys.
 - **Audio panel has no input VU meter**; per-app rows show the raw app name.
-- **No Omarchy clipboard, emoji picker, image carousel, agents, or built-in
+- **No Omarchy clipboard history, image carousel, agents, or built-in
   notification daemon.** Notifications stay on **dunst**. Theme picking is a
   thumbnail grid, not the vips carousel. The Omarchy menu (`Super+Space`) skips
-  Arch Install/Remove trees and Hyprland-only actions.
-- **No screen recording or dictation** indicators.
+  Arch Install/Remove trees and Hyprland-only actions. Emoji picker, OCR/QR
+  capture, LocalSend share, and screen recording are ported (see below).
+- **Screen recording** uses Flatpak `com.dec05eba.gpu_screen_recorder` (or
+  `gpu-screen-recorder` on `PATH`) with an X11 region picker (`slop`). Install
+  with `flatpak install flathub com.dec05eba.gpu_screen_recorder`. Webcam
+  overlay and dictation are not ported.
+- **Share** uses LocalSend (`flatpak install flathub org.localsend.localsend_app`
+  or a native `localsend` binary).
 - **`i3 restart` is not a full reload.** Log out and back in after the first
   deploy, or run `omarchy-restart-shell`.
 

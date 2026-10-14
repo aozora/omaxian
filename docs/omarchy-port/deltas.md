@@ -159,7 +159,11 @@ note: [v4_0_4.md](v4_0_4.md).
 | `plugins/panels/controlpanel/` | none | **local** tabbed panel (audio / bluetooth / wallpaper / theme / monitor) behind `omaxian.controlpanel` on the default bar. IPC: `showTab <name>` plus compat `theme` / `wallpapers` toggles (those standalone bar widgets are off the default layout). | `local` | **keep** | No upstream counterpart. Menu Style → Theme/Background and Alt+Ctrl+T use these. |
 | `plugins/panels/settings/Panel.qml` | none | **local** tabbed editor. **2026-09-04:** `CenteredModal` → Quickshell `FloatingWindow` (real i3 toplevel). i3 rule `title="^Omaxian Settings$"` floats, focuses, centres, `border none`. Title-strip drag via `startSystemMove()`. | `local` | **keep** | Super+Ctrl+S / menu Setup → Settings. |
 | `bin/omarchy-restart-shell` | (X11 port) | Self-`setsid` once before kill/relaunch so a menu-invoked restart (via QS `execDetached`) is not SIGHUP'd mid-flight when QS dies. | `local` | **keep** | Without detach, Update → Process → Shell left the bar gone. |
-| `default/omarchy/omarchy-menu.jsonc` | Arch/Hyprland full tree (Install/Remove/AUR/hyprland/…) | Port subset: keep/rewire System, Learn, Trigger, Style, Setup, Update rows that have X11 backends. About → `https://omaxian.org`. Style theme/background → controlpanel `showTab`. `install.sh` overlays this file after copying upstream `default/`. | `local` | **keep** | Overlay-merge cannot delete items, so the file is replaced, not extended. |
+| `default/omarchy/omarchy-menu.jsonc` | Arch/Hyprland full tree (Install/Remove/AUR/hyprland/…) | Port subset: System, Learn (+ Debian/Devuan/Community), Trigger (capture OCR/QR/screenrecord, share, emoji), Style, Setup (Settings, Defaults, Config i3/picom/dunst), Update (wifi/bt restart). About → `https://omaxian.org`. Style theme/background → controlpanel `showTab`. `install.sh` overlays this file after copying upstream `default/`. | `local` | **keep** | Overlay-merge cannot delete items, so the file is replaced, not extended. |
+| `bin/omarchy-default-{browser,terminal,editor}`, `omarchy-launch-editor`, `omarchy-restart-{wifi,bluetooth}`, `omarchy-launch-discord-community` | Hyprland/`uwsm`/`xdg-terminal-exec` originals | X11 ports: no `uwsm`; TUI editors via `i3_term --float`; terminal preference writes `xdg-terminals.list` (+ notify if `xdg-terminal-exec` missing). | `local` | **keep** | Menu Setup → Defaults / Update → Hardware / Learn → Community. |
+| `bin/omarchy-capture-{text,qr,region,screenrecording}`, `omarchy-gpu-screen-recorder` | `grim`/`slurp`/`hyprpicker`/`gpu-screen-recorder` | `maim`+`tesseract`/`zbarimg`+`xclip`; region via `slop`/`xrandr`; recorder via Flatpak `com.dec05eba.gpu_screen_recorder` (PATH fallback). No webcam overlay. | `local` | **keep** | Menu Trigger → Capture; bar `ScreenRecording` indicator re-enabled. |
+| `bin/omarchy-file-select`, `omarchy-menu-share`, `omarchy-localsend` | portal + `wl-paste` + `systemd-run` localsend | Portal chooser with `zenity` fallback; clipboard via `xclip`; LocalSend via Flatpak/`setsid` (no systemd). | `local` | **keep** | Menu Trigger → Share. |
+| `plugins/emojis/` + `bin/omarchy-menu-emoji{,-insert}` | `WlrLayershell` overlay + `wl-copy`/`wtype` | **T1** `Ui/CenteredModal`; insert via `xclip` + `xdotool shift+Insert`. | `T1` | **keep** | Menu Trigger → Emoji. |
 | `plugins/bar/widgets/ThemeButton.qml` (`omaxian.themes`) | `omarchy.image-picker` (not ported, needs vips) | Thumbnail grid of `preview.png`; pick → `omarchy-theme-set`. | `local` | **keep** | Replaces the upstream carousel. |
 | `plugins/menu/` (`Menu.qml`, `MenuModel.js`, `manifest.json`) | full-screen `WlrLayershell` overlay + pacman `guardHelpers` + `kinds: ["menu","bar-widget"]` | **done 2026-09-03.** T1 via `Ui/CenteredModal` (no scrim). `MenuModel.js` `guardHelpers()` uses `dpkg-query -W` instead of `pacman -Q`. Manifest `kinds: ["menu"]` only — the bar cat stays `omaxian.menu`. Guard/provider `Process`es wrap scripts with `Util.loginShellCommand` (same PATH fix as `Util.execDetached`). `mergeAppRows` accepts bare `AppLibrary.sortedEntries` rows (omaxian unwrap for dock) as well as upstream `{ entry }` wrappers — without that, Apps + typeahead search stayed empty. | `T1` | **keep** | Super+L / left-click `omaxian.menu` summons this plugin. |
 | `plugins/bar/widgets/MenuButton.qml` | local launcher PopupCard over `AppLibrary` | Left-click + `launcher` IPC → `shell.toggle("omarchy.menu")`. Launcher PopupCard removed. Right-click / `runner` IPC unchanged. **Glyph** from layout `settings.icon` / `settings.iconFont` via `BarWidget.setting()` (default U+F011B cat). | `local` | **keep** | Unifies Super+L with the Omarchy palette; user-editable icon in `shell.json`. |
@@ -176,7 +180,7 @@ note: [v4_0_4.md](v4_0_4.md).
 
 ## Not ported (absent from omaxian by decision — not a divergence to track)
 
-`plugins/{lock,background,clipboard,emojis,notifications,image-picker,dev-gallery}`,
+`plugins/{lock,background,clipboard,notifications,image-picker,dev-gallery}`,
 `plugins/panels/{tailscale,dropbox}` (`monitor` is no longer in this list — see
 the Phase 10 row above; a `local`-authored plugin now covers resolution
 picking, upstream's brightness/scale panel remains deliberately unported),
@@ -185,7 +189,8 @@ picking, upstream's brightness/scale panel remains deliberately unported),
 the Phase 6/8 rows above for the adaptation path if it's wanted later).
 (`plugins/agents` meter is ported — see the Agents meter section above;
 `model-usage` was renamed into `agents` upstream and does not exist as a
-separate plugin in this pin.)
+separate plugin in this pin. `plugins/emojis` is ported — see the menu row
+above.)
 
 `plugins/services/tmux/` + `bar/indicators/TmuxAlert.qml` — **removed
 2026-09-01, not a divergence to reconsider.** Upstream deleted the whole

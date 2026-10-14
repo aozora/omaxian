@@ -8,11 +8,10 @@ BarWidget {
   id: root
   moduleName: "omarchy.indicators"
 
-  // X11 delta (§6): "Dictation" (Wayland), "Reminder" (`omarchy-reminder` not
-  // vendored), "ScreenRecording" (no screen-recorder setup on this box)
-  // dropped from the default list. Re-add either via shell.json's indicator
-  // settings once its backing script exists.
-  readonly property var defaultIndicatorEntries: [ "NightLight", "Reminder", "Dnd", "StayAwake" ]
+  // X11 delta: "Dictation" (Wayland) stays off the default list.
+  // ScreenRecording uses Flatpak/PATH gpu-screen-recorder via
+  // omarchy-capture-screenrecording.
+  readonly property var defaultIndicatorEntries: [ "NightLight", "Reminder", "Dnd", "StayAwake", "ScreenRecording" ]
   readonly property var indicatorEntries: indicatorEntriesFromSettings(settings)
   property var activeIndicatorIds: []
   property var indicatorActiveStates: ({})

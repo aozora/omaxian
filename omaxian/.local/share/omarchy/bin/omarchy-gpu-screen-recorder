@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# omarchy:summary=Invoke gpu-screen-recorder (Flatpak preferred, PATH fallback)
+# omarchy:hidden=true
+# omarchy:args=<gpu-screen-recorder args...>
+
+FLATPAK_REF="com.dec05eba.gpu_screen_recorder"
+
+if omarchy-cmd-present flatpak && flatpak info "$FLATPAK_REF" &>/dev/null; then
+  exec flatpak run --command=gpu-screen-recorder "$FLATPAK_REF" "$@"
+fi
+
+if omarchy-cmd-present gpu-screen-recorder; then
+  exec gpu-screen-recorder "$@"
+fi
+
+omarchy-notification-send -u critical "Screen recorder not installed" \
+  "flatpak install flathub $FLATPAK_REF"
+exit 127

@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# omarchy:summary=Insert an emoji into the focused application
+# omarchy:group=menu
+# omarchy:args=<emoji>
+# omarchy:hidden=true
+
+emoji="${1:-}"
+[[ -n $emoji ]] || exit 0
+
+printf '%s' "$emoji" | xclip -selection clipboard
+
+# Give the clipboard a moment, then paste into the focused window.
+sleep 0.1
+if omarchy-cmd-present xdotool; then
+  xdotool key --clearmodifiers shift+Insert 2>/dev/null || \
+    xdotool key --clearmodifiers ctrl+v 2>/dev/null || true
+fi

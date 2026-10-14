@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# omarchy:summary=Share clipboard, files, or folders with LocalSend
+# omarchy:group=share
+# omarchy:args=<clipboard|file|folder> [path...]
+# omarchy:examples=omarchy-menu-share clipboard | omarchy-menu-share file ~/Downloads/example.txt
+
+if (( $# == 0 )); then
+  echo "Usage: omarchy-menu-share [clipboard|file|folder]"
+  exit 1
+fi
+
+MODE="$1"
+shift
+
+if [[ $MODE == "clipboard" ]]; then
+  TEMP_FILE=$(mktemp --suffix=.txt)
+  if ! xclip -selection clipboard -o >"$TEMP_FILE" 2>/dev/null; then
+    omarchy-notification-send -u critical "Clipboard empty" "Nothing to share"
+    rm -f "$TEMP_FILE"
+    exit 1
+  fi
+  FILE_ARRAY=("$TEMP_FILE")
+elif (( $# > 0 )); then
+  FILE_ARRAY=("$@")
+else
+  if [[ $MODE == "folder" ]]; then
+    select_args=(--title "Share folder" --directory)
+  else
+    select_args=(--title "Share files" --multiple)
+  fi
+
+  picked=$(omarchy-file-select "${select_args[@]}") || status=$?
+
+  if (( ${status:-0} > 1 )); then
+    omarchy-notification-send -g "" -u critical "Could not share" "The file chooser did not open"
+    exit 1
+  fi
+
+  [[ -n $picked ]] || exit 0
+  readarray -t FILE_ARRAY <<<"$picked"
+fi
+
+# Detach from the menu/terminal; no systemd-run on Devuan.
+setsid -f omarchy-localsend --headless send "${FILE_ARRAY[@]}" >/dev/null 2>&1 &
+
+# Temp clipboard dump stays until system cleanup so LocalSend can read it.
+exit 0

@@ -1,0 +1,146 @@
+#!/usr/bin/python3
+
+# omarchy:summary=Pick files with the desktop file chooser
+# omarchy:args=[--title <title>] [--multiple] [--directory] [--extensions "<ext ext...>"]
+# omarchy:examples=omarchy-file-select --title "Share files" --multiple | omarchy-file-select --title "Share folder" --directory
+
+# Portal FileChooser when available; zenity fallback on X11/Debian when the
+# portal is missing or fails to open.
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+
+EXIT_NOTHING_PICKED = 1
+EXIT_CHOOSER_FAILED = 2
+ANSWER_TIMEOUT_SEC = 600
+
+
+def zenity_select(args):
+    if not shutil.which("zenity"):
+        print("omarchy-file-select: no xdg-desktop-portal and no zenity", file=sys.stderr)
+        return EXIT_CHOOSER_FAILED
+
+    cmd = ["zenity", "--file-selection", f"--title={args.title}"]
+    if args.multiple:
+        cmd.append("--multiple")
+        cmd.append("--separator=\n")
+    if args.directory:
+        cmd.append("--directory")
+    if args.extensions and not args.directory:
+        exts = [ext.lstrip(".") for ext in args.extensions.split()]
+        patterns = " ".join(f"*.{ext} *.{ext.upper()}" for ext in exts)
+        cmd.append(f"--file-filter={patterns}")
+
+    try:
+        completed = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    except OSError as error:
+        print("omarchy-file-select: %s" % error, file=sys.stderr)
+        return EXIT_CHOOSER_FAILED
+
+    if completed.returncode != 0:
+        return EXIT_NOTHING_PICKED
+
+    paths = [line for line in completed.stdout.splitlines() if line]
+    for path in paths:
+        print(path)
+    return 0 if paths else EXIT_NOTHING_PICKED
+
+
+def portal_select(args):
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio, GLib
+
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    loop = GLib.MainLoop()
+    uris = []
+
+    def on_response(connection, sender, path, interface, signal, params):
+        code, results = params.unpack()
+        if code == 0:
+            uris.extend(results.get("uris", []))
+        loop.quit()
+
+    def subscribe(path):
+        bus.signal_subscribe(
+            "org.freedesktop.portal.Desktop",
+            "org.freedesktop.portal.Request",
+            "Response",
+            path,
+            None,
+            Gio.DBusSignalFlags.NONE,
+            on_response,
+        )
+
+    token = "omarchy%d" % os.getpid()
+    sender = bus.get_unique_name()[1:].replace(".", "_")
+    predicted = "/org/freedesktop/portal/desktop/request/%s/%s" % (sender, token)
+    subscribe(predicted)
+
+    options = {
+        "handle_token": GLib.Variant("s", token),
+        "multiple": GLib.Variant("b", args.multiple),
+    }
+
+    if args.directory:
+        options["directory"] = GLib.Variant("b", True)
+
+    if args.extensions and not args.directory:
+        exts = [ext.lstrip(".").lower() for ext in args.extensions.split()]
+        patterns = [(0, "*." + ext) for ext in exts] + [(0, "*." + ext.upper()) for ext in exts]
+        label = " ".join("*." + ext for ext in exts)
+        filters = GLib.Variant("a(sa(us))", [(label, patterns)])
+        options["filters"] = filters
+        options["current_filter"] = GLib.Variant("(sa(us))", (label, patterns))
+
+    handle = bus.call_sync(
+        "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.FileChooser",
+        "OpenFile",
+        GLib.Variant("(ssa{sv})", ("", args.title, options)),
+        None,
+        Gio.DBusCallFlags.NONE,
+        -1,
+        None,
+    ).unpack()[0]
+
+    if handle != predicted:
+        subscribe(handle)
+
+    GLib.timeout_add_seconds(ANSWER_TIMEOUT_SEC, loop.quit)
+    loop.run()
+
+    for uri in uris:
+        print(GLib.filename_from_uri(uri)[0])
+
+    return 0 if uris else EXIT_NOTHING_PICKED
+
+
+def main():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--title", default="Select file")
+    parser.add_argument("--multiple", action="store_true")
+    parser.add_argument("--directory", action="store_true")
+    parser.add_argument("--extensions", default="")
+    args, unknown = parser.parse_known_args()
+
+    if unknown:
+        print("omarchy-file-select: unknown option %s" % unknown[0], file=sys.stderr)
+        return EXIT_CHOOSER_FAILED
+
+    try:
+        return portal_select(args)
+    except Exception as error:
+        # Portal missing, D-Bus error, or PyGObject unavailable → zenity.
+        if os.environ.get("OMARCHY_FILE_SELECT_DEBUG") == "true":
+            print("omarchy-file-select portal failed: %s" % error, file=sys.stderr)
+        return zenity_select(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

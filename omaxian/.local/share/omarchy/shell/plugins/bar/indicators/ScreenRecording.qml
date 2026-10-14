@@ -15,7 +15,8 @@ BarIndicator {
 
   function refresh() {
     if (!root.bar || statusProc.running) return
-    statusProc.command = ["pgrep", "--quiet", "-f", "^gpu-screen-recorder"]
+    // Flatpak wraps the binary; match the substring rather than ^argv0.
+    statusProc.command = ["pgrep", "--quiet", "-f", "gpu-screen-recorder"]
     statusProc.running = true
   }
 

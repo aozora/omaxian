@@ -9,8 +9,8 @@ commands. Creating an artifact is not sufficient: inspect it for clipping,
 overlap, incorrect spacing, stale state, focus problems, and visual
 regressions before finishing.
 
-There is no `omarchy capture` / `omarchy screenshot` / `omarchy screenrecord`
-in this port.
+Screenshot: `~/.config/i3/scripts/i3_screenshot` (also Menu → Trigger → Capture).
+Screen recording: `omarchy-capture-screenrecording` (Flatpak gpu-screen-recorder).
 
 ## Do not crash the session
 

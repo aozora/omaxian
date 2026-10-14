@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# omarchy:summary=Launch LocalSend (Flatpak preferred, PATH fallback)
+# omarchy:hidden=true
+# omarchy:args=[--headless send <paths...>] | (no args → GUI)
+
+FLATPAK_REF="org.localsend.localsend_app"
+
+run_flatpak() {
+  flatpak run "$FLATPAK_REF" "$@"
+}
+
+run_native() {
+  if omarchy-cmd-present localsend; then
+    exec localsend "$@"
+  fi
+  if omarchy-cmd-present localsend_app; then
+    exec localsend_app "$@"
+  fi
+  return 1
+}
+
+if omarchy-cmd-present flatpak && flatpak info "$FLATPAK_REF" &>/dev/null; then
+  if (( $# == 0 )); then
+    exec setsid -f flatpak run "$FLATPAK_REF"
+  fi
+  # Headless send: try Flatpak CLI; fall through to notify on failure.
+  if run_flatpak "$@"; then
+    exit 0
+  fi
+fi
+
+if (( $# == 0 )); then
+  if run_native; then
+    exit 0
+  fi
+else
+  if omarchy-cmd-present localsend; then
+    exec localsend "$@"
+  fi
+  if omarchy-cmd-present localsend_app; then
+    exec localsend_app "$@"
+  fi
+fi
+
+omarchy-notification-send -u critical "LocalSend not installed" \
+  "flatpak install flathub $FLATPAK_REF"
+exit 127

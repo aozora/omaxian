@@ -1,0 +1,190 @@
+#!/bin/bash
+
+# omarchy:summary=Start or stop screen recording (Flatpak gpu-screen-recorder)
+# omarchy:group=capture
+# omarchy:args=[--fullscreen] [--with-desktop-audio] [--with-microphone-audio] [--resolution=<size>] [--stop-recording]
+# omarchy:examples=omarchy-capture-screenrecording | omarchy-capture-screenrecording --with-desktop-audio
+# omarchy:aliases=omarchy screenrecord
+#
+# Env: OMARCHY_SCREENRECORD_DEBUG=true appends recorder stderr to
+# /tmp/omarchy-screenrecord.log.
+
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
+
+[[ -f ~/.config/user-dirs.dirs ]] && source ~/.config/user-dirs.dirs
+OUTPUT_DIR="${OMARCHY_SCREENRECORD_DIR:-${XDG_VIDEOS_DIR:-$HOME/Videos}}"
+
+if [[ ! -d $OUTPUT_DIR ]]; then
+  mkdir -p "$OUTPUT_DIR" 2>/dev/null || {
+    omarchy-notification-send -u critical -t 3000 \
+      "Screen recording directory does not exist: $OUTPUT_DIR"
+    exit 1
+  }
+fi
+
+DESKTOP_AUDIO="false"
+MICROPHONE_AUDIO="false"
+RESOLUTION=""
+FULLSCREEN="false"
+STOP_RECORDING="false"
+RECORDING_FILE="/tmp/omarchy-screenrecord-filename"
+LOG_FILE=$([[ ${OMARCHY_SCREENRECORD_DEBUG:-false} == "true" ]] && echo "/tmp/omarchy-screenrecord.log" || echo "/dev/null")
+
+# Match Flatpak/bwrap argv as well as a bare binary on PATH.
+GSR_PGREP='gpu-screen-recorder'
+
+for arg in "$@"; do
+  case "$arg" in
+  --with-desktop-audio) DESKTOP_AUDIO="true" ;;
+  --with-microphone-audio) MICROPHONE_AUDIO="true" ;;
+  --resolution=*) RESOLUTION="${arg#*=}" ;;
+  --fullscreen) FULLSCREEN="true" ;;
+  --stop-recording) STOP_RECORDING="true" ;;
+  --with-webcam | --webcam-device=* | --webcam-size=*)
+    omarchy-notification-send -u low "Webcam overlay not supported" \
+      "Recording continues without webcam"
+    ;;
+  esac
+done
+
+default_resolution() {
+  local w h
+  read -r w h < <(xrandr --current | awk '/\*/ { split($1, a, "x"); print a[1], a[2]; exit }')
+  if [[ -n $w && -n $h ]] && (( w > 3840 || h > 2160 )); then
+    echo "3840x2160"
+  else
+    echo "0x0"
+  fi
+}
+
+# Echoes "region:WxH+X+Y". Returns non-zero if the user cancelled.
+select_capture_target() {
+  local mode=region
+  [[ $FULLSCREEN == "true" ]] && mode=fullscreen
+
+  local geo
+  geo=$(omarchy-capture-region "$mode") || return 1
+  [[ $geo =~ ^(-?[0-9]+),(-?[0-9]+)[[:space:]]([0-9]+)x([0-9]+)$ ]] || return 1
+  echo "region:${BASH_REMATCH[3]}x${BASH_REMATCH[4]}+${BASH_REMATCH[1]}+${BASH_REMATCH[2]}"
+}
+
+screenrecording_active() {
+  pgrep -f "$GSR_PGREP" >/dev/null
+}
+
+toggle_screenrecording_indicator() {
+  omarchy-shell -q omarchy.indicators refresh 2>/dev/null || true
+}
+
+finalize_recording() {
+  local latest
+  latest=$(cat "$RECORDING_FILE" 2>/dev/null)
+  [[ -f $latest ]] || return
+  omarchy-cmd-present ffmpeg || return
+
+  local video_codec=(-c:v copy)
+  if ffprobe -v error -select_streams v:0 -read_intervals %+0.2 -show_entries packet=flags -of csv=p=0 "$latest" 2>/dev/null | grep -q D; then
+    video_codec=(-c:v libx264 -preset veryfast -crf 20)
+  fi
+
+  local args=(-y -ss 0.1 -i "$latest" "${video_codec[@]}")
+  if ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "$latest" 2>/dev/null | grep -q audio; then
+    args+=(-af "volume=enable='lt(t,0.4)':volume=0,afade=t=in:st=0.4:d=0.05,loudnorm=I=-14:TP=-1.5:LRA=11")
+  fi
+
+  local processed="${latest%.mp4}-processed.mp4"
+  if ffmpeg "${args[@]}" "$processed" -loglevel quiet 2>/dev/null; then
+    mv "$processed" "$latest"
+  else
+    rm -f "$processed"
+  fi
+}
+
+start_screenrecording() {
+  local target capture_args=()
+  target=$(select_capture_target) || return 1
+  capture_args=(-w "${target#region:}")
+  [[ -n $RESOLUTION ]] && capture_args+=(-s "$RESOLUTION")
+  [[ -z $RESOLUTION && $FULLSCREEN == "true" ]] && capture_args+=(-s "$(default_resolution)")
+
+  local filename="$OUTPUT_DIR/screenrecording-$(date +'%Y-%m-%d_%H-%M-%S').mp4"
+  local audio_devices="" audio_args=()
+
+  [[ $DESKTOP_AUDIO == "true" ]] && audio_devices+="default_output"
+  if [[ $MICROPHONE_AUDIO == "true" ]]; then
+    [[ -n $audio_devices ]] && audio_devices+="|"
+    audio_devices+="default_input"
+  fi
+  [[ -n $audio_devices ]] && audio_args+=(-a "$audio_devices" -ac aac)
+
+  echo "===== $(date '+%F %T') target: $target =====" >>"$LOG_FILE"
+  omarchy-gpu-screen-recorder "${capture_args[@]}" -k auto -f 60 -fm cfr \
+    -fallback-cpu-encoding yes -o "$filename" "${audio_args[@]}" 2>>"$LOG_FILE" &
+  local pid=$!
+
+  while kill -0 $pid 2>/dev/null && [[ ! -f $filename ]]; do
+    sleep 0.2
+  done
+
+  if kill -0 $pid 2>/dev/null; then
+    echo "$filename" >"$RECORDING_FILE"
+    toggle_screenrecording_indicator
+    omarchy-notification-send -g  "Screen recording started"
+  else
+    omarchy-notification-send -u critical "Screen recording failed to start" \
+      "See OMARCHY_SCREENRECORD_DEBUG=true /tmp/omarchy-screenrecord.log"
+    return 1
+  fi
+}
+
+stop_screenrecording() {
+  # SIGINT required so gpu-screen-recorder finalises the file.
+  pkill -SIGINT -f "$GSR_PGREP" 2>/dev/null || true
+
+  local count=0
+  while pgrep -f "$GSR_PGREP" >/dev/null && (( count < 50 )); do
+    sleep 0.1
+    (( count++ ))
+  done
+
+  toggle_screenrecording_indicator
+
+  if pgrep -f "$GSR_PGREP" >/dev/null; then
+    pkill -9 -f "$GSR_PGREP" 2>/dev/null || true
+    omarchy-notification-send -u critical -t 5000 "Screen recording error" \
+      "Recording process had to be force-killed. Video may be corrupted."
+  else
+    finalize_recording
+    local filename
+    filename=$(cat "$RECORDING_FILE" 2>/dev/null)
+    local preview=""
+    if [[ -n $filename && -f $filename ]] && omarchy-cmd-present ffmpeg; then
+      preview="${filename%.mp4}-preview.png"
+      ffmpeg -y -i "$filename" -ss 00:00:00.1 -vframes 1 -q:v 2 "$preview" -loglevel quiet 2>/dev/null || preview=""
+    fi
+
+    if [[ -n $filename && -f $filename ]]; then
+      if [[ -n $preview && -f $preview ]]; then
+        omarchy-notification-send -t 10000 --image "$preview" \
+          "Screen recording saved" "$filename" --exec xdg-open -- "$filename"
+        (
+          sleep 2
+          rm -f "$preview"
+        ) &
+      else
+        omarchy-notification-send -t 10000 \
+          "Screen recording saved" "$filename" --exec xdg-open -- "$filename"
+      fi
+    fi
+  fi
+
+  rm -f "$RECORDING_FILE"
+}
+
+if screenrecording_active; then
+  stop_screenrecording
+elif [[ $STOP_RECORDING == "true" ]]; then
+  exit 1
+else
+  start_screenrecording
+fi

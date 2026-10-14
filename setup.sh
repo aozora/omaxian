@@ -120,6 +120,12 @@ RECOMMENDED=(
 	playerctl
 	# screenshots + viewer + `convert` for the colour-picker swatch
 	maim flameshot viewnior imagemagick
+	# Trigger → Capture → Text / QR Code
+	tesseract-ocr tesseract-ocr-eng zbar-tools
+	# region picker for screen recording (gpu-screen-recorder via Flatpak)
+	slop
+	# file chooser fallback for Trigger → Share (portal preferred)
+	zenity
 	# managers opened by widgets (FM is not pinned — Super+Shift+F uses omarchy-launch-files / XDG)
 	blueman network-manager-gnome nm-connection-editor
 	# battery %, Wi-Fi QR, colour picker, night light
@@ -132,6 +138,8 @@ RECOMMENDED=(
 	xkb-switch
 	# themed system fetch (omarchy-theme-set → ~/.config/fastfetch/config.jsonc)
 	fastfetch
+	# honours ~/.config/xdg-terminals.list from Setup → Defaults → Terminal
+	xdg-terminal-exec
 )
 
 # Optional: hardware- or host-specific; nothing breaks without them.

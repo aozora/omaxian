@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# omarchy:summary=Extract text from a screenshot region with OCR
+# omarchy:group=capture
+# omarchy:examples=omarchy-capture-text
+
+if ! omarchy-cmd-present maim tesseract xclip; then
+  omarchy-notification-send -u critical "OCR unavailable" \
+    "Install maim, tesseract-ocr, and xclip"
+  exit 1
+fi
+
+IMAGE=$(mktemp --suffix=.png)
+trap 'rm -f "$IMAGE"' EXIT
+
+maim -s -u -f png >"$IMAGE" || exit 0
+[[ -s $IMAGE ]] || exit 0
+
+TEXT=$(tesseract "$IMAGE" stdout --oem 1 --psm 6 -l "${OMARCHY_OCR_LANGS:-eng}" --dpi 300 -c preserve_interword_spaces=1 2>/dev/null) || exit 1
+
+[[ -z $TEXT ]] && exit 1
+
+printf '%s' "$TEXT" | xclip -selection clipboard
+omarchy-notification-send -g 󰴑 "Copied text from selection to clipboard"

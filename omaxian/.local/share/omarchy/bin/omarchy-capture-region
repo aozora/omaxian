@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# omarchy:summary=Pick a screen region for capture (X11)
+# omarchy:args=[region|fullscreen]
+# omarchy:hidden=true
+#
+# Prints geometry as "X,Y WxH" (slop-compatible), or exits 1 when cancelled.
+# Does not use Hyprland hyprctl/slurp/hyprpicker.
+
+MODE="${1:-region}"
+
+focused_output_geo() {
+  # Prefer the primary connected output; else the first connected with geometry.
+  local line geo
+  line=$(xrandr --current | awk '/ connected primary / { print; exit }')
+  if [[ -z $line ]]; then
+    line=$(xrandr --current | awk '/ connected / && /[0-9]+x[0-9]+\+[0-9]+\+[0-9]+/ { print; exit }')
+  fi
+  [[ -n $line ]] || return 1
+  [[ $line =~ ([0-9]+)x([0-9]+)\+([0-9]+)\+([0-9]+) ]] || return 1
+  echo "${BASH_REMATCH[3]},${BASH_REMATCH[4]} ${BASH_REMATCH[1]}x${BASH_REMATCH[2]}"
+}
+
+case "$MODE" in
+fullscreen | --take-fullscreen)
+  focused_output_geo || exit 1
+  ;;
+region | smart | windows | *)
+  if ! omarchy-cmd-present slop; then
+    omarchy-notification-send -u critical "Region picker unavailable" \
+      "Install slop (apt install slop)"
+    exit 1
+  fi
+  # %x,%y %wx%h matches the format screenshot/OCR callers and region: conversion expect.
+  geo=$(slop -f '%x,%y %wx%h' 2>/dev/null) || exit 1
+  [[ -n $geo ]] || exit 1
+  echo "$geo"
+  ;;
+esac

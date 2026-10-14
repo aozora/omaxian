@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# omarchy:summary=Launch the emoji picker
+# omarchy:group=menu
+# omarchy:examples=omarchy-menu-emoji
+
+exec omarchy-shell shell toggle omarchy.emojis
