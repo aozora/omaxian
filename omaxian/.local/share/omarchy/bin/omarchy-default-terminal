@@ -4,19 +4,63 @@
 # omarchy:args=[alacritty|foot|ghostty|kitty]
 # omarchy:examples=omarchy-default-terminal ghostty | omarchy-default-terminal kitty
 
-if (( $# == 0 )); then
-  desktop_id=""
+# Resolve the preferred Desktop Entry ID without launching a terminal.
+# Devuan Excalibur ships xdg-terminal-exec 0.12.3, which has no --print-id:
+# unknown dashed options are discarded and the tool falls through to exec.
+# The Menu guard batch calls this with no args on every open, so a naive
+# `xdg-terminal-exec --print-id` opens Kitty (or the fallback emulator).
+read_terminals_list() {
+  local file=$1 line
+  [[ -f $file ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ $line =~ ^[[:space:]]*# ]] && continue
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z $line || $line == /* ]] && continue
+    [[ $line == -* ]] && continue
+    [[ $line == +* ]] && line=${line:1}
+    printf '%s\n' "${line%%:*}"
+    return 0
+  done <"$file"
+  return 1
+}
+
+query_desktop_id() {
+  local desk file xte id=""
+  local -a candidates=()
+
+  IFS=: read -ra desks <<<"${XDG_CURRENT_DESKTOP:-}"
+  for desk in "${desks[@]}"; do
+    desk=${desk,,}
+    [[ -n $desk ]] && candidates+=("$HOME/.config/${desk}-xdg-terminals.list")
+  done
+  candidates+=("$HOME/.config/xdg-terminals.list")
+
+  for file in "${candidates[@]}"; do
+    id=$(read_terminals_list "$file") && [[ -n $id ]] && {
+      printf '%s\n' "$id"
+      return 0
+    }
+  done
+
   if omarchy-cmd-present xdg-terminal-exec; then
-    desktop_id=$(xdg-terminal-exec --print-id 2>/dev/null || true)
-    desktop_id=${desktop_id%%:*}
-  elif [[ -f $HOME/.config/xdg-terminals.list ]]; then
-    while IFS= read -r line || [[ -n $line ]]; do
-      [[ $line =~ ^[[:space:]]*# ]] && continue
-      [[ -z $line ]] && continue
-      desktop_id=$line
-      break
-    done <"$HOME/.config/xdg-terminals.list"
+    xte=$(command -v xdg-terminal-exec)
+    # Grep the script — do not run --help / unknown flags (those can launch).
+    if [[ -r $xte ]] && grep -Fq -- '--print-id' "$xte" 2>/dev/null; then
+      id=$(xdg-terminal-exec --print-id 2>/dev/null || true)
+      id=${id%%:*}
+      [[ -n $id ]] && {
+        printf '%s\n' "$id"
+        return 0
+      }
+    fi
   fi
+
+  return 1
+}
+
+if (( $# == 0 )); then
+  desktop_id=$(query_desktop_id || true)
   case "$desktop_id" in
   Alacritty.desktop) echo "alacritty" ;;
   foot.desktop) echo "foot" ;;
