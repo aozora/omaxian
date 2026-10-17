@@ -3,7 +3,7 @@
 A low-overhead dashboard for the Omaxian bar. Reads Linux metrics from `/proc`
 and `/sys` — no background daemon or telemetry. Port of
 [Harshith292002/omarchy-system-monitor](https://github.com/Harshith292002/omarchy-system-monitor)
-(upstream commit `60baf04`, plugin version `1.2.0`).
+(upstream commit `71599f7`, plugin version `1.5.2`).
 
 Plugin id: `harshith.system-monitor` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md) for the catalog install
@@ -25,9 +25,10 @@ couplings). One runtime delta:
 
 ## Highlights
 
-- Adaptive bar widget that can show CPU, memory, GPU, or both
+- Adaptive bar widget that can show CPU, memory, GPU, Temp, or both
 - Expandable dashboard for CPU, RAM, temperature, load, and uptime
 - GPU utilization, temperature, and VRAM, with per-sensor vendor fallbacks
+- Apple Silicon (Asahi) sensors, fans, and heatpipe watts when present
 - Two-minute CPU, memory, and GPU history with per-core utilization
 - Mirrored network throughput history on a shared scale
 - Automatic disk discovery with live read and write rates

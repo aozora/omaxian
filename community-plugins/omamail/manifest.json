@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omamail",
   "name": "Omamail",
-  "version": "0.10.8",
+  "version": "0.11.0",
   "author": "huacnlee",
   "license": "MIT",
   "homepage": "https://huacnlee.github.io/omamail/",
@@ -115,7 +115,12 @@
         "key": "aiAgent",
         "type": "enum",
         "label": "AI agent",
-        "options": ["System default", "OpenCode", "Codex", "Claude"],
+        "options": [
+          "System default",
+          "OpenCode",
+          "Codex",
+          "Claude"
+        ],
         "defaultValue": "System default",
         "description": "Agent for new mail chats and calendar suggestions. System default follows Omarchy; unsupported defaults disable AI. Changing the selection starts fresh chats and keeps previous chats read-only. Requires backend API 6."
       },

@@ -5,7 +5,7 @@ device-specific settings (exposure, focus, color, framing, and more).
 
 Catalog copy of
 [kristoferlund/omarchy-webcam](https://github.com/kristoferlund/omarchy-webcam)
-(upstream commit `73332ce`).
+(upstream commit `84068f8`, plugin version `0.2.0`).
 
 Plugin id: `io.github.kristoferlund.webcam` (unchanged). Optional — not installed
 by `./deploy.sh`. See [`../README.md`](../README.md).

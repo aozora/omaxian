@@ -16,10 +16,9 @@ import qs.Ui
 // valid time looks like, and the preview under the field is the same code path
 // that will run when Enter is pressed.
 //
-  // KeyboardPanel rather than PopupCard: PopupCard is a PopupWindow and on
-  // Wayland those never get keyboard focus; Omaxian's KeyboardPanel is the
-  // shared X11 text-capable panel primitive as well. This panel is a text
-  // field and little else.
+// KeyboardPanel rather than PopupCard, because PopupCard is a PopupWindow and
+// those never get keyboard focus on Wayland: a text field inside one can be
+// clicked but not typed into, and this panel is a text field and little else.
 //
 // Glyphs are \u escapes rather than literal characters, so the source survives
 // editors and patches that mangle private-use codepoints.
@@ -432,7 +431,6 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     slotSize: root.barSlot
-    opticalSize: root.barSlot
     tooltipText: {
       if (root.alarms.length === 0) return "No alarms"
       var alarm = root.ringingCount > 0 ? root.alarms[0] : root.nextAlarm
@@ -443,44 +441,47 @@ Panel {
 
     // The countdown belongs in the bar and not only in the panel: the whole
     // reason to set one of these is that you are looking at something else.
-    iconComponent: Component {
-      Item {
-        Row {
-          anchors.centerIn: parent
-          spacing: Style.space(5)
+    // Not an iconComponent: the shell scales that down to icon size, which
+    // would shrink the countdown next to the icon to a smudge.
+    hasVisualContent: true
 
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: root.iconTimer
-            font.family: root.fontFamily
-            font.pixelSize: Style.bar.iconFont
-            renderType: Text.NativeRendering
-            color: root.nextIsSoon
-              ? root.urgent
-              : (root.opened || root.nextAlarm ? root.accent : root.foreground)
+    Item {
+      anchors.fill: parent
+      Row {
+        anchors.centerIn: parent
+        spacing: Style.space(5)
 
-            // A ringing alarm has to be visible from across the room, and it
-            // keeps pulsing until it is answered. That is the whole product.
-            SequentialAnimation on opacity {
-              running: root.ringingCount > 0
-              loops: Animation.Infinite
-              alwaysRunToEnd: true
-              NumberAnimation { to: 0.3; duration: 600; easing.type: Easing.InOutQuad }
-              NumberAnimation { to: 1.0; duration: 600; easing.type: Easing.InOutQuad }
-            }
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: root.iconTimer
+          font.family: root.fontFamily
+          font.pixelSize: Style.bar.iconFont
+          renderType: Text.NativeRendering
+          color: root.nextIsSoon
+            ? root.urgent
+            : (root.opened || root.nextAlarm ? root.accent : root.foreground)
+
+          // A ringing alarm has to be visible from across the room, and it
+          // keeps pulsing until it is answered. That is the whole product.
+          SequentialAnimation on opacity {
+            running: root.ringingCount > 0
+            loops: Animation.Infinite
+            alwaysRunToEnd: true
+            NumberAnimation { to: 0.3; duration: 600; easing.type: Easing.InOutQuad }
+            NumberAnimation { to: 1.0; duration: 600; easing.type: Easing.InOutQuad }
           }
+        }
 
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            visible: root.barLabel !== ""
-            textFormat: Text.PlainText
-            text: root.barLabel
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            renderType: Text.NativeRendering
-            color: root.nextIsSoon ? root.urgent : root.foreground
-          }
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          visible: root.barLabel !== ""
+          textFormat: Text.PlainText
+          text: root.barLabel
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          renderType: Text.NativeRendering
+          color: root.nextIsSoon ? root.urgent : root.foreground
         }
       }
     }

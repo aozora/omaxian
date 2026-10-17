@@ -2,7 +2,7 @@
 
 Live weather radar for the Omaxian bar. Beta. Port of
 [wesleygrimes/omastorm](https://github.com/wesleygrimes/omastorm)
-(upstream commit `2504ebc`, plugin version `0.1.20`).
+(upstream commit `f9a3ce8`, plugin version `0.1.20`).
 
 Plugin id: `com.omastorm.radar` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md) for the catalog install
@@ -27,6 +27,7 @@ Wayland / Hyprland / layer-shell / systemd couplings in the UI):
 | `omarchy shell shell …` / `omarchy restart shell` | `omarchy-shell shell …` / `omarchy-restart-shell` |
 | Hyprland `bindings.lua` keybind example | i3 bind example below |
 | `omarchy plugin add` / desktop `TryExec=omarchy` | Local rsync install; `TryExec=omarchy-shell` |
+| Location picker paste via Wayland paste CLI | `xclip -selection clipboard|primary` |
 | Arch CI under `.github/`, marketing `site/`, `data/fixtures/` | Omitted (rebuild fixtures: clone upstream) |
 
 `FloatingWindow`, theme paths, and the Rust engine pin are unchanged. On first
