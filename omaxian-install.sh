@@ -54,20 +54,10 @@ for f in "$SETUP" "$INSTALL" "$DEPLOY" "$PLUGIN_HELPER"; do
 	fi
 done
 
-# --- whiptail ---------------------------------------------------------------
-ensure_whiptail() {
-	if command -v whiptail >/dev/null 2>&1; then
-		return 0
-	fi
-	echo ":: whiptail not found — installing…"
-	sudo apt-get install -y whiptail || {
-		echo "!! could not install whiptail — install the 'whiptail' package and re-run" >&2
-		exit 1
-	}
-}
-
+# --- TUI helpers (whiptail menus; dialog for live command output) -----------
+# Whiptail has no programbox. dialog --programbox keeps apt/setup "inside" the
+# TUI instead of dropping to a bare terminal after each menu.
 wt() {
-	# Neon / newt: backtitle + title helpers
 	whiptail --backtitle "Omaxian installer" "$@"
 }
 
@@ -77,6 +67,91 @@ phase_banner() {
 	echo "========================================================================"
 	echo "$title"
 	echo "========================================================================"
+}
+
+# Cache sudo via a whiptail password box so apt never steals the TTY mid-flow.
+ensure_sudo() {
+	if sudo -n true 2>/dev/null; then
+		return 0
+	fi
+	if (( NONINTERACTIVE )); then
+		# May prompt on the terminal once; credential stays cached for setup.
+		sudo -v || {
+			echo "!! sudo is required for package install" >&2
+			exit 1
+		}
+		return 0
+	fi
+	local pass tries=0
+	while (( tries < 3 )); do
+		pass=$(wt --title "sudo password" --passwordbox \
+			"Omaxian needs administrator privileges to install packages.\n\nEnter your password for sudo:" \
+			11 70 3>&1 1>&2 2>&3) || {
+			echo ":: cancelled (sudo)"
+			exit 1
+		}
+		if printf '%s\n' "$pass" | sudo -S -v >/dev/null 2>&1; then
+			unset pass
+			# Keep the ticket alive for long apt runs.
+			sudo -v
+			return 0
+		fi
+		unset pass
+		tries=$((tries + 1))
+		wt --title "sudo password" --msgbox "Incorrect password. Try again ($tries/3)." 8 50 || true
+	done
+	echo "!! sudo authentication failed" >&2
+	exit 1
+}
+
+ensure_tui_tools() {
+	local need=()
+	command -v whiptail >/dev/null 2>&1 || need+=(whiptail)
+	# dialog --programbox streams setup/apt without leaving the TUI chrome.
+	command -v dialog >/dev/null 2>&1 || need+=(dialog)
+	if (( ${#need[@]} == 0 )); then
+		return 0
+	fi
+	echo ":: installing TUI tools: ${need[*]}"
+	if ! sudo -n true 2>/dev/null; then
+		# No whiptail yet → must prompt on the terminal this one time.
+		if ! command -v whiptail >/dev/null 2>&1; then
+			sudo apt-get install -y "${need[@]}" || {
+				echo "!! install whiptail (and dialog) then re-run: sudo apt install whiptail dialog" >&2
+				exit 1
+			}
+			return 0
+		fi
+		ensure_sudo
+	fi
+	sudo apt-get install -y "${need[@]}" || {
+		echo "!! could not install: ${need[*]}" >&2
+		exit 1
+	}
+}
+
+# Run a long phase; in interactive mode stream stdout/stderr into dialog.
+run_phase() {
+	local title="$1"
+	shift
+	if (( NONINTERACTIVE )) || ! command -v dialog >/dev/null 2>&1; then
+		phase_banner "$title"
+		"$@"
+		return
+	fi
+	local ec=0
+	set +e
+	set -o pipefail
+	"$@" 2>&1 | dialog --backtitle "Omaxian installer" --title "$title" --programbox 22 84
+	ec=${PIPESTATUS[0]}
+	set +o pipefail
+	set -e
+	if (( ec != 0 )); then
+		wt --title "Phase failed" --msgbox \
+			"$title exited with status $ec.\n\nFix the error above (scroll the previous box if needed) and re-run ./omaxian-install.sh." \
+			12 70 || true
+		exit "$ec"
+	fi
 }
 
 # --- package mode -----------------------------------------------------------
@@ -115,12 +190,12 @@ confirm_desktop() {
 		"Install Omaxian desktop for $(id -un)?\n\n\
 Repo: $REPO_DIR\n\
 Packages: $PKG_LABEL\n\n\
-This will run (sudo for packages):\n\
-  scripts/setup.sh\n\
+This will run:\n\
+  scripts/setup.sh   (apt — sudo password via this TUI)\n\
   scripts/install.sh\n\
   scripts/deploy.sh\n\n\
-You will be prompted for your password if needed." \
-		16 72
+Package output stays in a dialog window (not a bare shell)." \
+		17 72
 }
 
 # --- community plugins ------------------------------------------------------
@@ -263,8 +338,8 @@ install_selected_plugins() {
 	if (( ${#SELECTED_PLUGIN_DIRS[@]} == 0 )); then
 		return 0
 	fi
-	phase_banner "Community plugins"
-	"$PLUGIN_HELPER" "${SELECTED_PLUGIN_DIRS[@]}"
+	ensure_sudo
+	run_phase "Community plugins" "$PLUGIN_HELPER" "${SELECTED_PLUGIN_DIRS[@]}"
 }
 
 # --- Quickshell (required for the bar) --------------------------------------
@@ -390,15 +465,37 @@ check_quickshell() {
 }
 
 # --- main -------------------------------------------------------------------
+start_sudo_keepalive() {
+	(
+		while true; do
+			sleep 50
+			sudo -n true 2>/dev/null || exit 0
+		done
+	) &
+	SUDO_KEEPALIVE_PID=$!
+}
+
+stop_sudo_keepalive() {
+	if [[ -n ${SUDO_KEEPALIVE_PID:-} ]]; then
+		kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+		wait "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+		unset SUDO_KEEPALIVE_PID
+	fi
+}
+
 run_desktop() {
-	phase_banner "1/3  System packages (setup.sh)"
-	sudo "$SETUP" "${SETUP_FLAGS[@]+"${SETUP_FLAGS[@]}"}"
+	ensure_sudo
+	start_sudo_keepalive
+	trap stop_sudo_keepalive EXIT
+	# setup.sh already root via sudo — no nested password prompt for apt.
+	run_phase "1/3  System packages (setup.sh)" \
+		sudo -n "$SETUP" "${SETUP_FLAGS[@]+"${SETUP_FLAGS[@]}"}"
 
-	phase_banner "2/3  Themes and commands (install.sh)"
-	"$INSTALL"
+	run_phase "2/3  Themes and commands (install.sh)" "$INSTALL"
 
-	phase_banner "3/3  Home configs (deploy.sh)"
-	"$DEPLOY"
+	run_phase "3/3  Home configs (deploy.sh)" "$DEPLOY"
+	stop_sudo_keepalive
+	trap - EXIT
 }
 
 final_checklist() {
@@ -431,7 +528,7 @@ Next steps:\n\
 }
 
 main_interactive() {
-	ensure_whiptail
+	ensure_tui_tools
 
 	wt --title "Welcome" --msgbox \
 		"Omaxian — Omarchy for Devuan/Debian + X11 + i3.\n\n\

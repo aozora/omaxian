@@ -89,7 +89,10 @@ pgrep -x quickshell
 
 ## `omaxian-install.sh` (TUI)
 
-- Ensures `whiptail` (apt-installs it if missing).
+- Ensures `whiptail` + `dialog` (apt-installs them if missing).
+- Asks for the sudo password in a whiptail password box (cached for apt).
+- Streams setup/apt/install/deploy output through `dialog --programbox` so the
+  flow stays in the TUI instead of dropping to a bare terminal.
 - Package radiolist: recommended (default) / minimal / + optional.
 - Runs `scripts/setup.sh` (no `--deploy`), then `install.sh`, then `deploy.sh`.
 - Checks that **Quickshell** is on `PATH` after setup. If missing, shows
