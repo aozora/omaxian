@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -272,7 +273,7 @@ Item {
         Text {
           textFormat: Text.PlainText
           text: (root.ssid ? Util.plain(root.ssid) : "Wi-Fi").toUpperCase()
-          color: Qt.darker(Color.popups.text, 1.0)
+          color: Qt.darker(Commons.Color.popups.text, 1.0)
           opacity: 0.7
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -317,7 +318,7 @@ Item {
           textFormat: Text.PlainText
           visible: root.loading
           text: "Generating QR code…"
-          color: Color.popups.text
+          color: Commons.Color.popups.text
           opacity: 0.7
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
@@ -329,7 +330,7 @@ Item {
           textFormat: Text.PlainText
           visible: root.error !== ""
           text: Util.plain(root.error, 240)
-          color: Color.error !== undefined ? Color.error : "#ff6b6b"
+          color: Commons.Color.error !== undefined ? Commons.Color.error : "#ff6b6b"
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
           wrapMode: Text.Wrap
@@ -341,7 +342,7 @@ Item {
           textFormat: Text.PlainText
           visible: root.showingQr
           text: "Scan to join this network"
-          color: Color.popups.text
+          color: Commons.Color.popups.text
           opacity: 0.7
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
@@ -355,7 +356,7 @@ Item {
           text: root.passwordError !== "" ? root.passwordError
             : root.passwordVisible ? root.password
             : "Show password"
-          color: root.passwordError !== "" ? (Color.error !== undefined ? Color.error : "#ff6b6b") : Color.popups.text
+          color: root.passwordError !== "" ? (Commons.Color.error !== undefined ? Commons.Color.error : "#ff6b6b") : Commons.Color.popups.text
           opacity: root.passwordVisible || root.passwordError !== "" ? 1 : 0.6
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall

@@ -1,6 +1,7 @@
 import Quickshell
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "ReminderFlowModel.js" as ReminderFlowModel
 
@@ -135,7 +136,7 @@ Item {
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
         text: root.filterText || (root.promptText + "…")
-        color: Color.popups.text
+        color: Commons.Color.popups.text
         opacity: root.filterText ? 1 : 0.55
         font.family: root.fontFamily
         font.pixelSize: Style.font.heading

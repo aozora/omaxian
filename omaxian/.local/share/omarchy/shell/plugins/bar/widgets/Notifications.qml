@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Port of eww's notifications-module: a thin button that pops the last
@@ -22,7 +23,7 @@ BarWidget {
     bar: root.bar
     fontSize: Style.font.body + 1
     text: ""
-    foreground: Color.bar.text
+    foreground: Commons.Color.bar.text
     horizontalMargin: 8.5
     verticalPadding: 6
     onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/notifications.sh"])

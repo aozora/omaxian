@@ -6,6 +6,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Services
 import qs.Ui
 import "Model.js" as Model
@@ -57,8 +58,8 @@ Item {
   readonly property int reservedHeight: dockSize + islandGap * 2
 
   readonly property color pillFill: root.background !== ""
-    ? Style.colorFromHex(root.background, Color.bar.background)
-    : Color.bar.background
+    ? Style.colorFromHex(root.background, Commons.Color.bar.background)
+    : Commons.Color.bar.background
 
   property int dockHoverCount: 0
   readonly property bool dockHovered: dockHoverCount > 0
@@ -557,7 +558,7 @@ Item {
               color: "transparent"
               visible: root.editMode && cell.modelData.pinned
               border.width: Math.max(1, Style.space(2))
-              border.color: Color.accent
+              border.color: Commons.Color.accent
             }
 
             Image {
@@ -588,7 +589,7 @@ Item {
               width: Style.space(6)
               height: Style.space(6)
               radius: width / 2
-              color: cell.modelData.urgent ? Color.urgent : Color.accent
+              color: cell.modelData.urgent ? Commons.Color.urgent : Commons.Color.accent
               anchors.horizontalCenter: parent.horizontalCenter
               anchors.bottom: parent.bottom
               anchors.bottomMargin: -Style.space(6)
@@ -599,7 +600,7 @@ Item {
               width: Math.max(Style.space(10), Math.round(parent.width * 0.55))
               height: Style.space(2)
               radius: height / 2
-              color: cell.modelData.urgent ? Color.urgent : Color.accent
+              color: cell.modelData.urgent ? Commons.Color.urgent : Commons.Color.accent
               anchors.horizontalCenter: parent.horizontalCenter
               anchors.bottom: parent.bottom
               anchors.bottomMargin: -Style.space(4)

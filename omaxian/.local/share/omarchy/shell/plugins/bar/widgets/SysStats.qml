@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Local (§6 decision 6): cpu / gpu / ram as 3 readouts — no omarchy
@@ -191,7 +192,7 @@ BarWidget {
       anchors.verticalCenter: parent.verticalCenter
       fontSize: Style.font.body
       text: " " + root.pad2(root.cpuPercent) + "%"
-      foreground: Color.bar.text
+      foreground: Commons.Color.bar.text
       horizontalMargin: 6
       verticalPadding: 4
       onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/sysmon.sh"])
@@ -201,7 +202,7 @@ BarWidget {
       anchors.verticalCenter: parent.verticalCenter
       fontSize: Style.font.body
       text: Util.plain(root.gpuText)
-      foreground: Color.bar.text
+      foreground: Commons.Color.bar.text
       horizontalMargin: 6
       verticalPadding: 4
       onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/sysmon.sh"])
@@ -211,7 +212,7 @@ BarWidget {
       anchors.verticalCenter: parent.verticalCenter
       fontSize: Style.font.body
       text: "﬙ " + root.pad2(root.ramPercent) + "%"
-      foreground: Color.bar.text
+      foreground: Commons.Color.bar.text
       horizontalMargin: 6
       verticalPadding: 4
       onPressed: root.bar.runArgv([Quickshell.shellDir + "/scripts/sysmon.sh"])

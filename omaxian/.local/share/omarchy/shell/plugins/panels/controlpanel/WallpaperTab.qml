@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
 import qs.Commons
+import qs.Commons as Commons
 import qs.Services
 import qs.Ui
 import "Model.js" as Model
@@ -215,7 +216,7 @@ Item {
         textFormat: Text.PlainText
         Layout.fillWidth: true
         text: "Wallpapers"
-        color: Color.popups.text
+        color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.title
         font.bold: true
@@ -231,7 +232,7 @@ Item {
 
     ButtonGroup {
       Layout.fillWidth: true
-      foreground: Color.popups.text
+      foreground: Commons.Color.popups.text
       options: [
         { value: "theme", label: "From theme" },
         { value: "folder", label: "From local folder" }
@@ -261,7 +262,7 @@ Item {
       Button {
         text: "Choose folder…"
         bordered: true
-        foreground: Color.popups.text
+        foreground: Commons.Color.popups.text
         fontSize: Style.font.bodySmall
         onClicked: picker.visible = true
       }
@@ -326,7 +327,7 @@ Item {
             anchors.right: parent.right
             anchors.margins: Style.space(4)
             radius: Style.cornerRadius
-            color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 0.78)
+            color: Qt.rgba(Commons.Color.background.r, Commons.Color.background.g, Commons.Color.background.b, 0.78)
             width: sizeLabel.implicitWidth + Style.space(8)
             height: sizeLabel.implicitHeight + Style.space(4)
 
@@ -335,7 +336,7 @@ Item {
               id: sizeLabel
               anchors.centerIn: parent
               text: Model.wallpaperSizeLabel(cell.fileName)
-              color: Color.foreground
+              color: Commons.Color.foreground
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
             }

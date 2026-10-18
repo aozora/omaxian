@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Services
 import qs.Ui
 
@@ -114,7 +115,7 @@ BarWidget {
       Text {
         textFormat: Text.PlainText
         text: "Run"
-        color: Color.popups.text
+        color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.title
         font.bold: true

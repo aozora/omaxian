@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import qs.Commons
 
+import qs.Commons as Commons
 // A content-sized modal card centred on screen — the X11-safe replacement for
 // upstream's full-screen `WlrLayershell` overlays (wifiqr / speedtest /
 // disk-speedtest / the reminder flow). Those black out under picom's glx
@@ -33,8 +34,8 @@ Item {
   property int contentWidth: Style.space(360)
   property int contentHeight: Style.space(280)
   property int padding: Style.spacing.popupPadding
-  property var borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
-  property color background: Color.popups.background
+  property var borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
+  property color background: Commons.Color.popups.background
   // Item inside `content` that should take keyboard focus on open.
   property Item focusTarget: null
   // Prefer the live bar PanelWindow so we never map a second DOCK surface.

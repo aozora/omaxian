@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Bluetooth
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -363,7 +364,7 @@ Item {
 
     hasCursor: rowMouse.containsMouse
     current: isConnected
-    foreground: bar ? bar.foreground : Color.foreground
+    foreground: bar ? bar.foreground : Commons.Color.foreground
 
     readonly property string statusText: {
       if (!dev) return ""
@@ -378,7 +379,7 @@ Item {
     }
 
     readonly property color statusColor: {
-      var fg = bar ? bar.foreground : Color.foreground
+      var fg = bar ? bar.foreground : Commons.Color.foreground
       if (isConnected) return fg
       if (pendingActionText !== "" || devState === 3 || dev.pairing === true) return fg
       return Qt.darker(fg, 1.5)
@@ -440,7 +441,7 @@ Item {
         Text {
           textFormat: Text.PlainText
           text: Util.plain(Model.deviceLabel(row.dev) || "Device")
-          color: row.bar ? row.bar.foreground : Color.foreground
+          color: row.bar ? row.bar.foreground : Commons.Color.foreground
           font.family: row.bar ? row.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.body
           elide: Text.ElideRight
@@ -466,8 +467,8 @@ Item {
         visible: row.showForgetButton
         iconText: "󰅙"
         tooltipText: "Forget"
-        foreground: row.bar ? row.bar.foreground : Color.foreground
-        hoverColor: row.bar ? row.bar.foreground : Color.foreground
+        foreground: row.bar ? row.bar.foreground : Commons.Color.foreground
+        hoverColor: row.bar ? row.bar.foreground : Commons.Color.foreground
         fontFamily: row.bar ? row.bar.fontFamily : Style.font.family
         onClicked: row.forgetRequested()
       }

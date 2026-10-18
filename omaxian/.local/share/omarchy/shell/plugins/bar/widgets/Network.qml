@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Networking
 import qs.Commons
+import qs.Commons as Commons
 import qs.Services
 import qs.Ui
 
@@ -68,7 +69,7 @@ BarWidget {
     bar: root.bar
     fontSize: Style.font.body + 3
     text: root.glyph() + " " + root.label
-    foreground: (root.activeWifi || root.activeWired) ? BarPalette.network : Color.muted
+    foreground: (root.activeWifi || root.activeWired) ? BarPalette.network : Commons.Color.muted
     tooltipText: root.activeWifi ? Util.plain(root.activeWifi.name) : ""
     horizontalMargin: 8.5
     verticalPadding: 6

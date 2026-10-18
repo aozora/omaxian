@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Services
 import qs.Ui
 
@@ -126,20 +127,20 @@ BarWidget {
         Layout.fillWidth: true
         title: "Power"
         meta: root.headerText
-        foreground: Color.foreground
+        foreground: Commons.Color.foreground
         fontFamily: Style.font.family
         iconComponent: Component {
           Text {
             textFormat: Text.PlainText
             text: "󰐥"
-            color: Color.foreground
+            color: Commons.Color.foreground
             font.family: Style.font.family
             font.pixelSize: Style.font.display
           }
         }
       }
 
-      PanelSeparator { Layout.fillWidth: true; foreground: Color.foreground }
+      PanelSeparator { Layout.fillWidth: true; foreground: Commons.Color.foreground }
 
       // Session actions. Icon via `iconText` (not baked into the label),
       // upstream profile-button sizing. Reboot/Shutdown carry the urgent
@@ -156,7 +157,7 @@ BarWidget {
           iconSize: Style.font.title
           text: "Lock"
           fontSize: Style.font.bodySmall
-          foreground: Color.foreground
+          foreground: Commons.Color.foreground
           horizontalPadding: Style.spacing.controlPaddingX
           verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
           bordered: true
@@ -168,7 +169,7 @@ BarWidget {
           iconSize: Style.font.title
           text: "Logout"
           fontSize: Style.font.bodySmall
-          foreground: Color.foreground
+          foreground: Commons.Color.foreground
           horizontalPadding: Style.spacing.controlPaddingX
           verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
           bordered: true
@@ -180,7 +181,7 @@ BarWidget {
           iconSize: Style.font.title
           text: "Suspend"
           fontSize: Style.font.bodySmall
-          foreground: Color.foreground
+          foreground: Commons.Color.foreground
           horizontalPadding: Style.spacing.controlPaddingX
           verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
           bordered: true
@@ -192,7 +193,7 @@ BarWidget {
           iconSize: Style.font.title
           text: "Hibernate"
           fontSize: Style.font.bodySmall
-          foreground: Color.foreground
+          foreground: Commons.Color.foreground
           horizontalPadding: Style.spacing.controlPaddingX
           verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
           bordered: true
@@ -204,7 +205,7 @@ BarWidget {
           iconSize: Style.font.title
           text: "Reboot"
           fontSize: Style.font.bodySmall
-          foreground: Color.urgent
+          foreground: Commons.Color.urgent
           horizontalPadding: Style.spacing.controlPaddingX
           verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
           bordered: true
@@ -216,7 +217,7 @@ BarWidget {
           iconSize: Style.font.title
           text: "Shutdown"
           fontSize: Style.font.bodySmall
-          foreground: Color.urgent
+          foreground: Commons.Color.urgent
           horizontalPadding: Style.spacing.controlPaddingX
           verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
           bordered: true

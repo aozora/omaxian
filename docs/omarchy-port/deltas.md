@@ -149,6 +149,30 @@ note: [v4_0_4.md](v4_0_4.md).
 | `bin/omarchy-install-gaming-xbox-controllers` | small update | **not ported** (Arch gaming) | — | — | Sole `bin/` difference in the tag range. |
 | `install/hardware/*`, Limine, kernel migrations / tests | Arch ISO path | **not ported** | — | — | |
 
+## 4.0.5 (2026-10-18)
+
+Upstream tag **v4.0.5** (`OMARCHY_UPSTREAM_REF`, SHA `94a8fbc…`). Quirk:
+`omarchy-quattro/version` still reads `4.0.0.alpha` — trust the git tag /
+`describe`. Qt 6.12 palette qualification, bar startup coalescing, calendar
+UTC grid, agents usage expiry, Wi-Fi QR / audio sink / cmd-present hardening.
+Impact note: [v4_0_5.md](v4_0_5.md).
+
+| File | Upstream | omaxian | Transform | Status | Notes |
+|---|---|---|---|---|---|
+| `Commons/Border.qml` + byte-identical `Ui/{Button,ButtonGroup,CursorSurface,MultiSelect,NumberField,OpticalGlyph,PanelActionButton,PanelHero,PanelSectionHeader,PanelSeparator,PanelSlider,PanelToolTip,SearchableDropdown,TextField,Toggle,ToggleSwitch}.qml` | `import qs.Commons as Commons` + bare `Color.*` → `Commons.Color.*` | **copied verbatim** | — | **converged** | Mechanical Qt 6.12 singleton fix. |
+| Port-local + delta files that used bare `Color.*` | same qualify pattern | **qualified in place** (Style / PopupCard / KeyboardPanel / SpeedTestOverlay / ConfirmDialog / Dropdown / Panel / WidgetButton / Tray / panels / osd / polkit / menu / emojis / reminders / agents / shell / Bar / Indicators + every `omaxian.*` local widget/settings/dock/controlpanel / `CenteredModal` / `FolderPicker` / `BarPalette`) | — | **keep** (deltas) + qualify **converged** | Never leave bare `Color.` next to `import qs.Commons`. |
+| `shell.qml` | `//@ pragma OmarchyLoadPatch`; keep `__sourceDir` on public third-party manifests; `Commons.Color.load*` | **merged.** Kept S1–S5 + `UseQApplication`, shell.json path, deploy freeze, no `Style.scheduleRefresh()`. | multiple | **keep** (S1–S5 + local) | `__sourceDir` fix is #11925 (third-party plugin scripts). |
+| `plugins/bar/Bar.qml` | `pluginObjectOwners: new Map()`, `schedulePluginBarApiSync` / layout snapshot, inline popout sync, `Math.floor` indicator, hover-guarded `cursorShape` | **merged** onto T1/T3 bar. | `T1`/`T3` | **keep** | Bar startup stall fix (#11015). |
+| `plugins/bar/widgets/Indicators.qml` | single-orientation `Loader` (stops doubled indicator processes) | **done.** Kept X11 `defaultIndicatorEntries` + `alwaysShowIndicators` settings-bag wrapper. | — | **keep** | |
+| `plugins/panels/clock/{Model.js,Panel.qml}` | UTC month grid / `stepMonth`; `viewDate` at local noon | **done.** Kept port `clockNeedsSeconds` + second-bearing formats. | — | **keep** (seconds) + UTC **converged** | |
+| `plugins/agents/Panel.qml` + `bin/omarchy-agent-usage-claude` | expired usage windows → 0% | **done** (panel + collector). Soft launch still `omarchy-notification-send`. | — | **keep** | |
+| `bin/omarchy-cmd-present`, `omarchy-network-qr`, `omarchy-audio-output-sink` | `--` operand; empty `route_device`; EasyEffects 8 / `pw-link` | **copied verbatim** | — | **converged** | `pw-link` no-ops without PipeWire. |
+| `bin/omarchy-launch-editor` | `--` before editor args | **`--` applied** on X11 `i3_term` / `setsid` path. | `local` | **keep** | |
+| `bin/omarchy-launch-webapp`, `omarchy-cmd-{default-browser,browser-handoff}`, `omarchy-launch-browser` | Chromium handoff / mimeapps | **not taken** — port webapp stays `xdg-open`; no `uwsm`. | `local` | **keep** | |
+| `bin/omarchy-restart-shell`, `omarchy-system-shutdown` | longer kill wait / systemd-inhibit | **skipped** — port keeps picom-safe restart + `omarchy-host poweroff`. | `local` | **keep** | |
+| `plugins/services/idle/*`, upstream `plugins/panels/monitor/`, lock/notifications/clipboard/… | IdleMonitor timeout-0; hyprctl display toggle; Arch/Hyprland | **not ported** (idle stay-awake stub; omaxian.monitor is local xrandr). | — | — | |
+| Hermes / OpenClaw / gaming / pacman / Limine / kernel / OPR priority | Arch ISO / package ring | **not ported** | — | — | `install.sh` still refreshes `themes/` + `default/` from the pin. |
+
 ## 2026-09-03 follow-up (post 4.0.2)
 
 | File | Upstream | omaxian | Transform | Status | Notes |

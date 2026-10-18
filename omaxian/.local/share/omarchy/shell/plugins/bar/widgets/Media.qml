@@ -7,6 +7,7 @@ import Quickshell.Io
 import Quickshell.Services.Mpris
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "MediaHelper.js" as MediaHelper
 
 // Popup now-playing controller for any MPRIS player (mpv, browsers, VLC,
@@ -34,8 +35,8 @@ BarWidget {
     id: root
     moduleName: "omaxian.media"
 
-    readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
-    readonly property color bg: root.bar ? root.bar.background : Color.background
+    readonly property color fg: root.bar ? root.bar.foreground : Commons.Color.foreground
+    readonly property color bg: root.bar ? root.bar.background : Commons.Color.background
     readonly property color dim: Qt.darker(root.fg, 1.4)
     readonly property color subdim: Qt.darker(root.fg, 1.7)
     readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
@@ -271,7 +272,7 @@ BarWidget {
             Text {
                 textFormat: Text.PlainText
                 text: root.isPlaying ? "󰎆" : (root.hasMedia ? "󰐊" : "󰝚")
-                color: barButton.active && barButton.useActiveColor ? (root.bar ? root.bar.foreground : Color.accent) : (root.hasMedia ? root.fg : root.dim)
+                color: barButton.active && barButton.useActiveColor ? (root.bar ? root.bar.foreground : Commons.Color.accent) : (root.hasMedia ? root.fg : root.dim)
                 font.family: barButton.fontFamily
                 font.pixelSize: barButton.fontSize
                 horizontalAlignment: Text.AlignHCenter
@@ -344,8 +345,8 @@ BarWidget {
                             BorderSurface {
                                 id: sourceBadge
                                 radius: Style.spacing.labelGap
-                                color: Style.normalFillFor(root.fg, Color.accent)
-                                borderSpec: Border.controlSpec("normal", root.fg, Color.accent)
+                                color: Style.normalFillFor(root.fg, Commons.Color.accent)
+                                borderSpec: Border.controlSpec("normal", root.fg, Commons.Color.accent)
                                 width: sourceBadgeRow.implicitWidth + Style.space(16)
                                 height: sourceBadgeRow.implicitHeight + Style.space(8)
 
@@ -477,7 +478,7 @@ BarWidget {
                                         height: Style.space(modelData.minH)
                                         anchors.bottom: parent.bottom
                                         radius: 0
-                                        color: root.isPlaying ? (root.bar ? root.bar.foreground : Color.accent) : root.dim
+                                        color: root.isPlaying ? (root.bar ? root.bar.foreground : Commons.Color.accent) : root.dim
                                         opacity: root.isPlaying ? 0.95 : 0.35
 
                                         SequentialAnimation on height {
@@ -563,8 +564,8 @@ BarWidget {
                             width: parent.width
                             height: playerItemContent.implicitHeight + Style.space(8)
                             radius: Style.spacing.labelGap
-                            color: isSelected ? Style.selectedFillFor(root.fg, Color.accent) : "transparent"
-                            borderSpec: isSelected ? Border.controlSpec("normal", root.fg, Color.accent) : Border.none()
+                            color: isSelected ? Style.selectedFillFor(root.fg, Commons.Color.accent) : "transparent"
+                            borderSpec: isSelected ? Border.controlSpec("normal", root.fg, Commons.Color.accent) : Border.none()
 
                             Row {
                                 id: playerItemContent
@@ -657,8 +658,8 @@ BarWidget {
                                 id: coverArtBox
                                 anchors.fill: parent
                                 radius: root.coverStyle === 1 ? width / 2 : Style.spacing.labelGap
-                                color: Style.normalFillFor(root.fg, Color.accent)
-                                borderSpec: Border.controlSpec("normal", root.fg, Color.accent)
+                                color: Style.normalFillFor(root.fg, Commons.Color.accent)
+                                borderSpec: Border.controlSpec("normal", root.fg, Commons.Color.accent)
                                 clip: true
 
                                 Behavior on radius {
@@ -742,7 +743,7 @@ BarWidget {
                                         width: Style.space(6)
                                         height: Style.space(6)
                                         radius: width / 2
-                                        color: Color.accent
+                                        color: Commons.Color.accent
                                     }
                                 }
 

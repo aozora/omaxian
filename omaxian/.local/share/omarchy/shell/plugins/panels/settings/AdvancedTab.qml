@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 Item {
@@ -9,7 +10,7 @@ Item {
   property var shell: null
   property var pluginRegistry: null
   property var barWidgetRegistry: null
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
 
   readonly property string fontFamily: Style.font.family
   readonly property string home: Quickshell.env("HOME")

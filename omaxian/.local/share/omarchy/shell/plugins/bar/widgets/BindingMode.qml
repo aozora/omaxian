@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Services
 import qs.Ui
 
@@ -51,14 +52,14 @@ BarWidget {
     implicitWidth: label.implicitWidth + Style.space(16)
     implicitHeight: root.barSize - Style.space(6)
     radius: Style.cornerRadius
-    color: Color.urgent
+    color: Commons.Color.urgent
 
     Text {
       textFormat: Text.PlainText
       id: label
       anchors.centerIn: parent
       text: "[" + root.shortMode + " on]"
-      color: Color.background
+      color: Commons.Color.background
       font.family: Style.font.family
       font.pixelSize: Style.font.body
       font.bold: true

@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Settings: a real FloatingWindow (i3-managed toplevel), not a PopupWindow
@@ -66,8 +67,8 @@ Item {
       root.close()
   }
 
-  readonly property color fg: Color.popups.text
-  readonly property color accent: Color.accent
+  readonly property color fg: Commons.Color.popups.text
+  readonly property color accent: Commons.Color.accent
   readonly property string fontFamily: Style.font.family
 
   FloatingWindow {
@@ -95,8 +96,8 @@ Item {
     BorderSurface {
       id: frame
       anchors.fill: parent
-      color: Color.popups.background
-      borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+      color: Commons.Color.popups.background
+      borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
       radius: Style.cornerRadius
       padding: root.windowPad
 
@@ -280,7 +281,7 @@ Item {
               width: parent.width - Style.space(24)
               wrapMode: Text.Wrap
               horizontalAlignment: Text.AlignHCenter
-              color: Color.urgent
+              color: Commons.Color.urgent
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
               text: {

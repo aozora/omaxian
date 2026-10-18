@@ -4,6 +4,7 @@ import QtQuick.Controls
 import Qt.labs.folderlistmodel
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Inline filesystem browser — the kit's "pick a folder / file" primitive. There
@@ -26,9 +27,9 @@ Item {
   property var nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp"]
 
   // Palette — defaults suit the dark popup card both consumers live on.
-  property color foreground: Color.popups.text
-  property color subtext: Qt.darker(Color.popups.text, 1.5)
-  property color surface: Color.popups.background
+  property color foreground: Commons.Color.popups.text
+  property color subtext: Qt.darker(Commons.Color.popups.text, 1.5)
+  property color surface: Commons.Color.popups.background
 
   signal chosen(string path)
   signal cancelled()
@@ -227,9 +228,9 @@ Item {
               anchors.fill: parent
               radius: Style.cornerRadius
               color: entryRow.isSelected
-                     ? Style.hoverFillFor(root.foreground, Color.accent)
+                     ? Style.hoverFillFor(root.foreground, Commons.Color.accent)
                      : (rowHover.hovered
-                        ? Style.hoverFillFor(root.foreground, Color.accent)
+                        ? Style.hoverFillFor(root.foreground, Commons.Color.accent)
                         : "transparent")
               opacity: entryRow.isSelected ? 1 : (rowHover.hovered ? 0.7 : 1)
 

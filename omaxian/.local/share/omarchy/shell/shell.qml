@@ -1,3 +1,4 @@
+//@ pragma OmarchyLoadPatch
 //@ pragma UseQApplication
 // ^ S1 (deltas.md): Tray.qml right-click menus render through Qt's
 // QPlatformMenu/QMenu (QtWidgets), which only exists under a QApplication.
@@ -10,6 +11,7 @@ import Quickshell.Io
 
 import qs.Commons
 
+import qs.Commons as Commons
 // S2 (Phase 8): the real `plugins/bar/Bar.qml` engine is the visible bar
 // (`import "plugins/bar"` → upstream's `defaultBarComponent`, restored below).
 // The invisible LocalHost `Bar/` popup/IPC host was fully retired 2026-08-31 —
@@ -380,7 +382,8 @@ ShellRoot {
     if (!manifest) return null
     if (manifest.__isFirstParty) return manifest
     var copy = JSON.parse(JSON.stringify(manifest))
-    delete copy.__sourceDir
+    // Keep __sourceDir: third-party plugins find their bundled scripts through it.
+    // Only the host trust markers are withheld.
     delete copy.__isFirstParty
     delete copy.__hostCapabilities
     return copy
@@ -1736,12 +1739,12 @@ ShellRoot {
       var shellRaw = ""
       try { colorsRaw = Qt.atob(String(colorsB64 || "")) } catch (e) { colorsRaw = "" }
       try { shellRaw = Qt.atob(String(shellB64 || "")) } catch (e2) { shellRaw = "" }
-      Color.loadColors(colorsRaw)
-      Color.loadShell(shellRaw)
+      Commons.Color.loadColors(colorsRaw)
+      Commons.Color.loadShell(shellRaw)
       // S3 (deltas.md): upstream also calls `Style.scheduleRefresh()` to
       // re-poll `hyprctl getoption` for cornerRadius/gapsOut. Phase 2's
       // drop-hyprctl delta removed that method; the radii are static here.
-      // `Color.loadShell` already pushes shell.toml values into Style via
+      // `Commons.Color.loadShell` already pushes shell.toml values into Style via
       // `Style.applyShellValues`, which is kept.
       return "ok"
     }

@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -10,7 +11,7 @@ Item {
   property var shell: null
   property var pluginRegistry: null
   property var barWidgetRegistry: null
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
 
   readonly property string fontFamily: Style.font.family
   readonly property int revision: pluginRegistry ? pluginRegistry.registryRevision : 0
@@ -427,7 +428,7 @@ Item {
     height: 2
     radius: 1
     visible: active
-    color: Color.accent
+    color: Commons.Color.accent
     z: 10
   }
 
@@ -687,7 +688,7 @@ Item {
       visible: dropBody.dropHover
       color: "transparent"
       border.width: Math.max(1, Style.normalBorderWidth)
-      border.color: Color.accent
+      border.color: Commons.Color.accent
       radius: Style.cornerRadius
       opacity: 0.85
     }
@@ -754,7 +755,7 @@ Item {
     radius: Style.cornerRadius
     clip: true
     color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.04)
-    borderSpec: Border.localOrSurfaceSpec("popups", "border", Color.popups.border, Color.popups.border, Math.max(1, Style.normalBorderWidth))
+    borderSpec: Border.localOrSurfaceSpec("popups", "border", Commons.Color.popups.border, Commons.Color.popups.border, Math.max(1, Style.normalBorderWidth))
     implicitHeight: sectionCol.implicitHeight
 
     Column {
@@ -765,7 +766,7 @@ Item {
       Rectangle {
         width: parent.width
         height: headerLabel.implicitHeight + Style.space(14)
-        color: Style.hoverFillFor(root.foreground, Color.accent)
+        color: Style.hoverFillFor(root.foreground, Commons.Color.accent)
 
         Text {
           textFormat: Text.PlainText
@@ -776,7 +777,7 @@ Item {
           anchors.leftMargin: Style.space(10)
           anchors.rightMargin: Style.space(10)
           text: title
-          color: Color.accent
+          color: Commons.Color.accent
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           font.bold: true
@@ -800,7 +801,7 @@ Item {
     radius: Style.cornerRadius
     clip: true
     color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.04)
-    borderSpec: Border.localOrSurfaceSpec("popups", "border", Color.popups.border, Color.popups.border, Math.max(1, Style.normalBorderWidth))
+    borderSpec: Border.localOrSurfaceSpec("popups", "border", Commons.Color.popups.border, Commons.Color.popups.border, Math.max(1, Style.normalBorderWidth))
     implicitHeight: availCol.implicitHeight
 
     Column {
@@ -811,7 +812,7 @@ Item {
       Rectangle {
         width: parent.width
         height: availHeader.implicitHeight + Style.space(14)
-        color: Style.hoverFillFor(root.foreground, Color.accent)
+        color: Style.hoverFillFor(root.foreground, Commons.Color.accent)
 
         Text {
           textFormat: Text.PlainText
@@ -822,7 +823,7 @@ Item {
           anchors.leftMargin: Style.space(10)
           anchors.rightMargin: Style.space(10)
           text: "Available"
-          color: Color.accent
+          color: Commons.Color.accent
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           font.bold: true
@@ -989,9 +990,9 @@ Item {
     width: ghostLabel.implicitWidth + Style.space(16)
     height: ghostLabel.implicitHeight + Style.space(10)
     radius: Style.cornerRadius
-    color: Color.popups.background
+    color: Commons.Color.popups.background
     border.width: Math.max(1, Style.normalBorderWidth)
-    border.color: Color.accent
+    border.color: Commons.Color.accent
     opacity: 0.95
 
     Text {

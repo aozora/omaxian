@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import qs.Commons
 
+import qs.Commons as Commons
 // X11 delta (T2): dismissal is `PopupWindow.grabFocus` (pointer grab) PLUS a
 // full-screen transparent `dismissCatcher` window. `grabFocus` alone stopped
 // dismissing on a click into another application window once popups anchored
@@ -20,8 +21,8 @@ PopupWindow {
   property int padding: Style.spacing.popupPadding
   property int contentWidth: Style.space(280)
   property int contentHeight: Style.space(200)
-  property color borderColor: Color.popups.border
-  property var borderSpec: Border.localOrSurfaceSpec("popups", "border", borderColor, Color.popups.border, Math.max(1, Style.space(2)))
+  property color borderColor: Commons.Color.popups.border
+  property var borderSpec: Border.localOrSurfaceSpec("popups", "border", borderColor, Commons.Color.popups.border, Math.max(1, Style.space(2)))
   property bool open: false
   // Center under the host window when polybar is the visible bar
   // (`QS_WIDGETS_ONLY`): popup-host widgets are undrawn so there is no
@@ -216,7 +217,7 @@ PopupWindow {
   BorderSurface {
     id: card
     anchors.fill: parent
-    color: Color.popups.background
+    color: Commons.Color.popups.background
     borderSpec: root.borderSpec
     padding: root.padding
     radius: Style.radiusPopup

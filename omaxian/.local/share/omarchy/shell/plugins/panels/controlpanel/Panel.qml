@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Control Panel: one bar icon, one popup, a vertical tab sidebar switching
@@ -251,7 +252,7 @@ Panel {
               iconText: modelData.icon
               selected: root.activeTab === modelData.value
               bordered: true
-              foreground: root.bar ? root.bar.foreground : Color.foreground
+              foreground: root.bar ? root.bar.foreground : Commons.Color.foreground
               fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
               onClicked: root.activeTab = modelData.value
             }
@@ -265,7 +266,7 @@ Panel {
             text: "Settings"
             iconText: ""
             bordered: true
-            foreground: root.bar ? root.bar.foreground : Color.foreground
+            foreground: root.bar ? root.bar.foreground : Commons.Color.foreground
             fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
             onClicked: {
               root.close()
@@ -406,7 +407,7 @@ Panel {
             width: parent.width - Style.space(24)
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
-            color: Color.urgent
+            color: Commons.Color.urgent
             font.family: root.bar ? root.bar.fontFamily : Style.font.family
             font.pixelSize: Style.font.body
             text: {

@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Services
 import qs.Ui
 
@@ -120,7 +121,7 @@ BarWidget {
     bar: root.bar
     fontSize: Style.font.body + 3
     text: "󰘥"
-    foreground: Color.bar.text
+    foreground: Commons.Color.bar.text
     horizontalMargin: 8.5
     verticalPadding: 6
     onPressed: root.menuOpen = !root.menuOpen

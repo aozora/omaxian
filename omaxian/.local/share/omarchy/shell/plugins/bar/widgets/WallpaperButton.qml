@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
 import qs.Commons
+import qs.Commons as Commons
 import qs.Services
 import qs.Ui
 import "WallpaperModel.js" as WModel
@@ -180,7 +181,7 @@ BarWidget {
     bar: root.bar
     fontSize: Style.font.body + 4
     text: "󰥶"
-    foreground: Color.bar.text
+    foreground: Commons.Color.bar.text
     horizontalMargin: 8.5
     verticalPadding: 6
     onPressed: root.menuOpen = !root.menuOpen
@@ -251,7 +252,7 @@ BarWidget {
           textFormat: Text.PlainText
           Layout.fillWidth: true
           text: "Wallpapers"
-          color: Color.popups.text
+          color: Commons.Color.popups.text
           font.family: Style.font.family
           font.pixelSize: Style.font.title
           font.bold: true
@@ -267,7 +268,7 @@ BarWidget {
 
       ButtonGroup {
         Layout.fillWidth: true
-        foreground: Color.popups.text
+        foreground: Commons.Color.popups.text
         options: [
           { value: "theme", label: "From theme" },
           { value: "folder", label: "From local folder" }
@@ -297,7 +298,7 @@ BarWidget {
         Button {
           text: "Choose folder…"
           bordered: true
-          foreground: Color.popups.text
+          foreground: Commons.Color.popups.text
           fontSize: Style.font.bodySmall
           onClicked: picker.visible = true
         }

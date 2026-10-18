@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 
+import qs.Commons as Commons
 // omaxian (deltas.md `local`). Commons/Color.qml is mirrored verbatim
 // from upstream and exposes only the five foundational roles
 // (foreground/background/accent/urgent/muted). The local Bar/widgets/* keep
@@ -72,7 +73,7 @@ QtObject {
 
   // ---- bar surface vocabulary (was Color.bar.* pre-Phase-2) --------------
   readonly property color separator: root.selection
-  readonly property color menuLogo: Color.accent
+  readonly property color menuLogo: Commons.Color.accent
   readonly property color chipBackground: root.lighterBackground
   readonly property color mpd: root.green
   readonly property color timer: root.cyan
@@ -81,7 +82,7 @@ QtObject {
   readonly property color bluetooth: root.blue
   readonly property color network: root.cyan
   readonly property color vpnOn: root.green
-  readonly property color vpnOff: Color.muted
+  readonly property color vpnOff: Commons.Color.muted
   readonly property color updates: root.orange
   readonly property color date: root.darkForeground
   readonly property color battery: root.green
@@ -89,21 +90,21 @@ QtObject {
 
   readonly property QtObject workspace: QtObject {
     readonly property color normalBackground: root.lighterBackground
-    readonly property color normalText: Color.foreground
+    readonly property color normalText: Commons.Color.foreground
     readonly property color hoverBackground: root.selection
-    readonly property color hoverText: Color.accent
-    readonly property color activeBackground: Color.accent
-    readonly property color activeText: Color.background
+    readonly property color hoverText: Commons.Color.accent
+    readonly property color activeBackground: Commons.Color.accent
+    readonly property color activeText: Commons.Color.background
     readonly property color visibleBackground: root.selection
     readonly property color visibleText: root.cyan
-    readonly property color urgentBackground: Color.urgent
-    readonly property color urgentText: Color.background
+    readonly property color urgentBackground: Commons.Color.urgent
+    readonly property color urgentText: Commons.Color.background
   }
 
   // ---- popup roles the generic Ui/ kit doesn't define -------------------
-  readonly property color popupSubtext: Color.muted
+  readonly property color popupSubtext: Commons.Color.muted
   readonly property color popupInputBackground: root.lighterBackground
-  readonly property color popupHeaderAccent: Color.accent
+  readonly property color popupHeaderAccent: Commons.Color.accent
   readonly property color popupHelpKeys: root.cyan
   readonly property color popupWeatherAccent: root.blue
 }

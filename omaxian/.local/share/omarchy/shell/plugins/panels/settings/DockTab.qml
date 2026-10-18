@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../dock/Model.js" as DockModel
 
@@ -11,7 +12,7 @@ Item {
   property var shell: null
   property var pluginRegistry: null
   property var barWidgetRegistry: null
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
 
   readonly property string fontFamily: Style.font.family
   readonly property string home: Quickshell.env("HOME")
@@ -40,7 +41,7 @@ Item {
 
   readonly property color previewFill: {
     var hex = root.settings.background || ""
-    return hex ? Style.colorFromHex(hex, Color.bar.background) : Color.bar.background
+    return hex ? Style.colorFromHex(hex, Commons.Color.bar.background) : Commons.Color.bar.background
   }
 
   function applyUserDockRaw(raw) {
@@ -445,10 +446,10 @@ Item {
             minimum: 0
             maximum: 1
             step: 0.05
-            trackColor: Style.selectedFillFor(root.foreground, Color.accent)
+            trackColor: Style.selectedFillFor(root.foreground, Commons.Color.accent)
             fillColor: root.foreground
             knobColor: root.foreground
-            tickColor: Color.popups.background
+            tickColor: Commons.Color.popups.background
             onMoved: function(v) {
               opacityValue.text = (Math.round(v * 100) / 100).toFixed(2)
             }
@@ -507,10 +508,10 @@ Item {
             minimum: 1
             maximum: 2
             step: 0.05
-            trackColor: Style.selectedFillFor(root.foreground, Color.accent)
+            trackColor: Style.selectedFillFor(root.foreground, Commons.Color.accent)
             fillColor: root.foreground
             knobColor: root.foreground
-            tickColor: Color.popups.background
+            tickColor: Commons.Color.popups.background
             onMoved: function(v) {
               scaleValue.text = (Math.round(v * 100) / 100).toFixed(2)
             }

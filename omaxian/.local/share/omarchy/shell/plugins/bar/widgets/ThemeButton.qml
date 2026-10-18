@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
 import qs.Commons
+import qs.Commons as Commons
 import qs.Services
 import qs.Ui
 
@@ -93,7 +94,7 @@ BarWidget {
     bar: root.bar
     fontSize: Style.font.body + 1
     text: "󰸌"
-    foreground: Color.bar.text
+    foreground: Commons.Color.bar.text
     horizontalMargin: 8.5
     verticalPadding: 6
     onPressed: root.menuOpen = !root.menuOpen
@@ -159,7 +160,7 @@ BarWidget {
             border.width: cell.modelData.current ? 3 : (hoverHandler.hovered ? 2 : 0)
             border.color: cell.modelData.current
                           ? BarPalette.workspace.activeBackground
-                          : Color.bar.text
+                          : Commons.Color.bar.text
 
             Image {
               anchors.fill: parent
@@ -176,7 +177,7 @@ BarWidget {
               anchors.right: parent.right
               anchors.bottom: parent.bottom
               height: label.implicitHeight + Style.spacing.sm * 2
-              color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 0.78)
+              color: Qt.rgba(Commons.Color.background.r, Commons.Color.background.g, Commons.Color.background.b, 0.78)
 
               Text {
                 textFormat: Text.PlainText
@@ -186,7 +187,7 @@ BarWidget {
                 text: cell.modelData.pretty
                 color: cell.modelData.current
                        ? BarPalette.workspace.activeBackground
-                       : Color.foreground
+                       : Commons.Color.foreground
                 font.family: Style.font.family
                 font.pixelSize: Style.font.bodySmall
                 font.bold: cell.modelData.current

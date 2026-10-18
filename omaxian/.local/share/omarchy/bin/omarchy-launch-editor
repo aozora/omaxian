@@ -25,16 +25,16 @@ omarchy-cmd-present "$editor" || editor="nvim"
 case "${editor##*/}" in
 nvim | vim | nano | micro | hx | helix | fresh)
   if [[ $inline == "true" ]]; then
-    exec "$editor" "$@"
+    exec "$editor" -- "$@"
   else
     term="${HOME}/.config/i3/scripts/i3_term"
     if [[ -x $term ]]; then
-      exec "$term" --float -e "$editor" "$@"
+      exec "$term" --float -e "$editor" -- "$@"
     fi
-    exec xdg-terminal-exec -- "$editor" "$@" 2>/dev/null || exec kitty -e "$editor" "$@"
+    exec xdg-terminal-exec -- "$editor" -- "$@" 2>/dev/null || exec kitty -e "$editor" -- "$@"
   fi
   ;;
 *)
-  exec setsid -f "$editor" "$@"
+  exec setsid -f "$editor" -- "$@"
   ;;
 esac

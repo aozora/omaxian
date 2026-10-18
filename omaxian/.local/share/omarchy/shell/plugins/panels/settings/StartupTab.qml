@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -12,7 +13,7 @@ Item {
   property var shell: null
   property var pluginRegistry: null
   property var barWidgetRegistry: null
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
 
   readonly property string fontFamily: Style.font.family
   readonly property var appLibrary: shell ? shell.appLibrary : null

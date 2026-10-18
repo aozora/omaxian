@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import qs.Services
 import "Model.js" as Model
@@ -403,7 +404,7 @@ Item {
 
     hasCursor: mouseArea.containsMouse
     current: isActive
-    foreground: bar ? bar.foreground : Color.foreground
+    foreground: bar ? bar.foreground : Commons.Color.foreground
     implicitHeight: sinkInner.implicitHeight + Style.spacing.xl
 
     Row {
@@ -418,7 +419,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         text: Model.sinkGlyph(sinkRow.node)
-        color: sinkRow.bar ? sinkRow.bar.foreground : Color.foreground
+        color: sinkRow.bar ? sinkRow.bar.foreground : Commons.Color.foreground
         font.family: sinkRow.bar ? sinkRow.bar.fontFamily : Style.font.family
         font.pixelSize: Style.font.title
         width: Style.space(22)
@@ -429,7 +430,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         text: Model.nodeLabel(sinkRow.node)
-        color: sinkRow.bar ? sinkRow.bar.foreground : Color.foreground
+        color: sinkRow.bar ? sinkRow.bar.foreground : Commons.Color.foreground
         font.family: sinkRow.bar ? sinkRow.bar.fontFamily : Style.font.family
         font.pixelSize: Style.font.body
         font.bold: sinkRow.isActive
@@ -457,7 +458,7 @@ Item {
 
     hasCursor: mouseArea.containsMouse
     current: isActive
-    foreground: bar ? bar.foreground : Color.foreground
+    foreground: bar ? bar.foreground : Commons.Color.foreground
     implicitHeight: sourceInner.implicitHeight + Style.spacing.xl
 
     Row {
@@ -472,7 +473,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         text: Model.sourceGlyph(sourceRow.node)
-        color: sourceRow.bar ? sourceRow.bar.foreground : Color.foreground
+        color: sourceRow.bar ? sourceRow.bar.foreground : Commons.Color.foreground
         font.family: sourceRow.bar ? sourceRow.bar.fontFamily : Style.font.family
         font.pixelSize: Style.font.title
         width: Style.space(22)
@@ -483,7 +484,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         text: Model.nodeLabel(sourceRow.node)
-        color: sourceRow.bar ? sourceRow.bar.foreground : Color.foreground
+        color: sourceRow.bar ? sourceRow.bar.foreground : Commons.Color.foreground
         font.family: sourceRow.bar ? sourceRow.bar.fontFamily : Style.font.family
         font.pixelSize: Style.font.body
         font.bold: sourceRow.isActive
@@ -510,7 +511,7 @@ Item {
     readonly property bool streamMuted: node && node.audio ? node.audio.muted : false
 
     hasCursor: mouseArea.containsMouse
-    foreground: bar ? bar.foreground : Color.foreground
+    foreground: bar ? bar.foreground : Commons.Color.foreground
     implicitHeight: streamColumn.implicitHeight + Style.spacing.xl
 
     Column {
@@ -530,7 +531,7 @@ Item {
           id: streamMuteIcon
           textFormat: Text.PlainText
           text: streamRow.streamMuted ? "󰝟" : "󰕾"
-          color: streamRow.bar ? streamRow.bar.foreground : Color.foreground
+          color: streamRow.bar ? streamRow.bar.foreground : Commons.Color.foreground
           font.family: streamRow.bar ? streamRow.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.title
           width: Style.space(22)
@@ -548,7 +549,7 @@ Item {
         Text {
           textFormat: Text.PlainText
           text: Model.rawStreamLabel(streamRow.node)
-          color: streamRow.bar ? streamRow.bar.foreground : Color.foreground
+          color: streamRow.bar ? streamRow.bar.foreground : Commons.Color.foreground
           font.family: streamRow.bar ? streamRow.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.body
           elide: Text.ElideRight
@@ -560,7 +561,7 @@ Item {
           id: streamPct
           textFormat: Text.PlainText
           text: Math.round(streamRow.streamVolume * 100) + "%"
-          color: streamRow.bar ? Qt.darker(streamRow.bar.foreground, 1.5) : Color.foreground
+          color: streamRow.bar ? Qt.darker(streamRow.bar.foreground, 1.5) : Commons.Color.foreground
           font.family: streamRow.bar ? streamRow.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.caption
           font.bold: true
