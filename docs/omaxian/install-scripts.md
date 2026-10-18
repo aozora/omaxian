@@ -92,10 +92,15 @@ pgrep -x quickshell
 - Ensures `whiptail` (apt-installs it if missing).
 - Package radiolist: recommended (default) / minimal / + optional.
 - Runs `scripts/setup.sh` (no `--deploy`), then `install.sh`, then `deploy.sh`.
+- Checks that **Quickshell** is on `PATH` after setup. If missing, shows
+  README-aligned install instructions (apt, Debian Forky / Devuan Freia pinning,
+  or build-from-source) and flags the final checklist; does not abort the rest
+  of the install.
 - Asks whether to install community plugins; if yes, checklist + deps confirm
   (union of each port’s `omaxian.deps.json` `apt` list), then
   `scripts/install-community-plugins.sh`.
-- `--yes` / `OMAXIAN_INSTALL_NONINTERACTIVE=1`: recommended desktop only, skip plugins.
+- `--yes` / `OMAXIAN_INSTALL_NONINTERACTIVE=1`: recommended desktop only, skip plugins
+  (still prints the Quickshell warning when missing).
 
 Bootstrap env: `OMAXIAN_DIR` (default `~/projects/omaxian`), `OMAXIAN_REF`,
 `OMAXIAN_REPO`.

@@ -267,6 +267,128 @@ install_selected_plugins() {
 	"$PLUGIN_HELPER" "${SELECTED_PLUGIN_DIRS[@]}"
 }
 
+# --- Quickshell (required for the bar) --------------------------------------
+QUICKSHELL_MISSING=0
+
+quickshell_present() {
+	command -v quickshell >/dev/null 2>&1
+}
+
+quickshell_in_apt() {
+	apt-cache show quickshell >/dev/null 2>&1
+}
+
+# Rough distro hint for README-aligned install instructions.
+distro_hint() {
+	local id="" version_id=""
+	# shellcheck disable=SC1091
+	if [ -r /etc/os-release ]; then
+		. /etc/os-release
+		id="${ID:-}"
+		version_id="${VERSION_ID:-}"
+	fi
+	case "$id" in
+		devuan) echo "devuan" ;;
+		debian)
+			# 13 = trixie; testing pin is often needed there.
+			if [[ ${version_id%%.*} == 13 ]]; then
+				echo "debian13"
+			else
+				echo "debian"
+			fi
+			;;
+		ubuntu) echo "ubuntu" ;;
+		*)      echo "other" ;;
+	esac
+}
+
+quickshell_instructions_text() {
+	local hint
+	hint=$(distro_hint)
+	local text
+	text="Quickshell is required for the Omaxian bar (≥ 0.2; 0.3.x tested).\n\
+It was not found on PATH after setup.\n\n"
+
+	if quickshell_in_apt; then
+		text+="This suite has a 'quickshell' package. Install with:\n\n\
+  sudo apt install quickshell\n\n\
+Then re-run this check or log out and back in.\n"
+	else
+		case "$hint" in
+			debian13)
+				text+="On Debian 13, Quickshell is usually only in testing (Forky).\n\
+Pin Forky at priority 100, then:\n\n\
+  sudo apt update\n\
+  sudo apt install -t forky quickshell \\\n\
+    qml6-module-qtquick-layouts \\\n\
+    qml6-module-qtquick-controls \\\n\
+    qml6-module-qtquick-shapes \\\n\
+    qml6-module-qt-labs-folderlistmodel \\\n\
+    qml6-module-qtquick-effects\n\n\
+Full pinning steps: README.md → \"Debian 13 and Devuan Excalibur\".\n"
+				;;
+			devuan)
+				text+="On Devuan Excalibur, Quickshell is usually only in testing (Freia).\n\
+Pin Freia at priority 100, then:\n\n\
+  sudo apt update\n\
+  sudo apt install -t freia quickshell \\\n\
+    qml6-module-qtquick-layouts \\\n\
+    qml6-module-qtquick-controls \\\n\
+    qml6-module-qtquick-shapes \\\n\
+    qml6-module-qt-labs-folderlistmodel \\\n\
+    qml6-module-qtquick-effects\n\n\
+Full pinning steps: README.md → \"Debian 13 and Devuan Excalibur\".\n"
+				;;
+			ubuntu)
+				text+="On Ubuntu, follow the Quickshell Ubuntu guide:\n\
+  https://quickshell.org/docs/v0.3.0/guide/install-setup/#ubuntu\n\n\
+(Omaxian needs X11 — e.g. Xubuntu / xubuntu-desktop; see README \"Ubuntu 26\".)\n"
+				;;
+			*)
+				text+="This suite has no 'quickshell' package in default apt.\n\
+Build from source:\n\
+  https://quickshell.org/docs/guide/install/\n\n\
+Or use testing-repo pinning (Debian Forky / Devuan Freia) as documented in\n\
+README.md → \"Debian 13 and Devuan Excalibur\" / \"Quickshell\".\n"
+				;;
+		esac
+	fi
+
+	text+="\nWithout Quickshell the bar will not start."
+	printf '%s' "$text"
+}
+
+# After desktop phases: confirm Quickshell or show install instructions.
+check_quickshell() {
+	if quickshell_present; then
+		QUICKSHELL_MISSING=0
+		local ver
+		ver=$(quickshell --version 2>/dev/null | head -n1 || echo "found on PATH")
+		echo ":: Quickshell OK ($ver)"
+		if (( ! NONINTERACTIVE )); then
+			wt --title "Quickshell" --msgbox \
+				"Quickshell is installed ($ver).\n\nThe bar can start after you log into an i3 / Omaxian session." \
+				10 70 || true
+		fi
+		return 0
+	fi
+
+	QUICKSHELL_MISSING=1
+	local text
+	text=$(quickshell_instructions_text)
+	echo
+	echo "========================================================================"
+	echo "!! Quickshell missing"
+	echo -e "$text"
+	echo "========================================================================"
+
+	if (( NONINTERACTIVE )); then
+		return 0
+	fi
+
+	wt --title "Quickshell required" --msgbox "$(echo -e "$text")" 22 78 || true
+}
+
 # --- main -------------------------------------------------------------------
 run_desktop() {
 	phase_banner "1/3  System packages (setup.sh)"
@@ -290,6 +412,11 @@ Next steps:\n\
        omarchy-shell shell ping\n\
        omarchy-shell shell listPlugins | jq length\n\
        pgrep -x quickshell\n"
+	if (( QUICKSHELL_MISSING )); then
+		text+="\n!! Quickshell is not installed yet — the bar will not start.\n\
+   See README.md (Quickshell / Debian 13 and Devuan Excalibur),\n\
+   or re-run ./omaxian-install.sh after installing it.\n"
+	fi
 	if [ -n "$extra" ]; then
 		text+="\n$extra"
 	fi
@@ -299,7 +426,7 @@ Next steps:\n\
 		echo -e "$text"
 		echo "========================================================================"
 	else
-		wt --title "Done" --msgbox "$(echo -e "$text")" 20 72 || true
+		wt --title "Done" --msgbox "$(echo -e "$text")" 22 72 || true
 	fi
 }
 
@@ -311,15 +438,17 @@ main_interactive() {
 This installer will:\n\
   • install system packages (sudo)\n\
   • seed themes and omarchy-* commands\n\
-  • deploy i3 / Quickshell / ~/.xsessionrc\n\
+  • deploy i3 / Quickshell configs / ~/.xsessionrc\n\
+  • verify Quickshell is available (required for the bar)\n\
   • optionally install community plugins\n\n\
 Repo: $REPO_DIR" \
-		16 72 || exit 1
+		17 72 || exit 1
 
 	choose_package_set || { echo ":: cancelled"; exit 1; }
 	confirm_desktop || { echo ":: cancelled"; exit 1; }
 
 	run_desktop
+	check_quickshell
 
 	local plugin_extra=""
 	if ask_install_plugins; then
@@ -339,6 +468,7 @@ main_noninteractive() {
 	PKG_LABEL="Recommended (default)"
 	echo ":: noninteractive: recommended packages + install + deploy (no community plugins)"
 	run_desktop
+	check_quickshell
 	final_checklist "Community plugins were skipped (--yes). Run ./omaxian-install.sh later or see community-plugins/README.md."
 }
 
