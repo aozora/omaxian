@@ -7,7 +7,9 @@
 #   ./omaxian-install.sh
 #   ./omaxian-install.sh --yes          # noninteractive: recommended + deploy, no plugins
 #   OMAXIAN_INSTALL_NONINTERACTIVE=1 ./omaxian-install.sh
+#   ./omaxian-install.sh --version
 #
+# Version comes from the repo-root `version` file (same as the release).
 # Remote first-time: curl -fsSL …/bootstrap.sh | bash
 
 set -euo pipefail
@@ -19,12 +21,28 @@ INSTALL="$SCRIPTS/install.sh"
 DEPLOY="$SCRIPTS/deploy.sh"
 PLUGIN_HELPER="$SCRIPTS/install-community-plugins.sh"
 
+# Release version from repo root (e.g. v1.0.3). Shown in TUI backtitle chrome.
+OMAXIAN_VERSION="unknown"
+if [ -f "$REPO_DIR/version" ]; then
+	OMAXIAN_VERSION=$(tr -d '[:space:]' <"$REPO_DIR/version")
+	[[ -n $OMAXIAN_VERSION ]] || OMAXIAN_VERSION="unknown"
+fi
+# Whiptail/dialog put --backtitle on the top screen edge (left); that is the
+# only reliable "chrome" corner for version text.
+TUI_BACKTITLE="Omaxian installer  ${OMAXIAN_VERSION}"
+
 NONINTERACTIVE=0
 for arg in "$@"; do
 	case "$arg" in
 		--yes|-y)  NONINTERACTIVE=1 ;;
+		-V|--version)
+			echo "omaxian-install ${OMAXIAN_VERSION}"
+			exit 0
+			;;
 		-h|--help)
-			sed -n '2,16p' "$0"
+			sed -n '2,18p' "$0"
+			echo
+			echo "omaxian-install ${OMAXIAN_VERSION}"
 			exit 0
 			;;
 		*)
@@ -58,7 +76,7 @@ done
 # Whiptail has no programbox. dialog --programbox keeps apt/setup "inside" the
 # TUI instead of dropping to a bare terminal after each menu.
 wt() {
-	whiptail --backtitle "Omaxian installer" "$@"
+	whiptail --backtitle "$TUI_BACKTITLE" "$@"
 }
 
 phase_banner() {
@@ -142,7 +160,7 @@ run_phase() {
 	local ec=0
 	set +e
 	set -o pipefail
-	"$@" 2>&1 | dialog --backtitle "Omaxian installer" --title "$title" --programbox 22 84
+	"$@" 2>&1 | dialog --backtitle "$TUI_BACKTITLE" --title "$title" --programbox 22 84
 	ec=${PIPESTATUS[0]}
 	set +o pipefail
 	set -e
@@ -531,7 +549,8 @@ main_interactive() {
 	ensure_tui_tools
 
 	wt --title "Welcome" --msgbox \
-		"Omaxian — Omarchy for Devuan/Debian + X11 + i3.\n\n\
+		"Omaxian ${OMAXIAN_VERSION}\n\
+Omarchy for Devuan/Debian + X11 + i3.\n\n\
 This installer will:\n\
   • install system packages (sudo)\n\
   • seed themes and omarchy-* commands\n\
@@ -539,7 +558,7 @@ This installer will:\n\
   • verify Quickshell is available (required for the bar)\n\
   • optionally install community plugins\n\n\
 Repo: $REPO_DIR" \
-		17 72 || exit 1
+		18 72 || exit 1
 
 	choose_package_set || { echo ":: cancelled"; exit 1; }
 	confirm_desktop || { echo ":: cancelled"; exit 1; }
@@ -563,6 +582,7 @@ Repo: $REPO_DIR" \
 main_noninteractive() {
 	SETUP_FLAGS=()
 	PKG_LABEL="Recommended (default)"
+	echo ":: omaxian-install ${OMAXIAN_VERSION}"
 	echo ":: noninteractive: recommended packages + install + deploy (no community plugins)"
 	run_desktop
 	check_quickshell
