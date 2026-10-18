@@ -24,6 +24,14 @@ Item {
 
     if (payload.fontFamily) root.fontFamily = payload.fontFamily
 
+    // After a live deploy the JSONC watchers can race and leave the palette
+    // with only the synthetic root. Re-read once so Super+L is not empty.
+    if (!root.dmenuActive
+        && (!root.defaultMenuItems || root.defaultMenuItems.length === 0)) {
+      root.reloadDefaultMenuFile()
+      root.reloadUserMenuFile()
+    }
+
     if (payload.mode === "select" || payload.mode === "input") {
       root.openDmenu(payload)
     } else {
@@ -986,12 +994,18 @@ Item {
   // effect without restarting the shell.
   property string defaultMenuReadBuf: ""
   property string userMenuReadBuf: ""
+  // Generation counters so a killed in-flight read cannot apply an empty
+  // buffer after deploy/rsync storms (SIGTERM often still exits 0).
+  property int defaultMenuReadGen: 0
+  property int userMenuReadGen: 0
 
   function reloadDefaultMenuFile() {
     if (defaultMenuReadProc.running) {
       defaultMenuReadProc.signal(15)
       defaultMenuReadKill.start()
     }
+    root.defaultMenuReadGen += 1
+    defaultMenuReadProc.readGen = root.defaultMenuReadGen
     root.defaultMenuReadBuf = ""
     defaultMenuReadProc.command = [
       "/usr/bin/python3", "-I", "-S",
@@ -1006,6 +1020,8 @@ Item {
       userMenuReadProc.signal(15)
       userMenuReadKill.start()
     }
+    root.userMenuReadGen += 1
+    userMenuReadProc.readGen = root.userMenuReadGen
     root.userMenuReadBuf = ""
     userMenuReadProc.command = [
       "/usr/bin/python3", "-I", "-S",
@@ -1013,6 +1029,21 @@ Item {
       "262144", root.userMenuPath
     ]
     userMenuReadProc.running = true
+  }
+
+  // Deploy / rsync can fire many watches in one burst; coalesce them.
+  Timer {
+    id: defaultMenuReloadDebounce
+    interval: 200
+    repeat: false
+    onTriggered: root.reloadDefaultMenuFile()
+  }
+
+  Timer {
+    id: userMenuReloadDebounce
+    interval: 200
+    repeat: false
+    onTriggered: root.reloadUserMenuFile()
   }
 
   // Watcher only — bytes come from safe-read.py.
@@ -1023,7 +1054,7 @@ Item {
     blockAllReads: true
     watchChanges: true
     printErrors: false
-    onFileChanged: root.reloadDefaultMenuFile()
+    onFileChanged: defaultMenuReloadDebounce.restart()
   }
 
   FileView {
@@ -1033,11 +1064,12 @@ Item {
     blockAllReads: true
     watchChanges: true
     printErrors: false
-    onFileChanged: root.reloadUserMenuFile()
+    onFileChanged: userMenuReloadDebounce.restart()
   }
 
   Process {
     id: defaultMenuReadProc
+    property int readGen: 0
     stdout: SplitParser {
       splitMarker: ""
       onRead: function(chunk) {
@@ -1052,10 +1084,15 @@ Item {
     onExited: function(exitCode) {
       var raw = root.defaultMenuReadBuf
       root.defaultMenuReadBuf = ""
-      if (exitCode === 0) {
-        root.defaultMenuItems = root.parseMenuJsonc(raw)
-        root.rebuildItemsFromSources()
-      }
+      if (defaultMenuReadProc.readGen !== root.defaultMenuReadGen) return
+      if (exitCode !== 0) return
+      var parsed = root.parseMenuJsonc(raw)
+      // A raced/killed read can land exit 0 with an empty buffer. Never let
+      // that wipe a menu that already loaded (post-deploy empty palette).
+      if ((!parsed || parsed.length === 0) && root.defaultMenuItems && root.defaultMenuItems.length > 0)
+        return
+      root.defaultMenuItems = parsed
+      root.rebuildItemsFromSources()
     }
   }
 
@@ -1068,6 +1105,7 @@ Item {
 
   Process {
     id: userMenuReadProc
+    property int readGen: 0
     stdout: SplitParser {
       splitMarker: ""
       onRead: function(chunk) {
@@ -1082,10 +1120,11 @@ Item {
     onExited: function(exitCode) {
       var raw = root.userMenuReadBuf
       root.userMenuReadBuf = ""
-      if (exitCode === 0) {
-        root.userMenuItems = root.parseMenuJsonc(raw)
-        root.rebuildItemsFromSources()
-      }
+      if (userMenuReadProc.readGen !== root.userMenuReadGen) return
+      if (exitCode !== 0) return
+      // Missing user extension is a normal empty read — always apply.
+      root.userMenuItems = root.parseMenuJsonc(raw)
+      root.rebuildItemsFromSources()
     }
   }
 
