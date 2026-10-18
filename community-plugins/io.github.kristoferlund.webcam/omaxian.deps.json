@@ -1,0 +1,6 @@
+{
+  "apt": [
+    "qml6-module-qtmultimedia",
+    "v4l-utils"
+  ]
+}

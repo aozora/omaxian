@@ -1,0 +1,12 @@
+{
+  "apt": [
+    "yt-dlp",
+    "ffmpeg",
+    "jq",
+    "git",
+    "util-linux",
+    "xdg-user-dirs",
+    "xclip",
+    "xdg-utils"
+  ]
+}

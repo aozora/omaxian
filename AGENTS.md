@@ -5,14 +5,14 @@ Same bar, themes, launcher, and `omarchy-*` commands — no Wayland, Hyprland, o
 
 This checkout has two trees:
 
-- `omarchy-quattro/` — pinned clone of upstream Omarchy. Treat it as **read-only**. Do not edit it. `setup.sh` / `install.sh` clone it; it is gitignored.
-- `omaxian/` — the port. Edit here. `./deploy.sh` copies it into `$HOME`.
+- `omarchy-quattro/` — pinned clone of upstream Omarchy. Treat it as **read-only**. Do not edit it. `scripts/setup.sh` / `scripts/install.sh` clone it; it is gitignored.
+- `omaxian/` — the port. Edit here. `./scripts/deploy.sh` copies it into `$HOME`.
 
-See `README.md` for install, keybinds, and the list of things that are not 1:1 with Omarchy. Porting notes live in `docs/omarchy-port/`.
+First-time install: `./omaxian-install.sh` or `curl …/bootstrap.sh | bash`. See `README.md` for install, keybinds, and the list of things that are not 1:1 with Omarchy. Porting notes live in `docs/omarchy-port/`.
 
 **Recommended packages:** `upower`, `light`, `pactl` (pulseaudio-utils or pipewire-pulse), `playerctl`, `bluez`, `python3-gi` + NetworkManager, `papirus-icon-theme`, `fonts-jetbrains-mono`, `maim`, `xclip`, `dunst`, `gpick` (color picker; replaces Arch `xcolor`), `imagemagick` (compose for shipped `i3lock-omaxian`), `i3lock-fancy` (fallback locker), `mate-polkit` or `xfce-polkit`.
 
-**Lock / idle (from `setup.sh`):** `i3lock` and `xss-lock` are required. Shipped `i3lock-omaxian` needs `i3lock` + `imagemagick` (`maim` preferred for screenshots; `convert`/`import` also work). Without `i3lock`, preview still works; locking falls through to `i3lock-fancy` / `slock` / notify. Idle auto-lock (Settings → Lock screen) uses `xss-lock` + `xset` via `omarchy-idle-lock-apply`.
+**Lock / idle (from `scripts/setup.sh`):** `i3lock` and `xss-lock` are required. Shipped `i3lock-omaxian` needs `i3lock` + `imagemagick` (`maim` preferred for screenshots; `convert`/`import` also work). Without `i3lock`, preview still works; locking falls through to `i3lock-fancy` / `slock` / notify. Idle auto-lock (Settings → Lock screen) uses `xss-lock` + `xset` via `omarchy-idle-lock-apply`.
 
 # Task Guides
 
@@ -20,7 +20,7 @@ Deeper instructions for specific kinds of work live in `agents/skills/`. Read th
 matching guide before starting:
 
 - [`agents/skills/command-metadata.md`](agents/skills/command-metadata.md) - adding or changing commands in `omaxian/.local/share/omarchy/bin/`
-- [`agents/skills/install-scripts.md`](agents/skills/install-scripts.md) - working on `setup.sh`, `install.sh`, or `deploy.sh` (user reference: [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md))
+- [`agents/skills/install-scripts.md`](agents/skills/install-scripts.md) - working on `scripts/setup.sh`, `install.sh`, `deploy.sh`, or the TUI/bootstrap (user reference: [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md))
 - [`agents/skills/shell-dev.md`](agents/skills/shell-dev.md) - editing the Quickshell desktop under `omaxian/.local/share/omarchy/shell/`
 - [`agents/skills/icon-font.md`](agents/skills/icon-font.md) - glyphs in the bar and menu (Omaxian does not ship Omarchy's branded TTF)
 - [`agents/skills/acceptance-tests.md`](agents/skills/acceptance-tests.md) - this port has no ISO/VM acceptance suite; how to smoke-check instead
@@ -32,7 +32,7 @@ End-user customization on an installed desktop (not this source tree) follows
 # Style
 
 - Two spaces for indentation in `omarchy-*` commands and new QML; no tabs there
-- `setup.sh`, `install.sh`, and `deploy.sh` already use tabs — match the file you are in
+- `scripts/setup.sh`, `install.sh`, and `deploy.sh` already use tabs — match the file you are in
 - Use bash 5 conditionals: use `[[ ]]` for string/file tests and `(( ))` for numeric tests
 - In `[[ ]]`, don't quote variables, but do quote string literals when comparing values (e.g., `[[ $branch == "dev" ]]`)
 - Prefer `(( ))` over numeric operators inside `[[ ]]` (e.g., `(( count < 50 ))`, not `[[ $count -lt 50 ]]`)
@@ -47,12 +47,12 @@ User-facing commands are still named `omarchy-*` (upstream compatibility). There
 Prefixes indicate purpose. Common ones:
 
 - `cmd-` - check if commands exist
-- `pkg-` - not ported; use `apt` / `setup.sh`
+- `pkg-` - not ported; use `apt` / `scripts/setup.sh`
 - `hw-` - hardware detection (return exit codes for use in conditionals)
-- `refresh-` - not ported; change the file in `omaxian/` and `./deploy.sh`
+- `refresh-` - not ported; change the file in `omaxian/` and `./scripts/deploy.sh`
 - `restart-` - restart a component
 - `launch-` - open applications
-- `setup-` - not a packaged group here; system setup is `setup.sh`
+- `setup-` - not a packaged group here; system setup is `scripts/setup.sh`
 - `toggle-` - toggle features on/off
 - `theme-` - theme management
 - `plugin-` - shell plugins (`omarchy-plugin-check` is Omaxian-only)
@@ -61,7 +61,7 @@ Keep `# omarchy:group=` / `# omarchy:summary=` metadata on new commands consiste
 
 # Runtime Environment
 
-- `$OMARCHY_PATH` is `$HOME/.local/share/omarchy`. `~/.xsessionrc` (installed by `deploy.sh`) exports it and prepends `$OMARCHY_PATH/bin` to `PATH` before i3 starts. The display manager / login path must run `/etc/X11/Xsession` for that to take effect.
+- `$OMARCHY_PATH` is `$HOME/.local/share/omarchy`. `~/.xsessionrc` (installed by `scripts/deploy.sh`) exports it and prepends `$OMARCHY_PATH/bin` to `PATH` before i3 starts. The display manager / login path must run `/etc/X11/Xsession` for that to take effect.
 - There is no `uwsm`. Commands and QML may use `${OMARCHY_PATH:=$HOME/.local/share/omarchy}` when the session env might be missing (terminals started outside the X session, `i3 restart` without a re-login).
 - Quickshell QML should read `Quickshell.env("OMARCHY_PATH")` when the host has already exported it; `omarchy-launch-shell` / `omarchy-restart-shell` set it before starting the process.
 - After the first deploy, **log out and back in** (not `i3 restart`) so i3 inherits `PATH`. Afterwards, QML edits need `omarchy-restart-shell`.
@@ -91,9 +91,9 @@ Use these instead of raw shell commands where they exist:
 - `i3lock-omaxian` - lock screen compositor (screenshot / image / random; `--preview`)
 - `omarchy-session-is-i3` - exit 0 only in a live i3 session
 
-There is no `omarchy-pkg-add` / `omarchy-pkg-drop`. Install packages with `apt` (via `setup.sh` for the default sets). Do not add `pacman` or AUR paths.
+There is no `omarchy-pkg-add` / `omarchy-pkg-drop`. Install packages with `apt` (via `scripts/setup.sh` for the default desktop sets; community-plugin deps via `omaxian.deps.json`). Do not add `pacman` or AUR paths.
 
-Commands that `setup.sh` installs as required are runtime invariants on a deployed desktop. Invoke them directly; do not add defensive `omarchy-cmd-present` checks around `i3`, `dunst`, `kitty`, and the like. Use command-presence helpers only for optional dependencies (`redshift`, `xkb-switch`, `i3lock-fancy`, `imagemagick`/`maim` for fancy lock compose, GPU tools).
+Commands that `scripts/setup.sh` installs as required are runtime invariants on a deployed desktop. Invoke them directly; do not add defensive `omarchy-cmd-present` checks around `i3`, `dunst`, `kitty`, and the like. Use command-presence helpers only for optional dependencies (`redshift`, `xkb-switch`, `i3lock-fancy`, `imagemagick`/`maim` for fancy lock compose, GPU tools).
 
 # Menu
 
@@ -111,10 +111,10 @@ Commands that `setup.sh` installs as required are runtime invariants on a deploy
 | `omaxian/.local/share/omarchy/shell.json` | Stock bar/plugins defaults (`$OMARCHY_PATH/shell.json`) |
 | `omaxian/.local/share/omarchy/default/` | Port overlays (menu JSONC, agent skills) on top of upstream `default/` |
 | `community-plugins/` | Optional third-party plugin ports (not deployed; install into `~/.config/omarchy/plugins/`) |
-| `~/.config/omarchy/shell.json` | User shell layout (Settings); seeded once by `deploy.sh` |
+| `~/.config/omarchy/shell.json` | User shell layout (Settings); seeded once by `scripts/deploy.sh` |
 | `~/.config/omarchy/plugins/` | User-installed / community shell plugins |
 | `~/.config/omarchy/keyboard.json` | XKB layouts (Settings → Keyboard; applied by `omarchy-keyboard-apply`) |
-| `~/.local/share/omarchy/themes/` | Stock themes, seeded from upstream by `install.sh` |
+| `~/.local/share/omarchy/themes/` | Stock themes, seeded from upstream by `scripts/install.sh` |
 | `~/.config/omarchy/themes/` | User theme overlays only |
 | `~/.config/omarchy/themed/*.tpl` | User template overrides (`{{ variable }}` placeholders) |
 | `~/.local/state/omarchy/current/theme/` | Active theme (written by `omarchy-theme-set`) |
@@ -126,7 +126,7 @@ This port has no `./test/all`, CLI harness, or graphical acceptance VM. After a 
 - Run `omarchy-shell shell ping` (expect `ok`) and `omarchy-shell shell listPlugins` if the shell is involved
 - For a community plugin, run `omarchy-plugin-check <dir-or-url>`
 - Visual changes must be verified in the running UI; follow [`agents/skills/visual-verification.md`](agents/skills/visual-verification.md)
-- **Never** run `omarchy-restart-shell` (or kill picom / Quickshell) from an agent session to apply QML — that has crashed the desktop. Use `./deploy.sh` then **log out / log in**.
+- **Never** run `omarchy-restart-shell` (or kill picom / Quickshell) from an agent session to apply QML — that has crashed the desktop. Use `./scripts/deploy.sh` then **log out / log in**.
 
 Do not call `omarchy-iso` workflows — they are Arch/Hyprland ISO tests and do not apply here.
 
@@ -135,12 +135,12 @@ Do not call `omarchy-iso` workflows — they are Arch/Hyprland ISO tests and do 
 Edit files under `omaxian/`, then:
 
 ```bash
-./deploy.sh
+./scripts/deploy.sh
 # LIVE: deploy pauses picom and freezes shell file-reload. Do not chain
 # i3-msg reload or omarchy-restart-shell. QML: next login.
 # Binds only (optional, after deploy returns): i3-msg reload
 ```
 
-`deploy.sh` overwrites configs from this repo but does not delete files an older deploy left behind. Exception: `~/.config/omarchy/shell.json` is seeded from `$OMARCHY_PATH/shell.json` only when missing, so Settings / bar layout survive redeploy. **Never delete or overwrite that user file** (including from agents). `install.sh` refreshes themes, upstream `default/`, and `bin/` into `~/.local/share/omarchy/`.
+`deploy.sh` overwrites configs from this repo but does not delete files an older deploy left behind. Exception: `~/.config/omarchy/shell.json` is seeded from `$OMARCHY_PATH/shell.json` only when missing, so Settings / bar layout survive redeploy. **Never delete or overwrite that user file** (including from agents). `scripts/install.sh` refreshes themes, upstream `default/`, and `bin/` into `~/.local/share/omarchy/`.
 
 i3 config lives in `omaxian/.config/i3/` (`config` plus `config.d/*.conf`). After deploying i3 files, `i3-msg reload` is enough for binds and rules; a full logout is required when `PATH` / `OMARCHY_PATH` changed.

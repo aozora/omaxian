@@ -71,27 +71,49 @@ clock/calendar, tray, OSD, Wi-Fi QR, speed tests, and the `omarchy-*` CLI.
 
 You need an X11 session with **i3** and a login path that runs
 `/etc/X11/Xsession` (most display managers do; `startx` with a proper
-`.xsession` also works). Then, from this repo:
+`.xsession` also works).
+
+### One-shot (recommended)
+
+From a machine with `curl` and `git` (or let the bootstrap install `git`):
 
 ```sh
-git clone <this-repo> ~/projects/omaxian
-cd ~/projects/omaxian
-
-sudo ./setup.sh          # packages, fonts, session D-Bus
-./install.sh             # themes + omarchy-* commands
-./deploy.sh              # i3 / Quickshell / ~/.xsessionrc
+curl -fsSL https://raw.githubusercontent.com/aozora/omaxian/main/bootstrap.sh | bash
 ```
 
-`setup.sh` is safe to re-run. Useful flags: `--minimal`, `--optional`,
-`--deploy` (runs `install.sh` + `deploy.sh` for you after packages).
+Or after cloning:
 
-Full roles, why the three scripts stay separate, and what to re-run after a
-pull: [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md).
-Optional third-party plugins are **not** part of this path — see
-[`community-plugins/README.md`](community-plugins/README.md).
+```sh
+git clone https://github.com/aozora/omaxian.git ~/projects/omaxian
+cd ~/projects/omaxian
+./omaxian-install.sh
+```
+
+The TUI (whiptail) runs system packages → themes/`bin` → home configs, then
+optionally lets you pick community plugins (and installs their declared apt
+deps). Noninteractive: `./omaxian-install.sh --yes` (recommended packages, no
+plugins).
 
 **Then log out and back in** (not `i3 restart`) so i3 picks up `PATH`.
-Pick the i3 / Omaxian session in your greeter (or start X however you usually do).
+Pick the i3 / Omaxian session in your greeter.
+
+### Advanced / re-run
+
+The three scripts under [`scripts/`](scripts/) stay separate (privilege and
+re-run cadence). Root `./setup.sh` / `./install.sh` / `./deploy.sh` are thin
+shims.
+
+```sh
+sudo ./scripts/setup.sh          # packages, fonts, session D-Bus
+./scripts/install.sh             # themes + omarchy-* commands
+./scripts/deploy.sh              # i3 / Quickshell / ~/.xsessionrc
+```
+
+`setup.sh` flags: `--minimal`, `--optional`, `--deploy` (then install + deploy
+as `$SUDO_USER`). Full roles:
+[`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md).
+Community plugins outside the TUI:
+[`community-plugins/README.md`](community-plugins/README.md).
 
 ### Quickshell
 
@@ -117,8 +139,8 @@ From the same clone you installed from, most updates are just:
 ```sh
 cd ~/projects/omaxian
 git pull
-./install.sh       # refresh themes, default/, and omarchy-* commands
-./deploy.sh        # refresh i3, Quickshell, and other home configs
+./scripts/install.sh       # refresh themes, default/, and omarchy-* commands
+./scripts/deploy.sh        # refresh i3, Quickshell, and other home configs
 ```
 
 Then **log out and back in** so Quickshell and the session pick up the new
@@ -126,7 +148,7 @@ tree. `deploy.sh` on a live i3 session pauses picom and freezes shell
 file-reload; it does **not** reload i3 or restart Quickshell. After it
 returns, optional binds-only: `i3-msg reload`.
 
-**When to also run `sudo ./setup.sh`:** skip it for a normal update (bar, themes,
+**When to also run `sudo ./scripts/setup.sh`:** skip it for a normal update (bar, themes,
 commands, i3 configs). Run it again only if this release needs a **new apt
 package** on the machine — for example a new tool Omaxian now calls, updated
 bundled fonts, or a change to the privileged `omarchy-dns` helper. If you are
@@ -399,7 +421,7 @@ and put the omarchy `bin` on `PATH` wherever the session starts.
 
 Curated third-party Omarchy plugins already ported for X11/Debian live in
 [`community-plugins/`](community-plugins/). They are **opt-in** — not installed
-by `setup.sh` / `install.sh` / `deploy.sh`. Install and enable from that
+by `scripts/setup.sh` / `install.sh` / `deploy.sh`. Install via the TUI or from that
 README (or Menu → Setup → Plugins).
 
 | Plugin | What it does |
@@ -423,7 +445,7 @@ Details, upstream links, and install steps:
 
 | Want to…                                  | See                                                                                                                                                                                                                                                         |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Understand `setup` / `install` / `deploy` | [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md) — roles, flags, re-run guide; packages live in `setup.sh`                                                                                                                              |
+| Understand `setup` / `install` / `deploy` | [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md) — TUI, `scripts/` roles, flags, re-run guide; desktop packages live in `scripts/setup.sh`                                                                                              |
 | Customize bar / dock / displays           | [`docs/omaxian/customize/`](docs/omaxian/customize/) — [bar](docs/omaxian/customize/bar.md) (incl. floating island), [dock](docs/omaxian/customize/dock.md), [displays](docs/omaxian/customize/displays.md), [settings](docs/omaxian/customize/settings.md) |
 | Install optional community plugins        | [`community-plugins/README.md`](community-plugins/README.md) — opt-in only; not installed by setup/install/deploy                                                                                                                                           |
 | Understand the port / bump upstream       | [`docs/omarchy-port/`](docs/omarchy-port/) — start with [migration](docs/omarchy-port/omarchy-migration.md) and [deltas](docs/omarchy-port/deltas.md)                                                                                                       |
@@ -434,7 +456,7 @@ edit it. To move to a newer tag:
 
 ```sh
 rm -rf omarchy-quattro
-OMARCHY_UPSTREAM_REF=v4.0.5 ./install.sh
+OMARCHY_UPSTREAM_REF=v4.0.5 ./scripts/install.sh
 ```
 
 ---

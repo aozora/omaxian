@@ -1,0 +1,13 @@
+{
+  "apt": [
+    "libsecret-tools",
+    "xdg-utils",
+    "python3",
+    "curl",
+    "xclip",
+    "zenity"
+  ],
+  "manual": [
+    "Omamail Rust backend: open the plugin after login and use its backend installer, or see community-plugins/omamail/docs/BACKEND-RUNTIME.md."
+  ]
+}

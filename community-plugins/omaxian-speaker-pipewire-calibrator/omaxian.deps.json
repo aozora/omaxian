@@ -1,0 +1,12 @@
+{
+  "apt": [
+    "pipewire",
+    "pipewire-pulse",
+    "wireplumber",
+    "python3-numpy",
+    "python3-scipy",
+    "lsp-plugins-lv2",
+    "pulseaudio-utils",
+    "xclip"
+  ]
+}

@@ -1,12 +1,13 @@
-# `setup.sh`, `install.sh`, and `deploy.sh`
+# Install scripts
 
-Three root scripts install and refresh Omaxian. They are separate on purpose:
-different privilege, different targets, and different re-run habits. Day-one
-install can still be one command via `setup.sh --deploy`.
+Day-one install is **[`omaxian-install.sh`](../../omaxian-install.sh)** (TUI) or
+**[`bootstrap.sh`](../../bootstrap.sh)** (`curl | bash`). The three privilege-split
+scripts live under [`scripts/`](../../scripts/); root `setup.sh` / `install.sh` /
+`deploy.sh` are thin shims.
 
-Agent-oriented rules for editing these scripts live in
+Agent-oriented rules:
 [`agents/skills/install-scripts.md`](../../agents/skills/install-scripts.md).
-Upstream clone / pin bumps are covered in
+Upstream clone / pin bumps:
 [`docs/omarchy-port/upstream-tracking.md`](../omarchy-port/upstream-tracking.md).
 
 ---
@@ -15,55 +16,62 @@ Upstream clone / pin bumps are covered in
 
 | Script | Who runs it | Privilege | What it does |
 | --- | --- | --- | --- |
-| [`setup.sh`](../../setup.sh) | once per machine (or when deps change) | **root** (`sudo`) | `apt` packages, session D-Bus, root-owned `omarchy-dns`, bundled fonts; may clone `omarchy-quattro/` |
-| [`install.sh`](../../install.sh) | login user | **user** (refuses root) | seed `~/.local/share/omarchy/{themes,default,bin}` from upstream + the port; may clone `omarchy-quattro/` |
-| [`deploy.sh`](../../deploy.sh) | login user | **user** (refuses root) | copy `omaxian/` into `$HOME` (i3, Quickshell, `.xsessionrc`, …) |
+| [`omaxian-install.sh`](../../omaxian-install.sh) | first-time / guided | **user** (sudo for apt) | whiptail TUI: setup → install → deploy → optional community plugins |
+| [`bootstrap.sh`](../../bootstrap.sh) | first-time remote | **user** | clone repo (or reuse), then `exec` `omaxian-install.sh` |
+| [`scripts/setup.sh`](../../scripts/setup.sh) | once per machine (or when deps change) | **root** (`sudo`) | `apt` packages, session D-Bus, root-owned `omarchy-dns`, bundled fonts; may clone `omarchy-quattro/` |
+| [`scripts/install.sh`](../../scripts/install.sh) | login user | **user** (refuses root) | seed `~/.local/share/omarchy/{themes,default,bin}` from upstream + the port |
+| [`scripts/deploy.sh`](../../scripts/deploy.sh) | login user | **user** (refuses root) | copy `omaxian/` into `$HOME` (i3, Quickshell, `.xsessionrc`, …) |
+| [`scripts/install-community-plugins.sh`](../../scripts/install-community-plugins.sh) | opt-in | **user** (+ sudo for plugin apt) | copy selected `community-plugins/` ports; install `omaxian.deps.json` apt packages |
 
 ```text
-  setup.sh          → system packages + /etc + /usr/local/libexec
-  install.sh        → ~/.local/share/omarchy  (themes / default / bin)
-  deploy.sh         → ~/.config, ~/.local/share (shell, …), ~/.xsessionrc
+  omaxian-install.sh / bootstrap.sh
+       └─► scripts/setup.sh     → system packages + /etc + /usr/local/libexec
+       └─► scripts/install.sh   → ~/.local/share/omarchy  (themes / default / bin)
+       └─► scripts/deploy.sh    → ~/.config, ~/.local/share (shell, …), ~/.xsessionrc
+       └─► (optional) install-community-plugins.sh
 ```
 
-**Not installed by any of these:** optional third-party ports under
-[`community-plugins/`](../../community-plugins/README.md). Those stay opt-in at
-`~/.config/omarchy/plugins/`.
+Desktop `setup` / `install` / `deploy` never copy community plugins. The TUI
+(or the helper above) does that only when you opt in.
 
 ---
 
-## Why keep them separate
+## Why keep setup / install / deploy separate
 
 1. **Privilege boundary** — `setup.sh` must use `apt` and write under `/etc` and
    `/usr/local`. `install.sh` / `deploy.sh` must never seed `/root` or run as
    root. A single blob still needs the same split internally.
-2. **Re-run cadence** — after `git pull` you usually want `./install.sh` and/or
-   `./deploy.sh`, not another `apt-get`. Developers on a working desktop almost
-   never need `setup.sh`.
-3. **Partial / multi-user setups** — an admin can run `sudo ./setup.sh` once;
-   each login user runs `./install.sh && ./deploy.sh`. Or you refresh themes and
-   `bin/` without touching packages.
+2. **Re-run cadence** — after `git pull` you usually want `./scripts/install.sh`
+   and/or `./scripts/deploy.sh`, not another `apt-get`.
+3. **Partial / multi-user setups** — an admin can run `sudo ./scripts/setup.sh`
+   once; each login user runs install + deploy.
 4. **Safety on a live i3 session** — `deploy.sh` pauses picom and freezes shell
    file-reload; it must not be mixed with privileged package install paths.
 
-They are **not** candidates for a full merge. Optional convenience: one wrapper
-that only calls the three in order (already available as `--deploy` on setup).
+They are **not** candidates for a full merge. Convenience wrappers:
+`omaxian-install.sh`, `bootstrap.sh`, and `scripts/setup.sh --deploy`.
 
 ---
 
 ## First-time install
 
-From the repo root, with an X11 login path that runs `/etc/X11/Xsession`:
-
 ```sh
-sudo ./setup.sh          # packages, fonts, session D-Bus
-./install.sh             # themes + omarchy-* commands
-./deploy.sh              # i3 / Quickshell / ~/.xsessionrc
+curl -fsSL https://raw.githubusercontent.com/aozora/omaxian/main/bootstrap.sh | bash
 ```
 
-Or in one shot after packages:
+Or from a clone:
 
 ```sh
-sudo ./setup.sh --deploy   # setup, then install.sh + deploy.sh as $SUDO_USER
+./omaxian-install.sh
+# noninteractive: ./omaxian-install.sh --yes
+```
+
+Advanced (no TUI):
+
+```sh
+sudo ./scripts/setup.sh
+./scripts/install.sh && ./scripts/deploy.sh
+# or: sudo ./scripts/setup.sh --deploy
 ```
 
 **Then log out and back in** (not `i3 restart`) so i3 inherits `PATH` /
@@ -79,34 +87,52 @@ pgrep -x quickshell
 
 ---
 
+## `omaxian-install.sh` (TUI)
+
+- Ensures `whiptail` (apt-installs it if missing).
+- Package radiolist: recommended (default) / minimal / + optional.
+- Runs `scripts/setup.sh` (no `--deploy`), then `install.sh`, then `deploy.sh`.
+- Asks whether to install community plugins; if yes, checklist + deps confirm
+  (union of each port’s `omaxian.deps.json` `apt` list), then
+  `scripts/install-community-plugins.sh`.
+- `--yes` / `OMAXIAN_INSTALL_NONINTERACTIVE=1`: recommended desktop only, skip plugins.
+
+Bootstrap env: `OMAXIAN_DIR` (default `~/projects/omaxian`), `OMAXIAN_REF`,
+`OMAXIAN_REPO`.
+
+---
+
 ## `setup.sh` (system)
 
 ```sh
-sudo ./setup.sh              # required + recommended
-sudo ./setup.sh --minimal    # required only
-sudo ./setup.sh --optional   # also VM / GPU / niche extras
-sudo ./setup.sh --deploy     # then run install.sh + deploy.sh as you
+sudo ./scripts/setup.sh              # required + recommended
+sudo ./scripts/setup.sh --minimal    # required only
+sudo ./scripts/setup.sh --optional   # also VM / GPU / niche extras
+sudo ./scripts/setup.sh --deploy     # then run install.sh + deploy.sh as you
 ```
 
 | Concern | Detail |
 | --- | --- |
-| Privilege | Re-execs under `sudo` if needed. Only script that may call `apt-get`. |
+| Privilege | Re-execs under `sudo` if needed. Desktop package installs live here. |
 | Upstream | Clones `omarchy-quattro/` when missing (same pin as `install.sh`). |
 | Packages | Arrays `REQUIRED`, `RECOMMENDED`, `OPTIONAL` in the script. Skips names this suite does not ship; warns (e.g. `quickshell` on Debian &lt; 13 / Devuan). |
 | Session | Enables `use-session-dbus` in `/etc/X11/Xsession.options` so Quickshell reaches the bus. |
-| Privileged helper | Installs root-owned `/usr/local/libexec/omaxian/omarchy-dns` (do not elevate the copy under `~/.local/share/omarchy/bin`). |
+| Privileged helper | Installs root-owned `/usr/local/libexec/omaxian/omarchy-dns`. |
 | Fonts | Copies bundled fonts into the target user’s `~/.local/share/fonts` and runs `fc-cache`. |
 | Idempotent | Safe to re-run. |
 
 On non-systemd hosts it may pull **elogind** so `loginctl` / `xss-lock` work.
+
+Community-plugin apt packages are **not** in these arrays — see each port’s
+`omaxian.deps.json` and `install-community-plugins.sh`.
 
 ---
 
 ## `install.sh` (share tree)
 
 ```sh
-./install.sh
-OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=… ./install.sh
+./scripts/install.sh
+OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=… ./scripts/install.sh
 ```
 
 | Concern | Detail |
@@ -117,8 +143,8 @@ OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=… ./install.sh
 | Leaves alone | `~/.config/omarchy/themes` (user overlays only — left empty on purpose). Dock settings file written only when missing. |
 | Does not | Deploy i3 / Quickshell / `.xsessionrc` — that is `deploy.sh`. |
 
-Bump upstream: wipe the clone, set the pin in **both** `setup.sh` and
-`install.sh` (or pass `OMARCHY_UPSTREAM_REF`), then re-run `install.sh`. See
+Bump upstream: wipe the clone, set the pin in **both** `scripts/setup.sh` and
+`scripts/install.sh` (or pass `OMARCHY_UPSTREAM_REF`), then re-run `install.sh`. See
 [upstream-tracking](../omarchy-port/upstream-tracking.md).
 
 ---
@@ -126,7 +152,7 @@ Bump upstream: wipe the clone, set the pin in **both** `setup.sh` and
 ## `deploy.sh` (home configs)
 
 ```sh
-./deploy.sh
+./scripts/deploy.sh
 ```
 
 | Concern | Detail |
@@ -146,12 +172,13 @@ orphans left from older deploys.
 
 | Situation | Command |
 | --- | --- |
-| Fresh machine | `sudo ./setup.sh` then `./install.sh && ./deploy.sh` (or `sudo ./setup.sh --deploy`) |
-| New apt deps / fonts / `omarchy-dns` | `sudo ./setup.sh` |
-| New upstream tag / themes / `bin/` | wipe `omarchy-quattro/` if bumping pin → `./install.sh` (often `./deploy.sh` too) |
-| QML, i3, picom, dunst, or other `omaxian/` edits | `./deploy.sh`, then **log out / log in** for QML |
+| Fresh machine | `./omaxian-install.sh` or `curl …/bootstrap.sh \| bash` |
+| Fresh machine (no TUI) | `sudo ./scripts/setup.sh` then `./scripts/install.sh && ./scripts/deploy.sh` (or `--deploy`) |
+| New apt deps / fonts / `omarchy-dns` | `sudo ./scripts/setup.sh` |
+| New upstream tag / themes / `bin/` | wipe `omarchy-quattro/` if bumping pin → `./scripts/install.sh` (often deploy too) |
+| QML, i3, picom, dunst, or other `omaxian/` edits | `./scripts/deploy.sh`, then **log out / log in** for QML |
 | Only i3 binds changed (already deployed) | `i3-msg reload` after deploy returns |
-| Optional community plugin | **not** these scripts — see [`community-plugins/README.md`](../../community-plugins/README.md) |
+| Optional community plugin | TUI, or `./scripts/install-community-plugins.sh` — see [`community-plugins/README.md`](../../community-plugins/README.md) |
 
 ---
 
@@ -163,5 +190,6 @@ orphans left from older deploys.
 | `~/.local/share/omarchy/` (`$OMARCHY_PATH`) | Stock themes, `default/`, `bin/`, shell after deploy | `install.sh` + `deploy.sh` |
 | `~/.config/omarchy/shell.json` | User bar / Settings layout | `deploy.sh` once if missing |
 | `~/.config/omarchy/themes/` | User theme overlays | user (install leaves empty) |
-| `~/.config/omarchy/plugins/` | Community / third-party plugins | user (`omarchy-plugin-add` or rsync) |
+| `~/.config/omarchy/plugins/` | Community / third-party plugins | TUI helper, `omarchy-plugin-add`, or rsync |
+| `community-plugins/*/omaxian.deps.json` | Declared apt + manual deps for a port | maintainers |
 | `~/.xsessionrc` | Exports `OMARCHY_PATH` and prepends `bin` to `PATH` | `deploy.sh` |

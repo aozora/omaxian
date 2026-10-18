@@ -1,0 +1,9 @@
+{
+  "apt": [
+    "xclip",
+    "jq"
+  ],
+  "manual": [
+    "Install Proton pass-cli from https://protonpass.github.io/pass-cli/ (not in Debian apt)."
+  ]
+}

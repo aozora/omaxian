@@ -1,45 +1,58 @@
 # Install Scripts
 
-Read this before working on `setup.sh`, `install.sh`, `deploy.sh`, or the
-session/user setup they perform.
+Read this before working on `scripts/setup.sh`, `scripts/install.sh`,
+`scripts/deploy.sh`, `omaxian-install.sh`, `bootstrap.sh`,
+`scripts/install-community-plugins.sh`, or the session/user setup they perform.
 
 User-facing reference (roles, flags, re-run guide, why they stay separate):
 [`docs/omaxian/install-scripts.md`](../../docs/omaxian/install-scripts.md).
-Community plugins are outside this path — see
-[`community-plugins/README.md`](../../community-plugins/README.md).
+Community plugins: [`community-plugins/README.md`](../../community-plugins/README.md).
 
-Omaxian has no ISO and no `install/` leaf tree. Three root scripts own setup:
+Omaxian has no ISO and no `install/` leaf tree. Layout:
 
-- `setup.sh` (root via sudo) — apt packages, fonts, session D-Bus
+- `omaxian-install.sh` — whiptail TUI one-shot (login user; sudo for apt).
+- `bootstrap.sh` — `curl | bash` clone + hand-off to `omaxian-install.sh`.
+- Root `setup.sh` / `install.sh` / `deploy.sh` — thin shims → `scripts/*`.
+- `scripts/setup.sh` (root via sudo) — apt packages, fonts, session D-Bus
   (`use-session-dbus` in `/etc/X11/Xsession.options`), and a pinned clone of
   upstream into `omarchy-quattro/`. Flags: `--minimal`, `--optional`, `--deploy`.
-- `install.sh` (login user) — seed `~/.local/share/omarchy/{themes,default,bin}`
+- `scripts/install.sh` (login user) — seed `~/.local/share/omarchy/{themes,default,bin}`
   and `~/.config/omarchy/{themes,themed}`. Themes and `default/` come from
   `omarchy-quattro/`; Omaxian-only themes under
   `omaxian/.local/share/omarchy/themes/` are overlaid afterward (default:
   `nebula-ridge`). `bin/` and the menu/agents overlays come from `omaxian/`.
-- `deploy.sh` (login user) — copy `omaxian/.config/*`, `omaxian/.local/share/*`,
+- `scripts/deploy.sh` (login user) — copy `omaxian/.config/*`, `omaxian/.local/share/*`,
   `omaxian/.xsessionrc`, and `omaxian/.icons` into `$HOME`. Seeds
   `~/.config/omarchy/shell.json` from `$OMARCHY_PATH/shell.json` only when
   the user file is missing (Settings / bar layout survive redeploy).
+- `scripts/install-community-plugins.sh` — opt-in local ports + `omaxian.deps.json`
+  apt installs. Not called by setup/install/deploy.
 
 Keep these rules:
 
-- `setup.sh` is the only script that should call `apt-get`. Package sets live
-  in `REQUIRED`, `RECOMMENDED`, and `OPTIONAL` arrays there.
+- `scripts/setup.sh` owns the **desktop** package sets (`REQUIRED` /
+  `RECOMMENDED` / `OPTIONAL`). Community-plugin apt packages live only in each
+  port’s `omaxian.deps.json` and are installed by
+  `scripts/install-community-plugins.sh` (or the TUI). The only other
+  intentional apt callers are the tiny preflight installs in
+  `omaxian-install.sh` (`whiptail`) and `bootstrap.sh` (`git`).
 - `install.sh` and `deploy.sh` must refuse to run as root (re-exec as
-  `$SUDO_USER` / exit). Never seed `/root`.
+  `$SUDO_USER` / exit). Never seed `/root`. Same for the TUI / plugin helper.
 - Use `$OMARCHY_PATH` / `$HOME/.local/share/omarchy` instead of hard-coded
   machine-specific paths. `~/.xsessionrc` is what exports `OMARCHY_PATH` for i3.
+- Scripts under `scripts/` set `REPO_DIR` to the **parent** of `scripts/` (repo
+  root), not to `scripts/` itself.
 - `omarchy-quattro/` is cloned, not vendored. Do not copy upstream into git.
-  Bump `OMARCHY_UPSTREAM_REF` when moving to a newer tag.
+  Bump `OMARCHY_UPSTREAM_REF` when moving to a newer tag (in both setup and
+  install).
 - After copying upstream `default/`, overlay the port's
   `omarchy-menu.jsonc` and `default/agents/` so Arch/Hyprland menu entries and
   agent skills do not ship to users.
 - `~/.config/omarchy/themes` is for user overlays — `install.sh` must not fill
   it with stock themes.
 - Prefer `omarchy-cmd-present` for optional tools. Raw `command -v` and `apt`
-  are fine in `setup.sh`, where talking to the package manager is the point.
+  are fine in `setup.sh` / the community helper, where talking to the package
+  manager is the point.
 - Do not add `pacman`, AUR, `uwsm`, or systemd unit installers.
 
 Idempotence: `setup.sh` and `deploy.sh` are safe to re-run **while logged

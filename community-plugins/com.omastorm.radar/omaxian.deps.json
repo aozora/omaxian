@@ -1,0 +1,6 @@
+{
+  "apt": [],
+  "manual": [
+    "Radar engine is fetched on first use by the plugin bootstrap (see community-plugins/com.omastorm.radar/README.md)."
+  ]
+}

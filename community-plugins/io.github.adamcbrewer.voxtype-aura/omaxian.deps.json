@@ -1,0 +1,9 @@
+{
+  "apt": [
+    "pulseaudio-utils",
+    "python3"
+  ],
+  "manual": [
+    "Requires the Voxtype dictation stack installed separately (see community-plugins/io.github.adamcbrewer.voxtype-aura/README.md)."
+  ]
+}

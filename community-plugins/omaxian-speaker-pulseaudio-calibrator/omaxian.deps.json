@@ -1,0 +1,7 @@
+{
+  "apt": [
+    "python3-numpy",
+    "python3-scipy",
+    "pulseaudio-utils"
+  ]
+}

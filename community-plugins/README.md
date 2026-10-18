@@ -1,19 +1,23 @@
 # Community plugins (optional)
 
 Omaxian-compatible **third-party** shell plugin ports live here. They are **not**
-installed by the desktop bootstrap scripts. Stock desktop code stays under
-`omaxian/.local/share/omarchy/shell/plugins/`; this tree is opt-in only.
+installed by the desktop `setup` / `install` / `deploy` scripts. Stock desktop
+code stays under `omaxian/.local/share/omarchy/shell/plugins/`; this tree is
+opt-in only.
 
 | Script | Installs community plugins? |
 | --- | --- |
-| `setup.sh` (packages / system) | No |
-| `install.sh` (themes / `bin/`) | No |
-| `deploy.sh` (`omaxian/` → `$HOME`) | No |
+| `scripts/setup.sh` (packages / system) | No |
+| `scripts/install.sh` (themes / `bin/`) | No |
+| `scripts/deploy.sh` (`omaxian/` → `$HOME`) | No |
+| `omaxian-install.sh` (TUI, optional step) | Yes, if you accept and select ports |
+| `scripts/install-community-plugins.sh` | Yes (selected ports + apt deps) |
 
-Desktop install (`setup` → `install` → `deploy`) is documented in
-[`docs/omaxian/install-scripts.md`](../docs/omaxian/install-scripts.md). Use that
-for a fresh machine or after `git pull`; use **this** README only for optional
-ports under `~/.config/omarchy/plugins/`.
+Desktop install is documented in
+[`docs/omaxian/install-scripts.md`](../docs/omaxian/install-scripts.md). First-time
+users can pick plugins from the TUI after the desktop phases. Use **this**
+README for manual installs and for updating ports under
+`~/.config/omarchy/plugins/`.
 
 Runtime install target (always):
 
@@ -31,8 +35,28 @@ community-plugins/
   README.md
   <plugin-id>/
     manifest.json          # required: schemaVersion, id, name, version, kinds, entryPoints
+    omaxian.deps.json      # optional: Debian apt + manual follow-ups for the TUI/helper
     *.qml / helpers / …
 ```
+
+### `omaxian.deps.json` (Debian deps)
+
+Omarchy’s `manifest.json` schema has no package list. Omaxian-only packaging
+metadata goes here so the installer can `apt-get install` what a selected port
+needs:
+
+```json
+{
+  "apt": ["qml6-module-qtmultimedia", "v4l-utils"],
+  "manual": [
+    "Install Proton pass-cli from https://protonpass.github.io/pass-cli/ (not in Debian apt)"
+  ]
+}
+```
+
+- `apt` — package names only (no URLs, no `curl | bash`).
+- `manual` — human follow-ups shown after install (non-apt tools, backends).
+- Missing file ⇒ no apt packages for that port (still installable).
 
 ### Rules
 
@@ -74,15 +98,25 @@ community-plugins/
 
 ## Install (opt-in)
 
-Prerequisite: a working Omaxian desktop (`setup.sh` / `install.sh` /
-`deploy.sh` — see
+Prerequisite: a working Omaxian desktop (see
 [`docs/omaxian/install-scripts.md`](../docs/omaxian/install-scripts.md)).
 `omarchy-plugin-check`, `omarchy-plugin-add`, and friends live on `PATH` only
-after `install.sh` (and a login that inherits `$OMARCHY_PATH/bin`).
+after `scripts/install.sh` (and a login that inherits `$OMARCHY_PATH/bin`).
 
 Plugins run unsandboxed inside `omarchy-shell`. Review the tree before enabling.
 
-### From a git URL (preferred when published)
+### Via the TUI / helper (from this repo)
+
+During `./omaxian-install.sh`, accept the community-plugins step and pick ports.
+Or from an existing desktop:
+
+```bash
+./scripts/install-community-plugins.sh --list
+./scripts/install-community-plugins.sh <dir-or-id>…
+# installs omaxian.deps.json apt packages, rsyncs, best-effort enable
+```
+
+### From a git URL (preferred when published upstream)
 
 `omarchy-plugin-add` only accepts a git URL today (not a local path):
 
@@ -91,10 +125,11 @@ omarchy-plugin-check https://github.com/example/omarchy-foo.git
 omarchy-plugin-add https://github.com/example/omarchy-foo.git --enable
 ```
 
-### From this repo (local copy)
+### From this repo (manual rsync)
 
-Until `omarchy-plugin-add` accepts a directory. Run from the **repo root**.
-The `PLUGIN` / `ID` checks matter: an empty source makes `rsync` copy `/`.
+Until `omarchy-plugin-add` accepts a directory. Prefer
+`scripts/install-community-plugins.sh` above. Manual recipe from the **repo
+root** (empty `PLUGIN` would make `rsync` copy `/` — keep the checks):
 
 ```bash
 # Subshell so set -e / exit cannot close an interactive terminal.
@@ -158,14 +193,16 @@ plugin is installed under `~/.config/omarchy/plugins/`.
 2. Run `omarchy-plugin-check` — patch Wayland / Hyprland / PipeWire / systemd
    couplings (see `docs/omarchy-port/deltas.md` and `agents/skills/shell-dev.md`).
 3. Place the result at `community-plugins/<plugin-id>/` with root `manifest.json`.
-4. Re-run check + validate; add a catalog row above.
-5. Do not wire it into stock `shell.json` or first-party `shell/plugins/`.
-6. Do not add the port to `setup.sh` / `install.sh` / `deploy.sh` — keep it
-   outside `omaxian/` so deploy never copies it into `$HOME`.
+4. Add `omaxian.deps.json` when the plugin needs Debian packages or has non-apt
+   prerequisites (`apt` + `manual` arrays).
+5. Re-run check + validate; add a catalog row above.
+6. Do not wire it into stock `shell.json` or first-party `shell/plugins/`.
+7. Do not add the port to `scripts/setup.sh` / `install.sh` / `deploy.sh` — keep
+   it outside `omaxian/` so deploy never copies it into `$HOME`.
 
 ## See also
 
-- [`docs/omaxian/install-scripts.md`](../docs/omaxian/install-scripts.md) — when
-  to run `setup.sh`, `install.sh`, `deploy.sh` (desktop only)
+- [`docs/omaxian/install-scripts.md`](../docs/omaxian/install-scripts.md) — TUI,
+  `scripts/setup.sh` / `install.sh` / `deploy.sh`, community helper
 - [`docs/omaxian/plugin-check.md`](../docs/omaxian/plugin-check.md) —
   `omarchy-plugin-check` reference
