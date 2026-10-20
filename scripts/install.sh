@@ -49,7 +49,7 @@ echo ":: repo: $REPO_DIR"
 # Upstream Omarchy is not vendored — it is cloned into omarchy-quattro/ (pinned).
 # Override either with an env var: OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=…
 UPSTREAM_URL="${OMARCHY_UPSTREAM_URL:-https://github.com/omacom/omarchy.git}"
-UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.0.5}"
+UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.0.6}"
 echo ":: upstream: $UPSTREAM_URL @ $UPSTREAM_REF"
 
 # --- step 1: populate omarchy-quattro/ from upstream --------------------------

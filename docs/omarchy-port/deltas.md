@@ -149,6 +149,20 @@ note: [v4_0_4.md](v4_0_4.md).
 | `bin/omarchy-install-gaming-xbox-controllers` | small update | **not ported** (Arch gaming) | — | — | Sole `bin/` difference in the tag range. |
 | `install/hardware/*`, Limine, kernel migrations / tests | Arch ISO path | **not ported** | — | — | |
 
+## 4.0.6 (2026-10-20)
+
+Upstream tag **v4.0.6** (`OMARCHY_UPSTREAM_REF`, SHA `237f1b4…`). Quirk:
+`omarchy-quattro/version` still reads `4.0.0.alpha` — trust the git tag /
+`describe`. OpenClaw migration/update path, lock-before-suspend, Limine
+console / non-Latin vconsole. Impact note: [v4_0_6.md](v4_0_6.md).
+
+| File | Upstream | omaxian | Transform | Status | Notes |
+|---|---|---|---|---|---|
+| `shell/` (except lock) | unchanged vs v4.0.5 | **no port work** — byte-identical to previous pin | — | — | Confirmed with `diff -rq` against a v4.0.5 snapshot. |
+| `plugins/lock/Service.qml` | `currentlyLocked()` for suspend lock | **not ported** | — | — | Port lock is `i3lock-omaxian` + `xss-lock`. |
+| `bin/omarchy-agent`, OpenClaw install/launch/remove | OpenClaw package / own-install guards | **not ported** | — | — | Agents meter stays soft-launch only. |
+| migrations / mkinitcpio vconsole / OpenClaw tests | Arch ISO + update path | **not ported** | — | — | |
+
 ## 4.0.5 (2026-10-18)
 
 Upstream tag **v4.0.5** (`OMARCHY_UPSTREAM_REF`, SHA `94a8fbc…`). Quirk:
