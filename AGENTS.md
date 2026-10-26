@@ -113,7 +113,7 @@ Commands that `scripts/setup.sh` installs as required are runtime invariants on 
 | `community-plugins/` | Optional third-party plugin ports (not deployed; install into `~/.config/omarchy/plugins/`) |
 | `~/.config/omarchy/shell.json` | User shell layout (Settings); seeded once by `scripts/deploy.sh` |
 | `~/.config/omarchy/plugins/` | User-installed / community shell plugins |
-| `~/.config/omarchy/keyboard.json` | XKB layouts (Settings → Keyboard; applied by `omarchy-keyboard-apply`) |
+| `~/.config/omarchy/keyboard.json` | XKB layouts (Settings → Keyboard); seeded once by `deploy.sh` from `/etc/default/keyboard`; applied by `omarchy-keyboard-apply` |
 | `~/.local/share/omarchy/themes/` | Stock themes, seeded from upstream by `scripts/install.sh` |
 | `~/.config/omarchy/themes/` | User theme overlays only |
 | `~/.config/omarchy/themed/*.tpl` | User template overrides (`{{ variable }}` placeholders) |
@@ -141,6 +141,6 @@ Edit files under `omaxian/`, then:
 # Binds only (optional, after deploy returns): i3-msg reload
 ```
 
-`deploy.sh` overwrites configs from this repo but does not delete files an older deploy left behind. Exception: `~/.config/omarchy/shell.json` is seeded from `$OMARCHY_PATH/shell.json` only when missing, so Settings / bar layout survive redeploy. **Never delete or overwrite that user file** (including from agents). `scripts/install.sh` refreshes themes, upstream `default/`, and `bin/` into `~/.local/share/omarchy/`.
+`deploy.sh` overwrites configs from this repo but does not delete files an older deploy left behind. Exceptions seeded only when missing: `~/.config/omarchy/shell.json` (from `$OMARCHY_PATH/shell.json`) and `~/.config/omarchy/keyboard.json` (from `/etc/default/keyboard`). **Never delete or overwrite those user files** (including from agents). `scripts/install.sh` refreshes themes, upstream `default/`, and `bin/` into `~/.local/share/omarchy/`.
 
 i3 config lives in `omaxian/.config/i3/` (`config` plus `config.d/*.conf`). After deploying i3 files, `i3-msg reload` is enough for binds and rules; a full logout is required when `PATH` / `OMARCHY_PATH` changed.

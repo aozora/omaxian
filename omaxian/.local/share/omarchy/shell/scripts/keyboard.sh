@@ -208,7 +208,7 @@ layout_list() {
 	rules="$(layout_list_from_rules)"
 	eff="$(layout_list_from_symbols || true)"
 	# Prefer the longer list — rules often lag with a single system layout
-	# (e.g. /etc/default/keyboard XKBLAYOUT=it) while the map still has it,ru.
+	# (e.g. /etc/default/keyboard XKBLAYOUT=it) while the live map has more.
 	if [[ -n $eff ]] && (( $(csv_len "$eff") >= $(csv_len "$rules") )); then
 		printf '%s' "$eff"
 	elif [[ -n $rules ]]; then

@@ -2,18 +2,21 @@
 
 # omarchy:summary=Apply XKB layouts from ~/.config/omarchy/keyboard.json
 # omarchy:group=system
-# omarchy:args=[]
+# omarchy:args=[--seed-config]
 # omarchy:examples=omarchy-keyboard-apply
+# omarchy:examples=omarchy-keyboard-apply --seed-config
 
 set -euo pipefail
 
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/keyboard.json"
+SYSTEM_KEYBOARD="${OMARCHY_SYSTEM_KEYBOARD:-/etc/default/keyboard}"
 MAX_LAYOUTS=8
 MAX_BYTES=8192
 
-# Defaults match the previous hard-coded i3_autostart map.
-DEFAULT_LAYOUT="it,ru"
-DEFAULT_VARIANT=",phonetic"
+# Last-resort fallback when neither keyboard.json nor /etc/default/keyboard
+# yields a usable map (not a developer locale preference).
+FALLBACK_LAYOUT="us"
+FALLBACK_VARIANT=""
 DEFAULT_TOGGLE="grp:alt_shift_toggle"
 
 ALLOWED_TOGGLES='["","grp:alt_shift_toggle","grp:win_space_toggle","grp:caps_toggle","grp:shifts_toggle"]'
@@ -22,6 +25,150 @@ fail() {
   echo "omarchy-keyboard-apply: $*" >&2
   exit 1
 }
+
+# Read KEY=value / KEY="value" assignments from a keyboard(5) file without
+# sourcing it (no shell expansion).
+read_kbd_var() {
+  local file=$1 key=$2
+  [[ -r $file ]] || return 1
+  awk -F= -v key="$key" '
+    $0 ~ "^[[:space:]]*#" { next }
+    index($0, key "=") != 1 { next }
+    {
+      val = substr($0, length(key) + 2)
+      sub(/[[:space:]]*#.*/, "", val)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+      if (val ~ /^".*"$/) val = substr(val, 2, length(val) - 2)
+      print val
+      exit
+    }
+  ' "$file"
+}
+
+# Populate layout_csv / variant_csv / toggle from /etc/default/keyboard
+# (Debian installer / localectl). Returns 1 if no usable layout list.
+load_system_defaults() {
+  local file=$1
+  local layout_raw variant_raw options_raw
+  local -a layouts=() variants=() opts=()
+  local i n opt
+
+  layout_raw=$(read_kbd_var "$file" XKBLAYOUT || true)
+  variant_raw=$(read_kbd_var "$file" XKBVARIANT || true)
+  options_raw=$(read_kbd_var "$file" XKBOPTIONS || true)
+
+  [[ -n $layout_raw ]] || return 1
+
+  IFS=',' read -r -a layouts <<<"$layout_raw"
+  IFS=',' read -r -a variants <<<"$variant_raw"
+
+  n=${#layouts[@]}
+  ((n > 0)) || return 1
+  ((n > MAX_LAYOUTS)) && n=$MAX_LAYOUTS
+
+  layout_csv=""
+  variant_csv=""
+  for ((i = 0; i < n; i++)); do
+    local lay var
+    lay=$(printf '%s' "${layouts[i]:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+    [[ $lay =~ ^[a-z0-9_]+$ ]] || continue
+    var=$(printf '%s' "${variants[i]:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+    [[ $var =~ ^[a-z0-9_-]*$ ]] || var=""
+    if [[ -n $layout_csv ]]; then
+      layout_csv+=",$lay"
+      variant_csv+=",$var"
+    else
+      layout_csv=$lay
+      variant_csv=$var
+    fi
+  done
+
+  [[ -n $layout_csv ]] || return 1
+
+  # Prefer an explicit grp:* from the system file when present. Single-layout
+  # installs usually leave XKBOPTIONS empty — keep Alt+Shift ready for when
+  # the user adds a second layout in Settings.
+  toggle=$DEFAULT_TOGGLE
+  if [[ -n $options_raw ]]; then
+    IFS=',' read -r -a opts <<<"$options_raw"
+    for opt in "${opts[@]}"; do
+      opt=$(printf '%s' "$opt" | tr -d '[:space:]')
+      case "$opt" in
+        grp:alt_shift_toggle | grp:win_space_toggle | grp:caps_toggle | grp:shifts_toggle)
+          toggle=$opt
+          break
+          ;;
+      esac
+    done
+  fi
+
+  return 0
+}
+
+use_fallback_defaults() {
+  layout_csv=$FALLBACK_LAYOUT
+  variant_csv=$FALLBACK_VARIANT
+  toggle=$DEFAULT_TOGGLE
+}
+
+resolve_defaults() {
+  if load_system_defaults "$SYSTEM_KEYBOARD"; then
+    return 0
+  fi
+  use_fallback_defaults
+}
+
+csv_to_keyboard_json() {
+  local layouts=$1 variants=$2 toggle_val=$3
+  jq -n \
+    --arg toggle "$toggle_val" \
+    --argjson max "$MAX_LAYOUTS" \
+    --arg layouts "$layouts" \
+    --arg variants "$variants" '
+      ($layouts | split(",")) as $L
+      | (if $variants == "" then [] else ($variants | split(",")) end) as $V
+      | {
+          layouts: (
+            [range(0; ([$L | length, $max] | min))]
+            | map({
+                layout: $L[.],
+                variant: (if . < ($V | length) then $V[.] else "" end)
+              })
+          ),
+          toggle: $toggle
+        }
+    '
+}
+
+seed_config_if_missing() {
+  local json tmp dir
+  [[ -e $CONFIG ]] && return 0
+  command -v jq >/dev/null || fail "jq not found"
+  resolve_defaults
+  dir=$(dirname "$CONFIG")
+  mkdir -p "$dir"
+  json=$(csv_to_keyboard_json "$layout_csv" "$variant_csv" "$toggle")
+  tmp=$(mktemp "$dir/keyboard.json.XXXXXX")
+  printf '%s\n' "$json" >"$tmp"
+  mv -f "$tmp" "$CONFIG"
+  echo "omarchy-keyboard-apply: seeded $CONFIG from ${SYSTEM_KEYBOARD} ($layout_csv)"
+}
+
+# --- --seed-config (installer / deploy; no DISPLAY required) ----------------
+
+if [[ ${1:-} == --seed-config ]]; then
+  if (( $# != 1 )); then
+    echo "usage: omarchy-keyboard-apply --seed-config" >&2
+    exit 2
+  fi
+  seed_config_if_missing
+  exit 0
+fi
+
+if (( $# != 0 )); then
+  echo "usage: omarchy-keyboard-apply [--seed-config]" >&2
+  exit 2
+fi
 
 command -v setxkbmap >/dev/null || fail "setxkbmap not found"
 command -v jq >/dev/null || fail "jq not found"
@@ -42,10 +189,8 @@ if raw=$(read_config "$CONFIG"); then
   ((${#raw} <= MAX_BYTES)) || fail "config too large: $CONFIG"
 
   if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$raw"; then
-    echo "omarchy-keyboard-apply: invalid JSON in $CONFIG — using defaults" >&2
-    layout_csv=$DEFAULT_LAYOUT
-    variant_csv=$DEFAULT_VARIANT
-    toggle=$DEFAULT_TOGGLE
+    echo "omarchy-keyboard-apply: invalid JSON in $CONFIG — using system defaults" >&2
+    resolve_defaults
   else
     parsed=$(jq -c --argjson allowed "$ALLOWED_TOGGLES" --argjson max "$MAX_LAYOUTS" '
       def layout_ok: type == "string" and test("^[a-z0-9_]+$");
@@ -74,10 +219,8 @@ if raw=$(read_config "$CONFIG"); then
     ' <<<"$raw" 2>/dev/null) || parsed=""
 
     if [[ -z $parsed ]]; then
-      echo "omarchy-keyboard-apply: no valid layouts in $CONFIG — using defaults" >&2
-      layout_csv=$DEFAULT_LAYOUT
-      variant_csv=$DEFAULT_VARIANT
-      toggle=$DEFAULT_TOGGLE
+      echo "omarchy-keyboard-apply: no valid layouts in $CONFIG — using system defaults" >&2
+      resolve_defaults
     else
       layout_csv=$(jq -r '.layout' <<<"$parsed")
       variant_csv=$(jq -r '.variant' <<<"$parsed")
@@ -85,9 +228,7 @@ if raw=$(read_config "$CONFIG"); then
     fi
   fi
 else
-  layout_csv=$DEFAULT_LAYOUT
-  variant_csv=$DEFAULT_VARIANT
-  toggle=$DEFAULT_TOGGLE
+  resolve_defaults
 fi
 
 [[ -n $layout_csv ]] || fail "empty layout list"

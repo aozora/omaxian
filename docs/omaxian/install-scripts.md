@@ -168,6 +168,7 @@ Bump upstream: wipe the clone, set the pin in **both** `scripts/setup.sh` and
 | Privilege | Login user only; refuses root. |
 | Copies | `omaxian/.config/*` → `~/.config/`; `omaxian/.local/share/*` → `~/.local/share/`; `omaxian/.xsessionrc`; `omaxian/.icons`. |
 | `shell.json` | Seeds `~/.config/omarchy/shell.json` from `$OMARCHY_PATH/shell.json` **only when missing**. Settings / bar layout survive redeploy. Never delete that user file from automation. |
+| `keyboard.json` | Seeds `~/.config/omarchy/keyboard.json` from `/etc/default/keyboard` **only when missing** (`omarchy-keyboard-apply --seed-config`). Never overwrite an existing user layout list. |
 | Live i3 | Raises `$XDG_RUNTIME_DIR/omaxian-deploy.lock`, **stops picom** for the copy, rsyncs (temp + rename — no truncate of open scripts), restarts picom. Does **not** run `i3-msg reload` or `omarchy-restart-shell`. |
 | QML | Applies on the **next full login**. Optional after deploy returns: `i3-msg reload` for binds only. |
 
@@ -197,6 +198,7 @@ orphans left from older deploys.
 | `omarchy-quattro/` | Pinned upstream clone (gitignored, read-only) | `setup.sh` / `install.sh` when absent |
 | `~/.local/share/omarchy/` (`$OMARCHY_PATH`) | Stock themes, `default/`, `bin/`, shell after deploy | `install.sh` + `deploy.sh` |
 | `~/.config/omarchy/shell.json` | User bar / Settings layout | `deploy.sh` once if missing |
+| `~/.config/omarchy/keyboard.json` | XKB layouts (Settings → Keyboard) | `deploy.sh` once from `/etc/default/keyboard` if missing |
 | `~/.config/omarchy/themes/` | User theme overlays | user (install leaves empty) |
 | `~/.config/omarchy/plugins/` | Community / third-party plugins | TUI helper, `omarchy-plugin-add`, or rsync |
 | `community-plugins/*/omaxian.deps.json` | Declared apt + manual deps for a port | maintainers |

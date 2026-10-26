@@ -111,13 +111,14 @@ and are not in this list.
 
 ### Keyboard
 
-XKB layouts in `~/.config/omarchy/keyboard.json` (not overwritten by deploy):
+XKB layouts in `~/.config/omarchy/keyboard.json` (not overwritten by deploy).
+`deploy.sh` seeds that file once from `/etc/default/keyboard` (the layout
+chosen in the Debian/Devuan installer). Example after an Italian install:
 
 ```json
 {
   "layouts": [
-    { "layout": "it", "variant": "" },
-    { "layout": "ru", "variant": "phonetic" }
+    { "layout": "it", "variant": "" }
   ],
   "toggle": "grp:alt_shift_toggle"
 }
@@ -126,7 +127,7 @@ XKB layouts in `~/.config/omarchy/keyboard.json` (not overwritten by deploy):
 Add / remove / reorder layout rows, pick a toggle shortcut (Alt+Shift by
 default so Super+Space stays free for the menu), and **Apply now**.
 `omarchy-keyboard-apply` runs at login from `i3_autostart`. If the file is
-missing, the same defaults as above are used.
+missing, it reads `/etc/default/keyboard` the same way (last resort: `us`).
 
 ### Lock screen
 

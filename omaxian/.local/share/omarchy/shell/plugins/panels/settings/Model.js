@@ -376,10 +376,12 @@ var KEYBOARD_TOGGLES = [
   { value: "", label: "None" }
 ]
 
+// Last-resort UI fallback when keyboard.json is missing/empty. Deploy seeds
+// that file from /etc/default/keyboard (installer layout); omarchy-keyboard-apply
+// uses the same system file when the user config is absent.
 var KEYBOARD_DEFAULT = {
   layouts: [
-    { layout: "it", variant: "" },
-    { layout: "ru", variant: "phonetic" }
+    { layout: "us", variant: "" }
   ],
   toggle: "grp:alt_shift_toggle"
 }

@@ -171,6 +171,23 @@ else
 	exit 1
 fi
 
+# Seed keyboard.json once from /etc/default/keyboard (Debian installer layout).
+# Never overwrite an existing user file. Falls back to "us" inside the helper
+# if the system file is missing.
+USER_KEYBOARD_JSON="$HOME/.config/omarchy/keyboard.json"
+KEYBOARD_APPLY="$HOME/.local/share/omarchy/bin/omarchy-keyboard-apply"
+if [[ -f $USER_KEYBOARD_JSON ]]; then
+	echo ":: kept existing $USER_KEYBOARD_JSON (Settings / keyboard layouts)"
+elif [[ -x $KEYBOARD_APPLY ]]; then
+	if "$KEYBOARD_APPLY" --seed-config; then
+		echo ":: seeded $USER_KEYBOARD_JSON from /etc/default/keyboard"
+	else
+		echo "!! could not seed $USER_KEYBOARD_JSON" >&2
+	fi
+else
+	echo "!! missing $KEYBOARD_APPLY — skip keyboard.json seed" >&2
+fi
+
 echo
 echo "-- 3/4  ~/.xsessionrc (OMARCHY_PATH + PATH) -----------------------------"
 cp "$SRC/.xsessionrc" "$HOME/.xsessionrc.tmp"
