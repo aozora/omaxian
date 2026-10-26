@@ -99,3 +99,6 @@ turn off xfpm lock-on-suspend / screensaver sleep-activation, set
 `logind-handle-lid-switch=true` with lid-action=suspend (xfpm’s defaults are
 lock-screen and steal the lid from elogind — that is the
 “none of the screen lock tools…” dialog), and stop leftover `xfce4-screensaver`.
+Hardware power button: xfpm’s default **Ask** needs the XFCE logout dialog;
+under i3 both paths rewrite unset/Ask → **Shutdown** (logind) and leave any
+other `power-button-action` from `xfce4-power-manager-settings` alone.

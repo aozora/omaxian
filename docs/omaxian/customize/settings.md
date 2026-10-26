@@ -151,7 +151,10 @@ Appearance in `~/.config/omarchy/lock-settings.json` (not overwritten by deploy)
 - Lid / suspend lock is `xss-lock -l` + elogind. Apply sets xfpm
   `logind-handle-lid-switch=true` and lid-action=suspend (defaults are
   lock-screen and steal the lid — that produces “none of the screen lock
-  tools…”), stops leftover `xfce4-screensaver`, and disables lock-on-suspend
+  tools…”), stops leftover `xfce4-screensaver`, and disables lock-on-suspend.
+  The hardware power button’s xfpm **Ask** default (needs `xfce4-session`) is
+  rewritten to **Shutdown** when still unset/Ask; other values from
+  `xfce4-power-manager-settings` are left alone (`i3_autostart` does the same)
 - **Packages:** `i3lock` + `xss-lock` required; `imagemagick` (and preferably `maim`) for `i3lock-omaxian` compose/screenshot; `i3lock-fancy` optional fallback. Preview needs `imagemagick` only; lock needs `i3lock`.
 
 ### Advanced

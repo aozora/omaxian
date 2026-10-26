@@ -103,6 +103,18 @@ if command -v xfconf-query >/dev/null 2>&1; then
 			-p /xfce4-power-manager/lid-action-on-battery -n -t uint -s 1 \
 			>/dev/null 2>&1 || true
 	fi
+	# Hardware power button: xfpm default is Ask (3), which opens the XFCE
+	# session logout dialog — absent under i3, so the key does nothing.
+	# Rewrite unset/Ask → Shutdown (4) via logind. Leave 0/1/2/4 alone so a
+	# choice in xfce4-power-manager-settings survives login.
+	_pba=$(xfconf-query -c xfce4-power-manager \
+		-p /xfce4-power-manager/power-button-action 2>/dev/null || true)
+	if [[ -z $_pba || $_pba == 3 ]]; then
+		xfconf-query -c xfce4-power-manager \
+			-p /xfce4-power-manager/power-button-action -n -t uint -s 4 \
+			>/dev/null 2>&1 || true
+	fi
+	unset _pba
 fi
 
 # Enable power management. comm is truncated to 15 chars (xfce4-power-man),
