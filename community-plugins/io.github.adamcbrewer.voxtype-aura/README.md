@@ -4,7 +4,7 @@ A compact, theme-aware [Voxtype](https://github.com/peteonrails/voxtype)
 dictation overlay for [Omaxian](https://github.com/aozora/omaxian) (Omarchy
 on Devuan/Debian + X11/i3). Port of
 [adamcbrewer/voxtype-aura](https://github.com/adamcbrewer/voxtype-aura)
-(upstream commit `3bd8745`).
+(upstream commit `3963121`, plugin version `1.2.0`).
 
 Plugin id: `io.github.adamcbrewer.voxtype-aura` (unchanged). Optional — not
 installed by `./deploy.sh`. See [`../README.md`](../README.md) for the catalog

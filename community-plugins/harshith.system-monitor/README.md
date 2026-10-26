@@ -3,7 +3,7 @@
 A low-overhead dashboard for the Omaxian bar. Reads Linux metrics from `/proc`
 and `/sys` — no background daemon or telemetry. Port of
 [Harshith292002/omarchy-system-monitor](https://github.com/Harshith292002/omarchy-system-monitor)
-(upstream commit `71599f7`, plugin version `1.5.2`).
+(upstream commit `2cbbbcc`, plugin version `1.5.3`).
 
 Plugin id: `harshith.system-monitor` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md) for the catalog install

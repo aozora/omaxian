@@ -2,7 +2,7 @@
 
 Live weather radar for the Omaxian bar. Beta. Port of
 [wesleygrimes/omastorm](https://github.com/wesleygrimes/omastorm)
-(upstream commit `f9a3ce8`, plugin version `0.1.20`).
+(upstream commit `492e978`, plugin version `0.1.23`).
 
 Plugin id: `com.omastorm.radar` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md) for the catalog install

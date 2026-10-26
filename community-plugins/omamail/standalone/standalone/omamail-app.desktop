@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Omamail
+Comment=Email and calendar client
+Exec=omamail-app %u
+Icon=omamail
+StartupWMClass=Omamail
+Terminal=false
+StartupNotify=false
+MimeType=x-scheme-handler/mailto;
+Categories=Office;Network;Email;
