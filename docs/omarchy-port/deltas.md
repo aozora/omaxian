@@ -165,7 +165,14 @@ elsewhen, Appearance/intros, agents expansion. Impact note:
 | `Ui/OverlayWindow.qml` | fullscreen WlrLayershell + Hyprland scale gate | **X11 shim** (`PanelWindow`, near-opaque fill, no Wayland) | `T1` | **keep** | Callers must drop `WlrLayershell.*` attached props. Prefer `CenteredModal` for card-only overlays. |
 | `Ui/*` kit (excl. PopupCard/KeyboardPanel/SpeedTestOverlay/CenteredModal/FolderPicker/ScreenMoveRemap) | 4.5 updates | **remirrored** | — | **converged** | Delta files still pending merge. |
 | `bin/omarchy-{language,i18n,locale-generate}` + `~/.xsessionrc` | uwsm/Hyprland LANG apply | **ported** — `session-env` + `environment.d`; registry via `$OMARCHY_PATH` | `local` | **keep** | |
-| `plugins/notifications`, upstream `plugins/dock`, elsewhen, lock, clipboard, OWE/intros, … | new / rewritten | **not this pass** | — | — | See impact note. |
+| `plugins/agents/` + `collectors.py` + assets | 23 providers, accounts, sync, I18n | **remirrored** | — | **converged** | Uses port `KeyboardPanel` (T1). |
+| `bin/omarchy-agent{,-prompt,-crash}`, `omarchy-default-agent`, `omarchy-agent-usage-*`, `omarchy-agent-account-*` | full CLI surface | **ported** — `wl-copy`→`xclip`; no `omarchy-pkg-present`; usage-update sets `OMARCHY_PATH` | `local` | **keep** | Arch `omarchy-install-*` / mise still upstream calls when present. |
+| `bin/omarchy-launch-{tui,browser}` | uwsm-app / handoff | **X11** — `i3_term` / private-flag browser | `local` | **keep** | Needed by agent launch + account-add. |
+| `shell.json` | agents on default right cluster | **added** `omarchy.agents` after keyboard-layout | `local` | **keep** | User `~/.config/omarchy/shell.json` not overwritten. |
+| `shell.qml` | IpcRegistry/ShellIpc, BrightnessKeys, BackgroundIntro, panel ListModel | **merged** — kept S1–S5 + deploy freeze + shellHasUserConfig; stubbed BrightnessKeys/BackgroundIntro; dropped Hyprland import | multiple | **keep** | Intro/brightness deferred. |
+| `services/PluginRegistry.qml` + auth API facades | 4.5 registry + I18n paths | **merged** deploy freeze / pycache skip; remirrored Shell/BarState/FirstParty APIs | `local` | **keep** | |
+| `services/AppLibrary.qml` | terminal → `omarchy-launch-tui` | **merged** terminalCommand path onto X11 setsid/gtk-launch launch | `local` | **keep** | |
+| `plugins/notifications`, upstream `plugins/dock`, elsewhen, lock, clipboard, OWE/intros, BrightnessKeys, BackgroundIntro | new / rewritten | **not this pass** | — | — | See impact note. |
 
 ---
 

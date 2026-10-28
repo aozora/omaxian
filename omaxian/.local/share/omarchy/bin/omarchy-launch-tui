@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# omarchy:summary=Launch a TUI command in the default terminal with Omarchy styling
+# omarchy:args=[--app-id=<app-id>] <command> [args...]
+#
+# Omaxian: upstream uses uwsm-app + xdg-terminal-exec. Here: kitty via i3_term
+# (floating when OMARCHY_TUI_FLOAT=1). --app-id is accepted and ignored.
+
+set -euo pipefail
+
+if [[ ${1:-} == --app-id=* ]]; then
+  shift
+fi
+
+if (( $# < 1 )); then
+  echo "Usage: omarchy-launch-tui [--app-id=<app-id>] <command> [args...]" >&2
+  exit 1
+fi
+
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
+term="${HOME}/.config/i3/scripts/i3_term"
+if [[ ! -x $term ]]; then
+  # Fallback when deploy path differs
+  if command -v kitty >/dev/null 2>&1; then
+    term=kitty
+  else
+    echo "omarchy-launch-tui: no i3_term or kitty" >&2
+    exit 1
+  fi
+fi
+
+# Rebuild PATH for login-shell children (same as floating-terminal helper).
+export PATH="$OMARCHY_PATH/bin:${PATH:-}"
+
+if [[ ${OMARCHY_TUI_FLOAT:-0} == 1 && -x ${HOME}/.config/i3/scripts/i3_term ]]; then
+  exec "$term" --float -e "$@"
+fi
+
+if [[ -x ${HOME}/.config/i3/scripts/i3_term ]]; then
+  exec "$term" -e "$@"
+fi
+
+exec kitty -e "$@"
