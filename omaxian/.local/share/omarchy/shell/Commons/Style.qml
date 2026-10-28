@@ -350,11 +350,29 @@ QtObject {
   readonly property QtObject bar: QtObject {
     readonly property int sizeHorizontal: root.barToken("size-horizontal", 26)
     readonly property int sizeVertical:   root.barToken("size-vertical",   28)
+    // Calibrated notch cutout height in logical px (0 = derive). Physical; never scales with font.
+    readonly property int notchHeight: {
+      var v = Number(root.barOverrides["notch-height"])
+      return (isFinite(v) && v > 0) ? Math.round(v) : 0
+    }
     readonly property int iconSlot:       root.barToken("icon-slot",       27)
     readonly property int iconCanvas:     root.barToken("icon-canvas",     16)
     readonly property int iconFont:       root.barToken("icon-font",       13)
+    readonly property int iconSize:       Math.min(iconCanvas, root.barToken("icon-size", 12))
     readonly property int statusSlot:     root.barToken("status-slot",     21)
   }
+
+  // Upstream ties this to Hyprland animations:enabled via hyprctl. On X11 there
+  // is no compositor hook — leave false unless a future shell.toml key sets it.
+  // Style.duration(ms) collapses animations to 0 when true.
+  property bool reduceMotion: false
+
+  function duration(ms) {
+    return reduceMotion ? 0 : ms
+  }
+
+  // Strong ease-out for pointer-driven appear/move (matches upstream).
+  readonly property var easeOut: [0.23, 1.0, 0.32, 1.0, 1.0, 1.0]
 
   // Pull typography, bar dimensions, state tokens, and spacing out of the
   // shell.toml dict that Color already parsed. Called by Commons.Color.loadShell so
@@ -383,7 +401,9 @@ QtObject {
       } else if (section === "bar") {
         if (key === "scale-with-font") {
           nextBarScaleWithFont = boolToken(raw, nextBarScaleWithFont)
-        } else if (key === "size-horizontal" || key === "size-vertical") {
+        } else if (key === "size-horizontal" || key === "size-vertical" || key === "notch-height"
+          || key === "icon-slot" || key === "icon-canvas" || key === "icon-font"
+          || key === "icon-size" || key === "status-slot") {
           var b = parseInt(raw, 10)
           if (isFinite(b)) barOut[key] = b
         }
@@ -418,9 +438,10 @@ QtObject {
   }
 
   // X11 delta (deltas.md `drop-hyprctl`): upstream's `hyprctlProc` /
-  // `gapsOutProc` / `refreshTimer` / `windowNoGapsToggle` (Hyprland
-  // `getoption` sync) and `fcMatchProc` / `fontconfigFile` (fc-match font
-  // resolution) live here. Removed for i3 — `cornerRadius`/`radiusPopup`/
-  // `gapsOut` are the static literals above and `resolvedFontFamily` stays
-  // at its "monospace" default.
+  // `gapsOutProc` / `animationsProc` / Hyprland `configreloaded` hook /
+  // `refreshTimer` / `windowNoGapsToggle` and `fcMatchProc` / `fontconfigFile`
+  // live here. Removed for i3 — `cornerRadius`/`radiusPopup`/`gapsOut` are
+  // the static literals above, `resolvedFontFamily` stays "monospace", and
+  // `reduceMotion` is not driven by the compositor (see above).
 }
+

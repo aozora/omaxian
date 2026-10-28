@@ -149,6 +149,26 @@ note: [v4_0_4.md](v4_0_4.md).
 | `bin/omarchy-install-gaming-xbox-controllers` | small update | **not ported** (Arch gaming) | — | — | Sole `bin/` difference in the tag range. |
 | `install/hardware/*`, Limine, kernel migrations / tests | Arch ISO path | **not ported** | — | — | |
 
+## 4.5.0-rc2 (2026-10-28) — in progress
+
+Upstream tag **v4.5.0-rc2** (`OMARCHY_UPSTREAM_REF`, SHA `5978d93…`). Quirk:
+`omarchy-quattro/version` still reads `4.0.0.alpha` — trust the git tag /
+`describe`. Feature RC: i18n, OverlayWindow, notifications rewrite, dock,
+elsewhen, Appearance/intros, agents expansion. Impact note:
+[v4_5_0_rc2.md](v4_5_0_rc2.md). Branch: `port/omarchy-v4.5.0-rc2`.
+
+| File | Upstream | omaxian | Transform | Status | Notes |
+|---|---|---|---|---|---|
+| `Commons/{I18n,Plural,Numbers,Translations,AudioNodes*,Input*,IpcRegistry,ShellIpc,UntypedInput,Color,Border,qmldir}` | new / updated | **remirrored** | — | **converged** | I18n reads `default/i18n` (seeded by `install.sh`). |
+| `Commons/Style.qml` | notch/iconSize + `reduceMotion`/`duration`/`easeOut` + hyprctl animations | **merged** — kept static radii/font; took new bar tokens + motion helpers; **no** hyprctl/`Hyprland` | `drop-hyprctl` | **keep** | `reduceMotion` not compositor-driven on X11. |
+| `Commons/Util.qml` | `itemContainsPoint` / `isVideoPath` / `readingKey` / tray layout sections | **merged** — kept `omarchyBinDir`/`loginShellCommand`/`plain`/`notify` | `local` | **keep** | |
+| `Ui/OverlayWindow.qml` | fullscreen WlrLayershell + Hyprland scale gate | **X11 shim** (`PanelWindow`, near-opaque fill, no Wayland) | `T1` | **keep** | Callers must drop `WlrLayershell.*` attached props. Prefer `CenteredModal` for card-only overlays. |
+| `Ui/*` kit (excl. PopupCard/KeyboardPanel/SpeedTestOverlay/CenteredModal/FolderPicker/ScreenMoveRemap) | 4.5 updates | **remirrored** | — | **converged** | Delta files still pending merge. |
+| `bin/omarchy-{language,i18n,locale-generate}` + `~/.xsessionrc` | uwsm/Hyprland LANG apply | **ported** — `session-env` + `environment.d`; registry via `$OMARCHY_PATH` | `local` | **keep** | |
+| `plugins/notifications`, upstream `plugins/dock`, elsewhen, lock, clipboard, OWE/intros, … | new / rewritten | **not this pass** | — | — | See impact note. |
+
+---
+
 ## 4.0.6 (2026-10-20)
 
 Upstream tag **v4.0.6** (`OMARCHY_UPSTREAM_REF`, SHA `237f1b4…`). Quirk:
