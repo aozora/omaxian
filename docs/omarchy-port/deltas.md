@@ -172,7 +172,9 @@ elsewhen, Appearance/intros, agents expansion. Impact note:
 | `shell.qml` | IpcRegistry/ShellIpc, BrightnessKeys, BackgroundIntro, panel ListModel | **merged** — kept S1–S5 + deploy freeze + shellHasUserConfig; stubbed BrightnessKeys/BackgroundIntro; dropped Hyprland import | multiple | **keep** | Intro/brightness deferred. |
 | `services/PluginRegistry.qml` + auth API facades | 4.5 registry + I18n paths | **merged** deploy freeze / pycache skip; remirrored Shell/BarState/FirstParty APIs | `local` | **keep** | |
 | `services/AppLibrary.qml` | terminal → `omarchy-launch-tui` | **merged** terminalCommand path onto X11 setsid/gtk-launch launch | `local` | **keep** | |
-| `plugins/notifications`, upstream `plugins/dock`, elsewhen, lock, clipboard, OWE/intros, BrightnessKeys, BackgroundIntro | new / rewritten | **not this pass** | — | — | See impact note. |
+| `plugins/panels/elsewhen/` | world clock + globe | **ported** — QML/assets verbatim; `timedatectl` → `omarchy-timezone-{list,current,set}` (zoneinfo + pkexec) | `local` | **keep** | Stock `shell.json` places after `omarchy.clock`. Needs `curl` (Open-Meteo / GitHub); `jq` optional for handles. |
+| `bin/omarchy-timezone-{list,current,set}` + `omarchy-menu-timezone` | Arch `timedatectl` | **local** helpers; menu-timezone calls them | `local` | **keep** | Shared by Elsewhen “here” picker and Update → Timezone. |
+| `plugins/notifications`, upstream `plugins/dock`, lock, clipboard, OWE/intros, BrightnessKeys, BackgroundIntro | new / rewritten | **not this pass** | — | — | See impact note. |
 
 ---
 

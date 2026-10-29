@@ -20,6 +20,8 @@ SETUP="$SCRIPTS/setup.sh"
 INSTALL="$SCRIPTS/install.sh"
 DEPLOY="$SCRIPTS/deploy.sh"
 PLUGIN_HELPER="$SCRIPTS/install-community-plugins.sh"
+# shellcheck source=scripts/lib/ui.sh
+source "$SCRIPTS/lib/ui.sh"
 
 # Release version from repo root (e.g. v1.0.3). Shown in TUI backtitle chrome.
 OMAXIAN_VERSION="unknown"
@@ -58,16 +60,16 @@ fi
 # --- privilege: never seed /root --------------------------------------------
 if [ "$(id -u)" -eq 0 ]; then
 	if [ -z "${SUDO_USER:-}" ] || [ "$SUDO_USER" = root ]; then
-		echo "!! refuse to install as root — run:  ./omaxian-install.sh" >&2
+		omaxian_err "refuse to install as root — run:  ./omaxian-install.sh"
 		exit 1
 	fi
-	echo ":: re-exec as $SUDO_USER (was root via sudo)"
+	omaxian_msg "re-exec as $SUDO_USER (was root via sudo)"
 	exec sudo -u "$SUDO_USER" -H "$0" "$@"
 fi
 
 for f in "$SETUP" "$INSTALL" "$DEPLOY" "$PLUGIN_HELPER"; do
 	if [ ! -x "$f" ]; then
-		echo "!! missing $f — wrong checkout?" >&2
+		omaxian_err "missing $f — wrong checkout?"
 		exit 1
 	fi
 done
@@ -80,11 +82,7 @@ wt() {
 }
 
 phase_banner() {
-	local title="$1"
-	echo
-	echo "========================================================================"
-	echo "$title"
-	echo "========================================================================"
+	omaxian_phase "$1"
 }
 
 # Cache sudo via a whiptail password box so apt never steals the TTY mid-flow.
@@ -95,7 +93,7 @@ ensure_sudo() {
 	if (( NONINTERACTIVE )); then
 		# May prompt on the terminal once; credential stays cached for setup.
 		sudo -v || {
-			echo "!! sudo is required for package install" >&2
+			omaxian_err "sudo is required for package install"
 			exit 1
 		}
 		return 0
@@ -105,7 +103,7 @@ ensure_sudo() {
 		pass=$(wt --title "sudo password" --passwordbox \
 			"Omaxian needs administrator privileges to install packages.\n\nEnter your password for sudo:" \
 			11 70 3>&1 1>&2 2>&3) || {
-			echo ":: cancelled (sudo)"
+			omaxian_msg "cancelled (sudo)"
 			exit 1
 		}
 		if printf '%s\n' "$pass" | sudo -S -v >/dev/null 2>&1; then
@@ -118,7 +116,7 @@ ensure_sudo() {
 		tries=$((tries + 1))
 		wt --title "sudo password" --msgbox "Incorrect password. Try again ($tries/3)." 8 50 || true
 	done
-	echo "!! sudo authentication failed" >&2
+	omaxian_err "sudo authentication failed"
 	exit 1
 }
 
@@ -130,12 +128,12 @@ ensure_tui_tools() {
 	if (( ${#need[@]} == 0 )); then
 		return 0
 	fi
-	echo ":: installing TUI tools: ${need[*]}"
+	omaxian_msg "installing TUI tools: ${need[*]}"
 	if ! sudo -n true 2>/dev/null; then
 		# No whiptail yet → must prompt on the terminal this one time.
 		if ! command -v whiptail >/dev/null 2>&1; then
 			sudo apt-get install -y "${need[@]}" || {
-				echo "!! install whiptail (and dialog) then re-run: sudo apt install whiptail dialog" >&2
+				omaxian_err "install whiptail (and dialog) then re-run: sudo apt install whiptail dialog"
 				exit 1
 			}
 			return 0
@@ -143,24 +141,25 @@ ensure_tui_tools() {
 		ensure_sudo
 	fi
 	sudo apt-get install -y "${need[@]}" || {
-		echo "!! could not install: ${need[*]}" >&2
+		omaxian_err "could not install: ${need[*]}"
 		exit 1
 	}
 }
 
 # Run a long phase; in interactive mode stream stdout/stderr into dialog.
+# Children see OMAXIAN_NESTED=1 so they skip a second ASCII banner.
 run_phase() {
 	local title="$1"
 	shift
 	if (( NONINTERACTIVE )) || ! command -v dialog >/dev/null 2>&1; then
 		phase_banner "$title"
-		"$@"
+		OMAXIAN_NESTED=1 "$@"
 		return
 	fi
 	local ec=0
 	set +e
 	set -o pipefail
-	"$@" 2>&1 | dialog --backtitle "$TUI_BACKTITLE" --title "$title" --programbox 22 84
+	OMAXIAN_NESTED=1 "$@" 2>&1 | dialog --backtitle "$TUI_BACKTITLE" --title "$title" --programbox 22 84
 	ec=${PIPESTATUS[0]}
 	set +o pipefail
 	set -e
@@ -228,8 +227,31 @@ Default: No." \
 		12 72
 }
 
+# Short checklist tag (left column) — directory names like
+# omaxian-speaker-pulseaudio-calibrator overflow a ~78-col whiptail box.
+plugin_checklist_tag() {
+	local dir="$1"
+	case "$dir" in
+		omaxian-speaker-pulseaudio-calibrator) echo "spk-pulse" ;;
+		omaxian-speaker-pipewire-calibrator)   echo "spk-pipe" ;;
+		*.*) echo "${dir##*.}" ;;
+		*)   echo "$dir" ;;
+	esac
+}
+
+# Short friendly label (right column) — name only, not "Name (long.id)".
+plugin_checklist_label() {
+	local dir="$1" name="$2"
+	case "$dir" in
+		omaxian-speaker-pulseaudio-calibrator) echo "Speaker (Pulse)" ;;
+		omaxian-speaker-pipewire-calibrator)   echo "Speaker (PipeWire)" ;;
+		*) echo "$name" ;;
+	esac
+}
+
 choose_plugins() {
-	local list args=() line dir id name tag
+	local list args=() dir id name tag label
+	local -A tag_to_dir=()
 	SELECTED_PLUGIN_DIRS=()
 	list=$("$PLUGIN_HELPER" --list) || true
 	if [ -z "$list" ]; then
@@ -237,11 +259,13 @@ choose_plugins() {
 		return 0
 	fi
 
-	# whiptail checklist: tag item status
+	# whiptail checklist: short tag + short label (avoids TUI overflow)
 	while IFS=$'\t' read -r dir id name; do
 		[ -n "$dir" ] || continue
-		# Tag must be unique and short enough; use directory name.
-		args+=("$dir" "$name ($id)" OFF)
+		tag=$(plugin_checklist_tag "$dir")
+		label=$(plugin_checklist_label "$dir" "$name")
+		tag_to_dir[$tag]=$dir
+		args+=("$tag" "$label" OFF)
 	done <<< "$list"
 
 	if (( ${#args[@]} == 0 )); then
@@ -250,8 +274,8 @@ choose_plugins() {
 
 	local selected
 	selected=$(wt --title "Select community plugins" --checklist \
-		"Space toggles. PulseAudio and PipeWire speaker calibrators are mutually exclusive — pick at most one." \
-		20 78 12 \
+		"Space toggles. Speaker calibrators are mutually exclusive — pick at most one." \
+		20 60 12 \
 		"${args[@]}" \
 		3>&1 1>&2 2>&3) || return 1
 
@@ -261,7 +285,7 @@ choose_plugins() {
 	for tok in $selected; do
 		tok=${tok//\"/}
 		[ -n "$tok" ] || continue
-		SELECTED_PLUGIN_DIRS+=("$tok")
+		SELECTED_PLUGIN_DIRS+=("${tag_to_dir[$tok]}")
 	done
 
 	# Enforce calibrator exclusivity
@@ -274,9 +298,9 @@ choose_plugins() {
 		local pick
 		pick=$(wt --title "Speaker calibrator" --radiolist \
 			"Both audio calibrators were selected. Choose one audio stack:" \
-			12 70 2 \
-			pulse "PulseAudio calibrator" ON \
-			pipewire "PipeWire calibrator" OFF \
+			12 60 2 \
+			pulse "PulseAudio" ON \
+			pipewire "PipeWire" OFF \
 			3>&1 1>&2 2>&3) || return 1
 		local filtered=()
 		for tok in "${SELECTED_PLUGIN_DIRS[@]}"; do
@@ -326,30 +350,31 @@ confirm_plugin_deps() {
 		need+=("$pkg")
 	done
 
-	local msg="Plugins to install:\n"
-	local p
+	local msg="Plugins:\n"
+	local p pname
 	for p in "${SELECTED_PLUGIN_DIRS[@]}"; do
-		msg+="  • $p\n"
+		pname=$(jq -r '.name // .id' "$REPO_DIR/community-plugins/$p/manifest.json" 2>/dev/null) || pname="$p"
+		msg+="  • $(plugin_checklist_label "$p" "$pname")\n"
 	done
 	msg+="\n"
 	if (( ${#need[@]} > 0 )); then
-		msg+="apt packages to install (sudo):\n"
+		msg+="apt packages (sudo):\n"
 		for pkg in "${need[@]}"; do
 			msg+="  • $pkg\n"
 		done
 	else
-		msg+="No additional apt packages needed (already installed or none declared).\n"
+		msg+="No extra apt packages needed.\n"
 	fi
 	if (( ${#manuals[@]} > 0 )); then
 		mapfile -t manuals < <(printf '%s\n' "${manuals[@]}" | sort -u)
-		msg+="\nManual follow-up after install:\n"
+		msg+="\nManual follow-up:\n"
 		for note in "${manuals[@]}"; do
 			msg+="  • $note\n"
 		done
 	fi
 	msg+="\nContinue?"
 
-	wt --title "Plugin dependencies" --yesno "$msg" 22 78
+	wt --title "Plugin dependencies" --yesno "$msg" 20 64
 }
 
 install_selected_plugins() {
@@ -457,11 +482,11 @@ check_quickshell() {
 		QUICKSHELL_MISSING=0
 		local ver
 		ver=$(quickshell --version 2>/dev/null | head -n1 || echo "found on PATH")
-		echo ":: Quickshell OK ($ver)"
+		omaxian_msg "Quickshell OK ($ver)"
 		if (( ! NONINTERACTIVE )); then
 			wt --title "Quickshell" --msgbox \
 				"Quickshell is installed ($ver).\n\nThe bar can start after you log into an i3 / Omaxian session." \
-				10 70 || true
+				10 64 || true
 		fi
 		return 0
 	fi
@@ -470,16 +495,14 @@ check_quickshell() {
 	local text
 	text=$(quickshell_instructions_text)
 	echo
-	echo "========================================================================"
-	echo "!! Quickshell missing"
+	omaxian_err "Quickshell missing"
 	echo -e "$text"
-	echo "========================================================================"
 
 	if (( NONINTERACTIVE )); then
 		return 0
 	fi
 
-	wt --title "Quickshell required" --msgbox "$(echo -e "$text")" 22 78 || true
+	wt --title "Quickshell required" --msgbox "$(echo -e "$text")" 22 72 || true
 }
 
 # --- main -------------------------------------------------------------------
@@ -505,9 +528,9 @@ run_desktop() {
 	ensure_sudo
 	start_sudo_keepalive
 	trap stop_sudo_keepalive EXIT
-	# setup.sh already root via sudo — no nested password prompt for apt.
+	# setup.sh re-execs as root; pass OMAXIAN_NESTED through sudo's env reset.
 	run_phase "1/3  System packages (setup.sh)" \
-		sudo -n "$SETUP" "${SETUP_FLAGS[@]+"${SETUP_FLAGS[@]}"}"
+		sudo -n env OMAXIAN_NESTED=1 "$SETUP" "${SETUP_FLAGS[@]+"${SETUP_FLAGS[@]}"}"
 
 	run_phase "2/3  Themes and commands (install.sh)" "$INSTALL"
 
@@ -537,15 +560,16 @@ Next steps:\n\
 	fi
 	if (( NONINTERACTIVE )); then
 		echo
-		echo "========================================================================"
+		omaxian_done "install finished"
 		echo -e "$text"
-		echo "========================================================================"
 	else
-		wt --title "Done" --msgbox "$(echo -e "$text")" 22 72 || true
+		wt --title "Done" --msgbox "$(echo -e "$text")" 20 68 || true
 	fi
 }
 
 main_interactive() {
+	omaxian_banner
+	omaxian_msg "installer ${OMAXIAN_VERSION}"
 	ensure_tui_tools
 
 	wt --title "Welcome" --msgbox \
@@ -554,25 +578,25 @@ Omarchy for Devuan/Debian + X11 + i3.\n\n\
 This installer will:\n\
   • install system packages (sudo)\n\
   • seed themes and omarchy-* commands\n\
-  • deploy i3 / Quickshell configs / ~/.xsessionrc\n\
-  • verify Quickshell is available (required for the bar)\n\
+  • deploy i3 / Quickshell configs\n\
+  • verify Quickshell (required for the bar)\n\
   • optionally install community plugins\n\n\
 Repo: $REPO_DIR" \
-		18 72 || exit 1
+		17 64 || exit 1
 
-	choose_package_set || { echo ":: cancelled"; exit 1; }
-	confirm_desktop || { echo ":: cancelled"; exit 1; }
+	choose_package_set || { omaxian_msg "cancelled"; exit 1; }
+	confirm_desktop || { omaxian_msg "cancelled"; exit 1; }
 
 	run_desktop
 	check_quickshell
 
 	local plugin_extra=""
 	if ask_install_plugins; then
-		choose_plugins || { echo ":: plugin selection cancelled — desktop is installed"; final_checklist; exit 0; }
+		choose_plugins || { omaxian_msg "plugin selection cancelled — desktop is installed"; final_checklist; exit 0; }
 		if (( ${#SELECTED_PLUGIN_DIRS[@]} > 0 )); then
-			confirm_plugin_deps || { echo ":: plugin deps declined — desktop is installed"; final_checklist; exit 0; }
+			confirm_plugin_deps || { omaxian_msg "plugin deps declined — desktop is installed"; final_checklist; exit 0; }
 			install_selected_plugins
-			plugin_extra="Community plugins were copied to ~/.config/omarchy/plugins/.\nEnable any that were not auto-enabled under Settings → Plugins after login."
+			plugin_extra="Community plugins → ~/.config/omarchy/plugins/.\nEnable under Settings → Plugins after login if needed."
 		fi
 	fi
 
@@ -582,11 +606,12 @@ Repo: $REPO_DIR" \
 main_noninteractive() {
 	SETUP_FLAGS=()
 	PKG_LABEL="Recommended (default)"
-	echo ":: omaxian-install ${OMAXIAN_VERSION}"
-	echo ":: noninteractive: recommended packages + install + deploy (no community plugins)"
+	omaxian_banner
+	omaxian_msg "installer ${OMAXIAN_VERSION}  (noninteractive)"
+	omaxian_info "recommended packages + install + deploy (no community plugins)"
 	run_desktop
 	check_quickshell
-	final_checklist "Community plugins were skipped (--yes). Run ./omaxian-install.sh later or see community-plugins/README.md."
+	final_checklist "Community plugins skipped (--yes). Re-run ./omaxian-install.sh or see community-plugins/README.md."
 }
 
 if (( NONINTERACTIVE )); then

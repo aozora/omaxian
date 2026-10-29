@@ -20,14 +20,18 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/ui.sh
+source "$SCRIPT_DIR/lib/ui.sh"
+
 # --- resolve install target (never seed root's home by accident) -------------
 if [ "$(id -u)" -eq 0 ]; then
 	if [ -z "${SUDO_USER:-}" ] || [ "$SUDO_USER" = root ]; then
-		echo "!! refuse to install as root — run:  ./scripts/install.sh" >&2
+		omaxian_err "refuse to install as root — run:  ./scripts/install.sh"
 		echo "   (or:  sudo -u \$USER -H ./scripts/install.sh)" >&2
 		exit 1
 	fi
-	echo ":: re-exec as $SUDO_USER (was root via sudo)"
+	omaxian_msg "re-exec as $SUDO_USER (was root via sudo)"
 	exec sudo -u "$SUDO_USER" -H "$0" "$@"
 fi
 
@@ -35,39 +39,33 @@ TARGET_HOME="${HOME}"
 OMARCHY_SHARE="$TARGET_HOME/.local/share/omarchy"
 OMARCHY_CONFIG="$TARGET_HOME/.config/omarchy"
 
-echo "========================================================================"
-echo "Installing Omaxian"
-echo "  user:   $(id -un) ($TARGET_HOME)"
-echo "========================================================================"
-
-# Repo root = parent of scripts/, resolved so it works no matter where this
-# script is invoked from.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-echo ":: repo: $REPO_DIR"
 
 # Upstream Omarchy is not vendored — it is cloned into omarchy-quattro/ (pinned).
 # Override either with an env var: OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=…
 UPSTREAM_URL="${OMARCHY_UPSTREAM_URL:-https://github.com/omacom/omarchy.git}"
 UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.5.0-rc2}"
-echo ":: upstream: $UPSTREAM_URL @ $UPSTREAM_REF"
+
+omaxian_banner
+omaxian_msg "install  $(id -un)  $TARGET_HOME"
+omaxian_info "repo $REPO_DIR"
+omaxian_info "upstream $UPSTREAM_URL @ $UPSTREAM_REF"
 
 # --- step 1: populate omarchy-quattro/ from upstream --------------------------
 # Clone only when absent — an existing checkout is left untouched so upstream
 # bumps stay deliberate (re-clone by deleting the dir, or bump
 # OMARCHY_UPSTREAM_REF, then re-run). Either way we continue to step 2.
-echo
-echo "-- 1/4  upstream Omarchy checkout ---------------------------------------"
+omaxian_phase "1/4  upstream Omarchy"
 UPSTREAM_DIR="$REPO_DIR/omarchy-quattro"
 if [ -e "$UPSTREAM_DIR/.git" ]; then
-	echo ":: omarchy-quattro/ present ($(git -C "$UPSTREAM_DIR" describe --tags --always 2>/dev/null || echo unknown)) — keeping, continuing"
+	omaxian_info "omarchy-quattro/ kept ($(git -C "$UPSTREAM_DIR" describe --tags --always 2>/dev/null || echo unknown))"
 else
-	command -v git >/dev/null 2>&1 || { echo "!! git not found — cannot fetch upstream" >&2; exit 1; }
-	echo ":: cloning $UPSTREAM_URL @ $UPSTREAM_REF -> omarchy-quattro/"
+	command -v git >/dev/null 2>&1 || { omaxian_err "git not found — cannot fetch upstream"; exit 1; }
+	omaxian_info "cloning $UPSTREAM_REF → omarchy-quattro/"
 	tmp="$UPSTREAM_DIR.tmp.$$"
 	rm -rf "$tmp"
 	if ! git clone --depth 1 --branch "$UPSTREAM_REF" "$UPSTREAM_URL" "$tmp" 2>/dev/null; then
-		echo ":: '$UPSTREAM_REF' is not a branch/tag — full clone + checkout"
+		omaxian_info "'$UPSTREAM_REF' not a branch/tag — full clone + checkout"
 		rm -rf "$tmp"
 		git clone "$UPSTREAM_URL" "$tmp"
 		git -C "$tmp" checkout --detach "$UPSTREAM_REF"
@@ -75,20 +73,17 @@ else
 	mkdir -p "$UPSTREAM_DIR"
 	( shopt -s dotglob nullglob; mv "$tmp"/* "$UPSTREAM_DIR"/ )
 	rm -rf "$tmp"
-	echo ":: omarchy-quattro/ ready ($(git -C "$UPSTREAM_DIR" describe --tags --always 2>/dev/null || echo "$UPSTREAM_REF"))"
+	omaxian_info "ready ($(git -C "$UPSTREAM_DIR" describe --tags --always 2>/dev/null || echo "$UPSTREAM_REF"))"
 fi
 
 # --- step 2: sanity-check the checkout ---------------------------------------
-# themes/ and default/ are what we copy into ~/.local/share/omarchy; without
-# them the rest of the install would produce an empty/broken share tree.
-echo
-echo "-- 2/4  verify omarchy-quattro/ layout ----------------------------------"
+omaxian_phase "2/4  verify layout"
 if [ ! -d "$UPSTREAM_DIR/themes" ] || [ ! -d "$UPSTREAM_DIR/default" ]; then
-	echo "!! omarchy-quattro/ has no themes/ or default/ — wrong upstream ref?" >&2
+	omaxian_err "omarchy-quattro/ has no themes/ or default/ — wrong upstream ref?"
 	exit 1
 fi
 THEME_COUNT=$(find "$UPSTREAM_DIR/themes" -mindepth 1 -maxdepth 1 -type d | wc -l)
-echo ":: themes/ ($THEME_COUNT themes) and default/ present"
+omaxian_info "themes/ ($THEME_COUNT) and default/ OK"
 
 # --- step 3: refresh ~/.local/share/omarchy ----------------------------------
 # themes + default come from upstream; bin/ comes from the omaxian port
@@ -97,17 +92,12 @@ echo ":: themes/ ($THEME_COUNT themes) and default/ present"
 #
 # ~/.config/omarchy/themes stays empty here on purpose — that dir is for
 # user-installed overrides (omarchy-theme-list merges it with the share tree).
-echo
-echo "-- 3/4  seed $OMARCHY_SHARE ---------------------------------------------"
-echo ":: ensuring share + config skeleton"
+omaxian_phase "3/4  seed share"
 mkdir -p "$OMARCHY_SHARE" "$OMARCHY_CONFIG"/{themes,themed}
-
-echo ":: replacing themes/ default/ bin/ under $OMARCHY_SHARE"
 rm -rf "$OMARCHY_SHARE"/{themes,default,bin}
 
-cp -r "$UPSTREAM_DIR/themes"  "$OMARCHY_SHARE/themes"    # ~120 MB
+cp -r "$UPSTREAM_DIR/themes" "$OMARCHY_SHARE/themes"
 INSTALLED=$(find "$OMARCHY_SHARE/themes" -mindepth 1 -maxdepth 1 -type d | wc -l)
-echo ":: copied $INSTALLED themes -> $OMARCHY_SHARE/themes"
 
 # Omaxian-only themes (e.g. nebula-ridge, the default) live under the port tree
 # and are not in upstream. Overlay them so install alone (before deploy) still
@@ -123,51 +113,48 @@ if [ -d "$PORT_THEMES" ]; then
 		PORT_THEME_COUNT=$((PORT_THEME_COUNT + 1))
 	done
 	if [ "$PORT_THEME_COUNT" -gt 0 ]; then
-		echo ":: overlaid $PORT_THEME_COUNT port theme(s) -> $OMARCHY_SHARE/themes"
 		INSTALLED=$(find "$OMARCHY_SHARE/themes" -mindepth 1 -maxdepth 1 -type d | wc -l)
+		omaxian_info "themes $INSTALLED (incl. $PORT_THEME_COUNT port)"
+	else
+		omaxian_info "themes $INSTALLED"
 	fi
+else
+	omaxian_info "themes $INSTALLED"
 fi
 
-	cp -r "$UPSTREAM_DIR/default" "$OMARCHY_SHARE/default"
-	echo ":: copied default/ -> $OMARCHY_SHARE/default"
+cp -r "$UPSTREAM_DIR/default" "$OMARCHY_SHARE/default"
 
-	# Overlay the Devuan/X11 menu definition. Upstream's JSONC is Arch/Hyprland
-	# (Install/Remove/AUR/…). User extensions cannot delete items, so this
-	# replaces the file the omarchy.menu plugin reads.
-	PORT_MENU="$REPO_DIR/omaxian/.local/share/omarchy/default/omarchy/omarchy-menu.jsonc"
-	if [ -f "$PORT_MENU" ]; then
-		mkdir -p "$OMARCHY_SHARE/default/omarchy"
-		cp "$PORT_MENU" "$OMARCHY_SHARE/default/omarchy/omarchy-menu.jsonc"
-		echo ":: overlaid port omarchy-menu.jsonc"
-	fi
+# Overlay the Devuan/X11 menu definition. Upstream's JSONC is Arch/Hyprland
+# (Install/Remove/AUR/…). User extensions cannot delete items, so this
+# replaces the file the omarchy.menu plugin reads.
+PORT_MENU="$REPO_DIR/omaxian/.local/share/omarchy/default/omarchy/omarchy-menu.jsonc"
+if [ -f "$PORT_MENU" ]; then
+	mkdir -p "$OMARCHY_SHARE/default/omarchy"
+	cp "$PORT_MENU" "$OMARCHY_SHARE/default/omarchy/omarchy-menu.jsonc"
+fi
 
-	# Replace Arch/Hyprland end-user agent skills with the Omaxian set
-	# (i3, apt, maim, no uwsm). deploy.sh also copies this tree.
-	PORT_AGENTS="$REPO_DIR/omaxian/.local/share/omarchy/default/agents"
-	if [ -d "$PORT_AGENTS" ]; then
-		rm -rf "$OMARCHY_SHARE/default/agents"
-		cp -r "$PORT_AGENTS" "$OMARCHY_SHARE/default/agents"
-		echo ":: overlaid port default/agents/"
-	fi
+# Replace Arch/Hyprland end-user agent skills with the Omaxian set
+# (i3, apt, maim, no uwsm). deploy.sh also copies this tree.
+PORT_AGENTS="$REPO_DIR/omaxian/.local/share/omarchy/default/agents"
+if [ -d "$PORT_AGENTS" ]; then
+	rm -rf "$OMARCHY_SHARE/default/agents"
+	cp -r "$PORT_AGENTS" "$OMARCHY_SHARE/default/agents"
+fi
 
 cp -r "$REPO_DIR/omaxian/.local/share/omarchy/bin" "$OMARCHY_SHARE/bin"
-echo ":: copied bin/ (omaxian port) -> $OMARCHY_SHARE/bin"
-
-echo ":: note: $OMARCHY_CONFIG/themes is for user overrides only (left empty)"
+omaxian_info "default/ + bin/ + menu/agents overlays"
 
 if [ "$INSTALLED" -eq 0 ]; then
-	echo "!! no themes landed in $OMARCHY_SHARE/themes — aborting" >&2
+	omaxian_err "no themes landed in $OMARCHY_SHARE/themes — aborting"
 	exit 1
 fi
 
 # --- step 4: seed dock settings (once) ---------------------------------------
 # docs/dock.md — write defaults only when missing so a reinstall never
 # clobbers an existing customization.
-echo
-echo "-- 4/4  dock settings ---------------------------------------------------"
+omaxian_phase "4/4  dock settings"
 DOCK_SETTINGS="$OMARCHY_CONFIG/dock-settings.json"
 if [ ! -f "$DOCK_SETTINGS" ]; then
-	echo ":: writing default $DOCK_SETTINGS"
 	cat > "$DOCK_SETTINGS" <<'EOF'
 {
   "fullWidth": false,
@@ -175,15 +162,12 @@ if [ ! -f "$DOCK_SETTINGS" ]; then
   "hoverAnimation": true
 }
 EOF
+	omaxian_info "wrote defaults"
 else
-	echo ":: $DOCK_SETTINGS already present — keeping"
+	omaxian_info "kept existing"
 fi
 
-echo
-echo "========================================================================"
-echo "Installation done."
-echo "  themes:  $OMARCHY_SHARE/themes  ($INSTALLED)"
-echo "  default: $OMARCHY_SHARE/default"
-echo "  bin:     $OMARCHY_SHARE/bin"
-echo "  Next:    ./scripts/deploy.sh   (i3 / Quickshell / \$HOME dotfiles)"
-echo "========================================================================"
+omaxian_done "install done — $INSTALLED themes → $OMARCHY_SHARE"
+if [[ ${OMAXIAN_NESTED:-0} != 1 ]]; then
+	omaxian_info "next: ./scripts/deploy.sh"
+fi

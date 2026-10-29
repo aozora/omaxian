@@ -18,6 +18,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/ui.sh
+source "$SCRIPT_DIR/lib/ui.sh"
 
 # Upstream Omarchy is cloned into omarchy-quattro/ (pinned), not vendored.
 # Override with: OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=…
@@ -45,15 +47,15 @@ done
 ensure_upstream() {
 	local dir="$REPO_DIR/omarchy-quattro" tmp
 	if [ -e "$dir/.git" ]; then
-		echo ":: omarchy-quattro/ present ($(git -C "$dir" describe --tags --always 2>/dev/null || echo unknown)) — keeping"
+		omaxian_info "omarchy-quattro/ kept ($(git -C "$dir" describe --tags --always 2>/dev/null || echo unknown))"
 		return 0
 	fi
-	command -v git >/dev/null 2>&1 || { echo "!! git not found — cannot fetch upstream" >&2; exit 1; }
-	echo ":: cloning $UPSTREAM_URL @ $UPSTREAM_REF -> omarchy-quattro/"
+	command -v git >/dev/null 2>&1 || { omaxian_err "git not found — cannot fetch upstream"; exit 1; }
+	omaxian_info "cloning $UPSTREAM_REF → omarchy-quattro/"
 	tmp="$dir.tmp.$$"
 	rm -rf "$tmp"
 	if ! git clone --depth 1 --branch "$UPSTREAM_REF" "$UPSTREAM_URL" "$tmp" 2>/dev/null; then
-		echo ":: '$UPSTREAM_REF' is not a branch/tag — full clone + checkout"
+		omaxian_info "'$UPSTREAM_REF' not a branch/tag — full clone + checkout"
 		rm -rf "$tmp"
 		git clone "$UPSTREAM_URL" "$tmp"
 		git -C "$tmp" checkout --detach "$UPSTREAM_REF"
@@ -64,24 +66,22 @@ ensure_upstream() {
 	if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
 		chown -R "$SUDO_USER:$(id -gn "$SUDO_USER")" "$dir"
 	fi
-	echo ":: omarchy-quattro/ ready ($(git -C "$dir" describe --tags --always 2>/dev/null || echo "$UPSTREAM_REF"))"
+	omaxian_info "ready ($(git -C "$dir" describe --tags --always 2>/dev/null || echo "$UPSTREAM_REF"))"
 }
 ensure_upstream
 
 # --- become root for apt -------------------------------------------------------
 if [ "$(id -u)" -ne 0 ]; then
-	echo "setup.sh needs root for apt — re-running under sudo…"
+	omaxian_msg "setup needs root — re-running under sudo"
 	exec sudo -E "$0" "$@"
 fi
 
 TARGET_USER="${SUDO_USER:-root}"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 
-echo "========================================================================"
-echo "Omaxian dependency setup"
-echo "  repo:        $REPO_DIR"
-echo "  install for: $TARGET_USER ($TARGET_HOME)"
-echo "========================================================================"
+omaxian_banner
+omaxian_msg "setup  $TARGET_USER  $TARGET_HOME"
+omaxian_info "repo $REPO_DIR"
 
 # --- package sets -----------------------------------------------------------
 # Hard-required: without one of these something core (bar, session, input
@@ -171,7 +171,8 @@ fi
 # --- resolve + install ----------------------------------------------------------
 export DEBIAN_FRONTEND=noninteractive
 
-echo ":: apt-get update"
+omaxian_phase "apt"
+omaxian_info "update"
 apt-get update -qq
 
 PKGS=("${REQUIRED[@]}")
@@ -208,15 +209,18 @@ while read -r p; do
 	fi
 done < <(printf '%s\n' "${PKGS[@]}" | sort -u)
 
-echo ":: installing ${#AVAIL[@]} packages"
+omaxian_info "installing ${#AVAIL[@]} packages"
 apt-get install -y "${AVAIL[@]}"
 
 # --- session D-Bus (Quickshell must reach the bus) -----------------------------
+omaxian_phase "session"
 OPTS=/etc/X11/Xsession.options
 if [ -f "$OPTS" ]; then
 	if ! grep -qxF 'use-session-dbus' "$OPTS"; then
 		echo 'use-session-dbus' >> "$OPTS"
-		echo ":: enabled use-session-dbus in $OPTS"
+		omaxian_info "enabled use-session-dbus"
+	else
+		omaxian_info "use-session-dbus already set"
 	fi
 else
 	cat > "$OPTS" <<-'EOF'
@@ -227,7 +231,7 @@ else
 	use-ssh-agent
 	use-session-dbus
 	EOF
-	echo ":: created $OPTS with use-session-dbus"
+	omaxian_info "created Xsession.options"
 fi
 
 # --- privileged helpers (root-owned; never elevate user-writable bin/) ---------
@@ -238,7 +242,7 @@ DNS_SRC="$REPO_DIR/omaxian/.local/share/omarchy/bin/omarchy-dns"
 DNS_DST=/usr/local/libexec/omaxian/omarchy-dns
 if [ -f "$DNS_SRC" ]; then
 	install -D -o root -g root -m 0755 "$DNS_SRC" "$DNS_DST"
-	echo ":: installed root-owned $DNS_DST"
+	omaxian_info "omarchy-dns → $DNS_DST"
 fi
 
 # --- power-profiles-daemon on sysvinit/Devuan ---------------------------------
@@ -253,11 +257,11 @@ if [ ! -d /run/systemd/system ] \
 	install -D -o root -g root -m 0755 "$PPD_INIT_SRC" "$PPD_INIT_DST"
 	update-rc.d power-profiles-daemon defaults >/dev/null
 	if service power-profiles-daemon status >/dev/null 2>&1; then
-		echo ":: $PPD_INIT_DST already running"
+		omaxian_info "power-profiles-daemon already running"
 	elif service power-profiles-daemon start; then
-		echo ":: started power-profiles-daemon via sysvinit"
+		omaxian_info "started power-profiles-daemon"
 	else
-		echo "!! power-profiles-daemon init script installed but start failed" >&2
+		omaxian_err "power-profiles-daemon init installed but start failed"
 	fi
 fi
 
@@ -270,44 +274,36 @@ if [ -d "$FONT_SRC" ] && [ "$TARGET_USER" != root ]; then
 	cp -r "$FONT_SRC/." "$FONT_DST/"
 	chown -R "$TARGET_USER:$TARGET_GROUP" "$FONT_DST"
 	sudo -u "$TARGET_USER" fc-cache -f >/dev/null 2>&1 || true
-	echo ":: installed bundled fonts into $FONT_DST"
+	omaxian_info "bundled fonts → $FONT_DST"
 fi
 
 # --- optional: deploy the port ------------------------------------------------
 if (( RUN_DEPLOY )); then
 	if [ "$TARGET_USER" = root ]; then
-		echo "!! --deploy skipped: run ./scripts/install.sh && ./scripts/deploy.sh as your user, not root" >&2
+		omaxian_err "--deploy skipped: run install.sh + deploy.sh as your user, not root"
 	else
-		echo ":: running install.sh + deploy.sh as $TARGET_USER"
-		sudo -u "$TARGET_USER" -H bash -c "cd '$REPO_DIR' && '$SCRIPT_DIR/install.sh' && '$SCRIPT_DIR/deploy.sh'"
+		omaxian_msg "running install.sh + deploy.sh as $TARGET_USER"
+		sudo -u "$TARGET_USER" -H env OMAXIAN_NESTED=1 bash -c \
+			"cd '$REPO_DIR' && '$SCRIPT_DIR/install.sh' && '$SCRIPT_DIR/deploy.sh'"
 	fi
 fi
 
 # --- summary ----------------------------------------------------------------
-echo "========================================================================"
-echo "Done."
+omaxian_done "setup done"
 if (( ! QUICKSHELL_OK )); then
-	echo
-	echo "  ! 'quickshell' is not in this suite's apt (Debian < 13 / Devuan)."
-	echo "    Build it from https://quickshell.org/docs/guide/install/ — the bar"
-	echo "    will not start without it."
+	omaxian_err "quickshell not in this suite's apt — bar needs a manual install"
+	omaxian_info "https://quickshell.org/docs/guide/install/"
 fi
 if [ "${#MISSING[@]}" -gt 0 ]; then
-	echo
-	echo "  ! not found in apt, install by hand if you want the feature:"
-	printf '      %s\n' "${MISSING[@]}"
+	omaxian_info "not in apt (optional): ${MISSING[*]}"
 fi
 if [ "${#UNINSTALLABLE[@]}" -gt 0 ]; then
-	echo
-	echo "  ! present in apt but not currently installable on this system:"
-	printf '      %s\n' "${UNINSTALLABLE[@]}"
-	echo "    setup.sh skipped them so the rest of the install could continue."
+	omaxian_info "in apt but not installable now: ${UNINSTALLABLE[*]}"
 fi
-echo
-if (( ! RUN_DEPLOY )); then
-	echo "  Next:  cd $REPO_DIR && ./scripts/install.sh && ./scripts/deploy.sh"
-	echo "    Or:  ./omaxian-install.sh"
+if (( ! RUN_DEPLOY )) && [[ ${OMAXIAN_NESTED:-0} != 1 ]]; then
+	omaxian_info "next: ./scripts/install.sh && ./scripts/deploy.sh"
+	omaxian_info "  or: ./omaxian-install.sh"
 fi
-echo "  Then:  start an i3 / Omaxian X session and log in fresh"
-echo "         (a full login, not 'i3 restart' — see README)."
-echo "========================================================================"
+if [[ ${OMAXIAN_NESTED:-0} != 1 ]]; then
+	omaxian_info "then: full login to an i3 / Omaxian session (not i3 restart)"
+fi

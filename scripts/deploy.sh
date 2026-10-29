@@ -25,6 +25,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/ui.sh
+source "$SCRIPT_DIR/lib/ui.sh"
+
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC="$REPO_DIR/omaxian"
 DEPLOY_LOCK="${XDG_RUNTIME_DIR:-/tmp}/omaxian-deploy.lock"
@@ -32,12 +35,12 @@ COMP="$HOME/.config/i3/scripts/i3_comp"
 LIVE_SESSION=0
 
 if [ "$(id -u)" -eq 0 ]; then
-	echo "!! refuse to deploy as root — run:  ./scripts/deploy.sh" >&2
+	omaxian_err "refuse to deploy as root — run:  ./scripts/deploy.sh"
 	exit 1
 fi
 
 if [ ! -d "$SRC/.config" ] || [ ! -d "$SRC/.local/share" ]; then
-	echo "!! missing $SRC/{.config,.local/share} — wrong checkout?" >&2
+	omaxian_err "missing $SRC/{.config,.local/share} — wrong checkout?"
 	exit 1
 fi
 
@@ -45,14 +48,12 @@ if command -v i3-msg >/dev/null 2>&1 && i3-msg -t get_version >/dev/null 2>&1; t
 	LIVE_SESSION=1
 fi
 
-echo "========================================================================"
-echo "Deploying Omaxian"
-echo "  user: $(id -un) ($HOME)"
-echo "  from: $SRC"
+omaxian_banner
+omaxian_msg "deploy  $(id -un)  $HOME"
+omaxian_info "from $SRC"
 if (( LIVE_SESSION )); then
-	echo "  mode: LIVE i3 — picom paused; shell file-reload frozen; no reload/restart"
+	omaxian_info "LIVE i3 — picom paused; no reload/restart"
 fi
-echo "========================================================================"
 
 # Copy a tree without truncating files a live process still has open.
 # `cp -r` opens the destination O_TRUNC; long-running bash (i3_display_watch,
@@ -93,7 +94,7 @@ PY
 
 stop_picom() {
 	pgrep -u "$UID" -x picom >/dev/null 2>&1 || return 0
-	echo ":: stopping picom for safe copy (glx + live shell churn freezes X)"
+	omaxian_info "stopping picom"
 	pkill -u "$UID" -x picom 2>/dev/null || true
 	local _
 	for _ in $(seq 1 50); do
@@ -107,7 +108,7 @@ start_picom() {
 	[[ -x $COMP ]] || return 0
 	"$COMP" >/dev/null 2>&1 || true
 	if pgrep -u "$UID" -x picom >/dev/null 2>&1; then
-		echo ":: picom restarted"
+		omaxian_info "picom restarted"
 	fi
 }
 
@@ -128,26 +129,22 @@ if (( LIVE_SESSION )); then
 	stop_picom
 fi
 
-echo
-echo "-- 1/4  ~/.config -------------------------------------------------------"
+omaxian_phase "1/4  ~/.config"
 copy_tree "$SRC/.config" "$HOME/.config"
-echo ":: copied $SRC/.config/ -> $HOME/.config/ (rsync/atomic)"
+omaxian_info "copied"
 
-echo
-echo "-- 2/4  ~/.local/share --------------------------------------------------"
+omaxian_phase "2/4  ~/.local/share"
 copy_tree "$SRC/.local/share" "$HOME/.local/share"
-echo ":: copied $SRC/.local/share/ -> $HOME/.local/share/ (rsync/atomic)"
-if [ -d "$HOME/.local/share/omarchy/shell" ]; then
-	echo ":: shell present: $HOME/.local/share/omarchy/shell"
-else
-	echo "!! $HOME/.local/share/omarchy/shell missing after copy" >&2
+if [ ! -d "$HOME/.local/share/omarchy/shell" ]; then
+	omaxian_err "$HOME/.local/share/omarchy/shell missing after copy"
 	exit 1
 fi
+omaxian_info "shell OK"
 # install.sh seeds upstream default/agents (Hyprland skill). Replace that
 # leftover once the port's omaxian skill is in place — rsync does not delete.
-if [ -d "$HOME/.local/share/omarchy/default/agents/skills/omaxian" ]; then
+if [ -d "$HOME/.local/share/omarchy/default/agents/skills/omarchy" ]; then
 	rm -rf "$HOME/.local/share/omarchy/default/agents/skills/omarchy"
-	echo ":: dropped upstream default/agents/skills/omarchy"
+	omaxian_info "dropped upstream agents/skills/omarchy"
 fi
 
 # Stock shell.json lives under share ($OMARCHY_PATH/shell.json). The live
@@ -157,17 +154,14 @@ USER_SHELL_JSON="$HOME/.config/omarchy/shell.json"
 DEFAULT_SHELL_JSON="$HOME/.local/share/omarchy/shell.json"
 mkdir -p "$HOME/.config/omarchy" "$HOME/.local/state/omarchy"
 if [[ -f $USER_SHELL_JSON ]]; then
-	# Preserve a copy before any later tooling touches Settings — never
-	# overwrite the live file here, only refresh the backup.
 	cp -a "$USER_SHELL_JSON" "$HOME/.local/state/omarchy/shell.json.bak"
-	echo ":: kept existing $USER_SHELL_JSON (Settings / user layout)"
-	echo ":: backup -> $HOME/.local/state/omarchy/shell.json.bak"
+	omaxian_info "kept shell.json (Settings)"
 elif [[ -f $DEFAULT_SHELL_JSON ]]; then
 	cp -a "$DEFAULT_SHELL_JSON" "$USER_SHELL_JSON"
 	cp -a "$USER_SHELL_JSON" "$HOME/.local/state/omarchy/shell.json.bak"
-	echo ":: seeded $USER_SHELL_JSON from defaults"
+	omaxian_info "seeded shell.json"
 else
-	echo "!! missing stock defaults: $DEFAULT_SHELL_JSON" >&2
+	omaxian_err "missing stock defaults: $DEFAULT_SHELL_JSON"
 	exit 1
 fi
 
@@ -177,27 +171,23 @@ fi
 USER_KEYBOARD_JSON="$HOME/.config/omarchy/keyboard.json"
 KEYBOARD_APPLY="$HOME/.local/share/omarchy/bin/omarchy-keyboard-apply"
 if [[ -f $USER_KEYBOARD_JSON ]]; then
-	echo ":: kept existing $USER_KEYBOARD_JSON (Settings / keyboard layouts)"
+	omaxian_info "kept keyboard.json"
 elif [[ -x $KEYBOARD_APPLY ]]; then
 	if "$KEYBOARD_APPLY" --seed-config; then
-		echo ":: seeded $USER_KEYBOARD_JSON from /etc/default/keyboard"
+		omaxian_info "seeded keyboard.json"
 	else
-		echo "!! could not seed $USER_KEYBOARD_JSON" >&2
+		omaxian_err "could not seed $USER_KEYBOARD_JSON"
 	fi
 else
-	echo "!! missing $KEYBOARD_APPLY — skip keyboard.json seed" >&2
+	omaxian_err "missing omarchy-keyboard-apply — skip keyboard.json seed"
 fi
 
-echo
-echo "-- 3/4  ~/.xsessionrc (OMARCHY_PATH + PATH) -----------------------------"
+omaxian_phase "3/4  ~/.xsessionrc"
 cp "$SRC/.xsessionrc" "$HOME/.xsessionrc.tmp"
 mv -f "$HOME/.xsessionrc.tmp" "$HOME/.xsessionrc"
-echo ":: wrote $HOME/.xsessionrc"
-echo "::   OMARCHY_PATH=\$HOME/.local/share/omarchy"
-echo "::   PATH=\$OMARCHY_PATH/bin:… (prepended)"
+omaxian_info "OMARCHY_PATH + PATH"
 
-echo
-echo "-- 4/4  ~/.icons --------------------------------------------------------"
+omaxian_phase "4/4  ~/.icons"
 if [ -d "$SRC/.icons" ]; then
 	mkdir -p "$HOME/.icons"
 	if command -v rsync >/dev/null 2>&1; then
@@ -205,9 +195,9 @@ if [ -d "$SRC/.icons" ]; then
 	else
 		cp -a "$SRC/.icons/." "$HOME/.icons/"
 	fi
-	echo ":: copied icons -> $HOME/.icons"
+	omaxian_info "copied"
 else
-	echo ":: no .icons/ in tree — skipped"
+	omaxian_info "skipped (none in tree)"
 fi
 
 # A live i3 session already ran autostart. Seed the once-lock so a later
@@ -224,20 +214,9 @@ if (( LIVE_SESSION )); then
 	trap - EXIT
 fi
 
-echo
-echo "========================================================================"
-echo "Deployment done."
-echo
-echo "  Verify:"
-echo "    test -f ~/.xsessionrc && grep OMARCHY_PATH ~/.xsessionrc"
-echo "    ls ~/.local/share/omarchy/bin/omarchy-launch-shell"
-echo
+omaxian_done "deploy done"
 if (( LIVE_SESSION )); then
-	echo "  LIVE session: files are on disk. Do NOT run omarchy-restart-shell"
-	echo "  or i3-msg reload from an agent just to 'apply' — that used to"
-	echo "  freeze X. QML/bar: log out and back in. Binds only (optional):"
-	echo "    i3-msg reload"
+	omaxian_info "QML/bar: log out and back in  ·  binds only: i3-msg reload"
 else
-	echo "  Log out/in so i3 inherits PATH (first install)."
+	omaxian_info "log out/in so i3 inherits PATH (first install)"
 fi
-echo "========================================================================"
