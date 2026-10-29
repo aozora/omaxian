@@ -1661,69 +1661,10 @@ ShellRoot {
     }
   }
 
-  // ------------------------------------------------------ global shortcuts
-  //
-  // Bindings that open a menu route or panel, or step the volume, dispatch
-  // these through Hyprland, so a keypress reaches the shell without spawning
-  // an IPC client or script. The list is shared with default/hypr/helpers.lua, which binds a
-  // route or panel missing from it through the command instead.
-
-  function parseShortcuts(raw) {
-    var entries = []
-    var lines = String(raw || "").split("\n")
-    for (var i = 0; i < lines.length; i++) {
-      var match = /^([A-Za-z]+)\s+(\S+)\s*$/.exec(lines[i])
-      if (match && ["menu", "panel", "audio", "brightness", "ipc"].indexOf(match[1]) !== -1)
-        entries.push({ kind: match[1], target: match[2], name: match[1] + "." + match[2] })
-    }
-    return entries
-  }
-
-  // The IPC targets an ipc shortcut may name, and the service that owns each.
-  readonly property var ipcShortcutServices: ({ media: "omarchy.media", notifications: "omarchy.notifications" })
-
-  function runShortcut(entry) {
-    if (entry.kind === "menu") {
-      shell.toggle("omarchy.menu", JSON.stringify({ menu: entry.target }))
-    } else if (entry.kind === "ipc") {
-      // "media.next" runs the media service's own IPC handler for next.
-      var dot = entry.target.indexOf(".")
-      var target = entry.target.slice(0, dot)
-      var method = entry.target.slice(dot + 1)
-      var service = shell.serviceFor(shell.ipcShortcutServices[target] || "")
-      if (!service || !service.runShortcut(method))
-        Util.execArgv(["omarchy-shell", target, method])
-    } else if (entry.kind === "brightness") {
-      if (!(shell.brightnessKeys && shell.brightnessKeys.handle(entry.target)))
-        Util.execArgv(["omarchy-brightness-display", entry.target === "raise" ? "+5%" : "5%-"])
-    } else if (entry.kind === "audio") {
-      var media = shell.serviceFor("omarchy.media")
-      if (!media || !media.handleVolumeKey(entry.target))
-        Util.execArgv(["omarchy-audio-output-volume", entry.target])
-    } else {
-      shell.toggle(entry.target, "{}")
-    }
-  }
-
-  FileView {
-    id: shortcutsFile
-    path: shell.omarchyPath + "/default/omarchy/shortcuts"
-    watchChanges: true
-    onFileChanged: reload()
-  }
-
-  Variants {
-    model: shell.parseShortcuts(shortcutsFile.text())
-
-    GlobalShortcut {
-      required property var modelData
-
-      appid: "omarchy"
-      name: modelData.name
-      description: modelData.kind === "audio" || modelData.kind === "brightness" ? (modelData.kind === "audio" ? "Volume " : "Brightness ") + modelData.target : (modelData.kind === "ipc" ? "Run " + modelData.target : "Toggle the " + modelData.target + " " + modelData.kind)
-      onPressed: shell.runShortcut(modelData)
-    }
-  }
+  // X11 delta: upstream registers default/omarchy/shortcuts as Hyprland
+  // `GlobalShortcut`s here. That type needs Quickshell.Hyprland and is not
+  // available on X11 (an unknown type fails the whole config load). i3
+  // binds in ~/.config/i3/config.d/ run omarchy-menu / omarchy-shell instead.
 
   // ------------------------------------------------------------ IPC socket
   //
