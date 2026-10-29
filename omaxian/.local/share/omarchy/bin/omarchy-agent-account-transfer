@@ -20,11 +20,17 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+
+def _omarchy_path() -> Path:
+  root = os.environ.get("OMARCHY_PATH") or str(Path.home() / ".local/share/omarchy")
+  return Path(root)
+
+
 # SSH supplies the matching backend in memory on older destinations.
 if "_omarchy_account_state" in sys.modules:
   accounts = sys.modules["_omarchy_account_state"]
 else:
-  loader = importlib.machinery.SourceFileLoader("accounts", str(Path(os.environ["OMARCHY_PATH"]) / "bin/omarchy-agent-account-state"))
+  loader = importlib.machinery.SourceFileLoader("accounts", str(_omarchy_path() / "bin/omarchy-agent-account-state"))
   spec = importlib.util.spec_from_loader(loader.name, loader)
   accounts = importlib.util.module_from_spec(spec)
   loader.exec_module(accounts)
@@ -364,7 +370,7 @@ def main(args: list[str]) -> int:
       if args[0] == "bundle":
         payload = {
           "version": 1,
-          "backend": (Path(os.environ["OMARCHY_PATH"]) / "bin/omarchy-agent-account-state").read_text(),
+          "backend": (_omarchy_path() / "bin/omarchy-agent-account-state").read_text(),
           "receiver": Path(__file__).read_text(),
           "accounts": payload,
         }
