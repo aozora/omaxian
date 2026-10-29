@@ -59,5 +59,5 @@ value or changes a symlink/config.
 
 If a launched UI would otherwise remain open, keep track of its PID and stop
 it after the screenshot; avoid broad process kills unless checking with `ps`
-first. Escape dismisses Omaxian panels; click-outside does not always close
-a popup (see README).
+first. Escape dismisses Omaxian panels; click-outside closes bar popouts but not
+centred overlays (see README).

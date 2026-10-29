@@ -223,9 +223,11 @@ exist in the bar font, or set `iconFont` to a family that has it:
 Omaxian is the same shell on X11/i3, not a Hyprland session. Things that
 work differently or are missing:
 
-- **Click-outside does not always close a popup.** A widget anchored to the bar
-  may stay open if you click into another window. Close it with Escape, the
-  same widget, or the same keybind.
+- **Click-outside does not swallow the click.** A bar widget popup closes when
+  you click another window or the desktop, but that click also reaches the
+  window underneath (on Hyprland it is consumed). Centred overlays (menu,
+  Wi-Fi QR, speedtest, reminders) still close only with Escape, the same
+  keybind, or a re-summon.
 - **Lock screen is `i3lock-omaxian`, not Omarchy’s Wayland session-lock plugin.**
   Settings → Lock screen sets appearance (screenshot / image / random, blur
   effects) and optional idle auto-lock via `xss-lock` + `xset`. Manual lock
