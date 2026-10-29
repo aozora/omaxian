@@ -65,6 +65,21 @@ PopupWindow {
 
   default property alias contentItem: contentHolder.children
 
+  // Lazy content (upstream KeyboardPanel API). A panel that sets `content` to
+  // a Component is built on first open instead of at shell startup; it stays
+  // loaded after that so reopen is instant. Root-level panel code reaches it
+  // through `loadedContent` (null until then). Panels that declare children
+  // directly keep the old eager behaviour — both paths share contentHolder.
+  property Component content: null
+  property bool contentRequested: false
+  readonly property Item loadedContent: contentLoader.item
+  readonly property real loadedContentHeight: contentLoader.item ? contentLoader.item.implicitHeight : 0
+
+  function ensureContent() {
+    if (content) contentRequested = true
+    return contentLoader.item
+  }
+
   readonly property var coordinatorKey: owner || root
   readonly property var anchorWindow: anchorItem ? anchorItem.QsWindow.window : null
   readonly property string barPos: bar ? bar.position : "top"
@@ -196,6 +211,7 @@ PopupWindow {
       // grabFocus dismissal breaks the declarative `visible` binding by
       // assigning it directly; re-arm on every open.
       visible = Qt.binding(function() { return root.open || card.opacity > 0 || root.popoutSwitching })
+      if (content) contentRequested = true
       focusNudge.restart()
     }
     if (!bar) return
@@ -325,6 +341,14 @@ PopupWindow {
       Behavior on opacity {
         enabled: root.popoutSwitching
         NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+      }
+
+      Loader {
+        id: contentLoader
+        anchors.fill: parent
+        focus: true
+        active: !!root.content && (root.open || root.contentRequested)
+        sourceComponent: root.content
       }
     }
   }
