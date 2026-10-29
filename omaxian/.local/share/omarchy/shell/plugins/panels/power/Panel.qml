@@ -380,9 +380,13 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.showPercentage && !vertical
-      ? Math.round(root.batteryFraction * 100) + "% " + root.batteryIcon()
-      : root.batteryIcon()
+    // Percentage is a normal label; the battery glyph alone goes through
+    // OpticalGlyph. Stuffing both into `text` scales "87% 󰁹" down to the
+    // icon canvas and makes the digits unreadable.
+    text: root.batteryIcon()
+    labelText: root.showPercentage && !vertical
+      ? Commons.I18n.formatNumber(Math.round(root.batteryFraction * 100)) + "%"
+      : ""
     slotSize: Style.bar.iconSlot * (root.showPercentage && !vertical ? 2 : 1)
     tooltipText: ""
     onPressed: function(b) {
