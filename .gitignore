@@ -147,3 +147,7 @@ vite.config.ts.timestamp-*
 # (pinned via OMARCHY_UPSTREAM_REF), not vendored. Keep the dir, ignore contents.
 /omarchy-quattro/*
 !/omarchy-quattro/.gitkeep
+
+# Python bytecode (helpers under bin/ and shell/scripts/ are run, never imported as packages)
+__pycache__/
+*.pyc

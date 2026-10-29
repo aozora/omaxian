@@ -635,6 +635,35 @@ Item {
     if (activePopout === owner) activePopout = null
   }
 
+  // Close whatever popout is claimed. Returns whether it was actually open.
+  // Stale claims must never wedge the bar: always release after a dismiss
+  // attempt, even when the owner reported closed.
+  function dismissActivePopout() {
+    var owner = activePopout
+    if (!owner) return false
+    var wasOpen = popoutOwnerIsOpen(owner)
+    if (wasOpen && typeof owner.close === "function") owner.close()
+    if (activePopout === owner) releasePopout(owner)
+    return wasOpen
+  }
+
+  // X11 click-outside dismissal. A press on another client's window never
+  // reaches quickshell (grabFocus holds no X pointer grab), so while a
+  // popout is claimed, scripts/click-outside.py listens for XI2 raw button
+  // presses on the root and prints a line for each one that lands on a
+  // window this process doesn't own. Presses on the bar itself still go
+  // through modulePointer below.
+  Process {
+    id: clickOutsideProc
+    running: root.activePopout !== null
+    command: ["python3", Quickshell.shellDir + "/scripts/click-outside.py"]
+    stdout: SplitParser {
+      onRead: function(line) {
+        if (String(line || "").trim() === "outside") root.dismissActivePopout()
+      }
+    }
+  }
+
   readonly property bool vertical: position === "left" || position === "right"
   readonly property int barSize: vertical ? Style.bar.sizeVertical : Style.bar.sizeHorizontal
   // Strut / panel size including outer island padding (wallpaper shows in the
@@ -2142,19 +2171,11 @@ Item {
         // popout is truly open, a bar click closes it instead of routing
         // through — so re-clicking a widget button toggles its popup shut.
         //
-        // Stale claims must never wedge the bar: always release after a
-        // dismiss attempt, and only consume the click when the owner was
-        // actually open. Otherwise fall through to the widget.
-        if (root.activePopout) {
-          var owner = root.activePopout
-          var wasOpen = root.popoutOwnerIsOpen(owner)
-          if (wasOpen && owner && typeof owner.close === "function")
-            owner.close()
-          if (root.activePopout === owner) root.releasePopout(owner)
-          if (wasOpen) {
-            mouse.accepted = true
-            return
-          }
+        // Only consume the click when the owner was actually open.
+        // Otherwise fall through to the widget.
+        if (root.dismissActivePopout()) {
+          mouse.accepted = true
+          return
         }
 
         if (!root.pressModuleClickTarget(slot, mouse.button, mouse.x, mouse.y, mouse.modifiers)) mouse.accepted = false

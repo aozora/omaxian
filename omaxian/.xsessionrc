@@ -18,3 +18,10 @@
 
 export OMARCHY_PATH="$HOME/.local/share/omarchy"
 export PATH="$OMARCHY_PATH/bin:$HOME/.local/bin:$HOME/bin:$PATH"
+
+# Optional LANG from omarchy-language (Setup > Language). Written as a small
+# export file so a missing language choice is a no-op.
+if [ -f "$HOME/.config/omarchy/session-env" ]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.config/omarchy/session-env"
+fi

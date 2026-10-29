@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# omarchy:summary=Launch the default browser (optional private window)
+# omarchy:args=[--private] [url...]
+#
+# Omaxian: no uwsm / browser-handoff. Prefer $BROWSER, then xdg-settings,
+# then common binaries. --private maps to each family's private flag.
+
+set -euo pipefail
+
+private=false
+args=()
+for a in "$@"; do
+  if [[ $a == "--private" ]]; then
+    private=true
+  else
+    args+=("$a")
+  fi
+done
+
+resolve_browser() {
+  if [[ -n ${BROWSER:-} ]]; then
+    command -v "${BROWSER%% *}" >/dev/null 2>&1 && { echo "$BROWSER"; return; }
+  fi
+  local desktop
+  desktop=$(xdg-settings get default-web-browser 2>/dev/null || true)
+  case "$desktop" in
+  *firefox*) command -v firefox >/dev/null && { echo firefox; return; } ;;
+  *chromium*) command -v chromium >/dev/null && { echo chromium; return; } ;;
+  *chrome*) command -v google-chrome >/dev/null && { echo google-chrome; return; } ;;
+  *brave*) command -v brave-browser >/dev/null && { echo brave-browser; return; } ;;
+  esac
+  for c in firefox chromium google-chrome brave-browser xdg-open; do
+    command -v "$c" >/dev/null 2>&1 && { echo "$c"; return; }
+  done
+  return 1
+}
+
+browser=$(resolve_browser) || { echo "omarchy-launch-browser: no browser found" >&2; exit 1; }
+base=${browser%% *}
+
+flag=""
+if [[ $private == true ]]; then
+  case "$base" in
+  firefox|firefox-*) flag="--private-window" ;;
+  chromium|google-chrome|brave-browser|brave|chrome) flag="--incognito" ;;
+  *) flag="" ;; # xdg-open: no private mode
+  esac
+fi
+
+if [[ $base == xdg-open ]]; then
+  exec xdg-open "${args[@]}"
+fi
+
+if [[ -n $flag ]]; then
+  exec $browser "$flag" "${args[@]}"
+fi
+exec $browser "${args[@]}"

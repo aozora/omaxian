@@ -1,8 +1,8 @@
 import QtQuick
 import Quickshell.Io
 import qs.Commons
-
 import qs.Commons as Commons
+
 // Base item for plugin popup widgets. Many first-party plugins expose a bar
 // button plus a popup from one QML entry point; this base owns the shared
 // IPC-backed open/close lifecycle while implementations own button behavior,
@@ -38,8 +38,7 @@ Item {
   // Read a single value from this panel's inline shell.json entry, with a
   // fallback for missing/null values. Matches BarWidget.setting().
   function setting(name, fallback) {
-    var bag = settings
-    var value = bag ? bag[name] : undefined
+    var value = settings ? settings[name] : undefined
     return value === undefined || value === null ? fallback : value
   }
 
@@ -47,7 +46,7 @@ Item {
     id: panelController
   }
 
-  IpcHandler {
+  ShellIpc {
     enabled: root.manageIpc && root.ipcTarget !== ""
     target: root.ipcTarget
 

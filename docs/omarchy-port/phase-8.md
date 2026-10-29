@@ -82,12 +82,29 @@ What still closes a widget popup:
 - Escape (where the widget wires it).
 
 A full-screen transparent dismiss-catcher `PanelWindow` was tried and
-reverted: under glx-picom's fullscreen unredirection it painted the screen
-solid black **and** still missed clicks on windows. The real fix is the
-deferred `PopupCard` → `KeyboardPanel` conversion for the widget popups,
-paired with a picom `unredir-if-possible-exclude = [ "class_g = 'quickshell'" ]`
-(and `KeyboardPanel` itself will need that exclude — its own full-screen
-transparent surface would hit the same black-out).
+reverted: it painted the screen solid black **and** still missed clicks on
+windows.
+
+**Resolved 2026-10-28.** Root causes, re-investigated:
+
+- *Black-out:* not picom. `unredir-if-possible` has never been enabled in
+  `picom.conf`, so there was no unredirection. On X11 a Quickshell
+  `PanelWindow` is an i3-managed `_NET_WM_WINDOW_TYPE_DOCK`; i3 sizes the
+  dock area by the window's height, so a full-screen one takes the whole
+  output and the tiled windows collapse behind it. Same cause for the old
+  full-screen `KeyboardPanel` and OSD surfaces. Rule stands: never map a
+  full-screen `PanelWindow`.
+- *grabFocus:* holds no X pointer grab (verified with python-xlib: a second
+  client grabs pointer + keyboard while a `grabFocus` popup is open), so a
+  press on another client's window never reaches quickshell.
+
+Fix: `plugins/bar/Bar.qml` runs `scripts/click-outside.py` while any popout
+is claimed. It selects XI2 `RawButtonPress` on the root (no grab), and for
+buttons 1–3 walks `XQueryPointer` children from the root; if no window on
+that path has `_NET_WM_PID` == quickshell it prints `outside` and the bar
+calls `dismissActivePopout()`. The click still reaches the app (Hyprland
+swallows it). `Ui/CenteredModal` overlays don't claim a popout and are not
+covered.
 
 ### Stage 7 — done in the repo (deploy + reload to activate)
 

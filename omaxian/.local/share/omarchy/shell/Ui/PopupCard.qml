@@ -3,14 +3,12 @@ import Quickshell
 import qs.Commons
 
 import qs.Commons as Commons
-// X11 delta (T2): dismissal is `PopupWindow.grabFocus` (pointer grab) PLUS a
-// full-screen transparent `dismissCatcher` window. `grabFocus` alone stopped
-// dismissing on a click into another application window once popups anchored
-// to the real plugins/bar dock (`_NET_WM_STATE_ABOVE`) instead of the 1px
-// widgets-only host — the catcher is the reliable, compositor-agnostic path
-// (the same pattern Ui/KeyboardPanel uses). `grabFocus` is kept because it
-// makes the card `Qt::Popup` (which can take keyboard focus for the
-// launcher/runner fields; `Qt::ToolTip` cannot).
+// X11 delta (T2): `PopupWindow.grabFocus` makes the card `Qt::Popup` (which
+// can take keyboard focus for the launcher/runner fields; `Qt::ToolTip`
+// cannot), but it holds no X pointer grab, so a press on another client's
+// window never reaches quickshell. Click-outside dismissal for every claimed
+// popout lives in plugins/bar/Bar.qml (`clickOutsideProc` →
+// scripts/click-outside.py, XI2 raw button events).
 PopupWindow {
   id: root
 
@@ -196,13 +194,11 @@ PopupWindow {
     }
   }
 
-  // (Attempted a full-screen transparent dismiss catcher here — under
-  // glx-picom's fullscreen unredirection it painted the whole screen black
-  // and still didn't receive clicks landing on application windows. Removed.
-  // Widget-popup dismissal is: click the bar / re-click the trigger (handled
-  // in plugins/bar/Bar.qml's modulePointer), the IPC toggle, or Escape.
-  // Click-into-a-window dismissal needs the KeyboardPanel conversion +
-  // picom `unredir-if-possible-exclude` for quickshell — see phase-8.md.)
+  // (A full-screen transparent dismiss catcher was tried here and removed: a
+  // full-screen PanelWindow is an i3 dock, which takes the whole output and
+  // collapses the tiled windows. Dismissal is: click the bar / re-click the
+  // trigger (Bar.qml modulePointer), a press on any non-quickshell window
+  // (Bar.qml clickOutsideProc), the IPC toggle, or Escape.)
 
   Timer {
     id: escapeFocus

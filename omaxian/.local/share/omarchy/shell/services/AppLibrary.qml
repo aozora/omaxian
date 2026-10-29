@@ -159,6 +159,14 @@ Item {
     ].concat(argv))
   }
 
+  // The command a terminal entry runs, without desktop field codes; empty when
+  // the entry is not Terminal=true. Upstream launches these via omarchy-launch-tui
+  // so the window class is org.omarchy.<cmd> for dock/title rules.
+  function terminalCommand(entry) {
+    if (!entry || !entry.runInTerminal) return []
+    return (entry.command || []).filter(function(word) { return !/^%[a-zA-Z]$/.test(String(word)) })
+  }
+
   function launch(entryOrId, name) {
     // Defensive: unwrap a scored row `{ entry, score, key, name }` if one slips through.
     if (entryOrId && typeof entryOrId === "object" && entryOrId.entry && !entryOrId.id)
@@ -177,6 +185,13 @@ Item {
     var entry = (entryOrId && typeof entryOrId === "object")
       ? entryOrId
       : DesktopEntries.byId(String(entryOrId || ""))
+
+    // Terminal apps: name the window after the command (omarchy-launch-tui).
+    var termCmd = root.terminalCommand(entry)
+    if (termCmd.length > 0) {
+      Util.execDetached("omarchy-launch-tui " + termCmd.map(function(word) { return Util.shellQuote(word) }).join(" "))
+      return
+    }
 
     // Prefer the .desktop Exec argv when we already have it — avoids
     // gtk-launch id/extension footguns (vidbee.desktop vs
