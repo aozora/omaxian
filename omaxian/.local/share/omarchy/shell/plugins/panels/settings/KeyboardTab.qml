@@ -21,12 +21,16 @@ Item {
   property string toggle: "grp:alt_shift_toggle"
   property string statusMessage: ""
   property string keyboardReadBuf: ""
+  // Gate writes until the async safe-read finishes so an early Dropdown
+  // change (or Apply) cannot serialize empty layouts over the user file.
+  property bool keyboardLoaded: false
 
   function reloadKeyboardFile() {
     if (keyboardReadProc.running) {
       keyboardReadProc.signal(15)
       keyboardReadKill.start()
     }
+    root.keyboardLoaded = false
     root.keyboardReadBuf = ""
     keyboardReadProc.command = [
       "/usr/bin/python3", "-I", "-S",
@@ -65,6 +69,7 @@ Item {
       var parsed = Model.parseKeyboard(exitCode === 0 ? raw : "")
       root.layouts = parsed.layouts
       root.toggle = parsed.toggle
+      root.keyboardLoaded = true
     }
   }
 
@@ -88,8 +93,17 @@ Item {
   Component.onCompleted: root.reloadKeyboardFile()
 
   function persist(nextLayouts, nextToggle) {
+    if (!root.keyboardLoaded) {
+      root.statusMessage = "Still loading keyboard.json…"
+      return
+    }
     var layouts = nextLayouts !== undefined ? nextLayouts : root.layouts
     var toggle = nextToggle !== undefined ? nextToggle : root.toggle
+    // Never replace a loaded multi-layout map with the empty-array fallback.
+    if (!layouts || layouts.length === 0) {
+      root.statusMessage = "Refusing to save an empty layout list."
+      return
+    }
     var payload = Model.serializeKeyboard({ layouts: layouts, toggle: toggle })
     var parsed = Model.parseKeyboard(payload)
     root.layouts = parsed.layouts
@@ -177,6 +191,7 @@ Item {
         options: Model.keyboardToggleOptions()
         foreground: root.foreground
         fontFamily: root.fontFamily
+        enabled: root.keyboardLoaded
         onChanged: function(v) { root.persist(root.layouts, v) }
       }
 
