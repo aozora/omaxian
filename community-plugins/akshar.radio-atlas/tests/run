@@ -189,7 +189,9 @@ assert_no_match "$_hctl" "$project_dir/RadioAtlas.qml"
 # Omaxian radio-window is a no-op sizing handshake (i3 uses static for_window).
 rg -Fq 'exit 0' "$project_dir/radio-window"
 assert_no_match "$_hctl|hl\.window_rule" "$project_dir/radio-window"
-rg -Fq 'opacity: root.windowFrameReady ? 1 : 0' "$project_dir/RadioAtlas.qml"
+# FloatingWindow has no opacity on this Quickshell build; keep the reveal timer only.
+rg -Fq 'windowFrameReady' "$project_dir/RadioAtlas.qml"
+assert_no_match '^[[:space:]]*opacity: root\.windowFrameReady' "$project_dir/RadioAtlas.qml"
 rg -Fq 'xclip -selection clipboard' "$project_dir/RadioAtlas.qml"
 rg -Fq 'mpv_audio_device' "$project_dir/radio-player"
 sed -n '/function scheduleWindowReveal/,/^  }/p' "$project_dir/RadioAtlas.qml" \

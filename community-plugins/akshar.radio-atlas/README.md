@@ -21,7 +21,7 @@ pattern.
 | ----------------------------- | --------- |
 | Compositor monitor IPC + refresh | `Quickshell.I3` (`focusedMonitor` / `monitorFor`); no refresh call |
 | Dynamic Lua window_rule before map | No-op sizing handshake; float/center via i3 `for_window` |
-| Attached window opacity fade-in | `FloatingWindow.opacity` |
+| Attached window opacity fade-in | Dropped (`FloatingWindow` has no `opacity` here; maps immediately) |
 | Screensaver dismiss via compositor window events | Dropped (Omaxian uses `xss-lock` / `i3lock`, not a QS screensaver surface) |
 | Wayland clipboard CLI for track copy | `xclip` (fallback `xsel`) |
 | mpv `--audio-device=pipewire/<sink>` only | `pipewire/` or `pulse/` chosen from available mpv AOs |

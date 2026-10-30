@@ -1472,7 +1472,9 @@ Item {
     implicitWidth: root.preferredWidth
     implicitHeight: root.preferredHeight
     minimumSize: Qt.size(Math.min(Style.space(800), root.preferredWidth), Math.min(Style.space(560), root.preferredHeight))
-    opacity: root.windowFrameReady ? 1 : 0
+    // Upstream faded the surface until the frame was ready via a compositor
+    // attached property. That API is unavailable here, so the window maps
+    // immediately; windowFrameReady still tracks backing-window map.
 
     onVisibleChanged: {
       if (visible) root.scheduleWindowReveal()
