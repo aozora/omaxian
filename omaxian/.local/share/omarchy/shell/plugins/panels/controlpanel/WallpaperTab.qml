@@ -215,7 +215,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         Layout.fillWidth: true
-        text: "Wallpapers"
+        text: Commons.I18n.t("controlpanel.wallpaper.title", "Wallpapers")
         color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.title
@@ -223,7 +223,9 @@ Item {
       }
       Text {
         textFormat: Text.PlainText
-        text: bgModel.count + (bgModel.count === 1 ? " image" : " images")
+        text: bgModel.count === 1
+          ? Commons.I18n.t("controlpanel.wallpaper.imageCount.one", "%1 image").replace("%1", Commons.I18n.formatNumber(bgModel.count))
+          : Commons.I18n.t("controlpanel.wallpaper.imageCount.other", "%1 images").replace("%1", Commons.I18n.formatNumber(bgModel.count))
         color: BarPalette.popupSubtext
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
@@ -234,8 +236,8 @@ Item {
       Layout.fillWidth: true
       foreground: Commons.Color.popups.text
       options: [
-        { value: "theme", label: "From theme" },
-        { value: "folder", label: "From local folder" }
+        { value: "theme", label: Commons.I18n.t("controlpanel.wallpaper.fromTheme", "From theme") },
+        { value: "folder", label: Commons.I18n.t("controlpanel.wallpaper.fromFolder", "From local folder") }
       ]
       value: root.subTab
       onChanged: function(value) {
@@ -252,7 +254,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         Layout.fillWidth: true
-        text: root.localFolder.length ? root.localFolder : "No folder selected"
+        text: root.localFolder.length ? root.localFolder : Commons.I18n.t("controlpanel.wallpaper.noFolder", "No folder selected")
         color: BarPalette.popupSubtext
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
@@ -260,7 +262,7 @@ Item {
         verticalAlignment: Text.AlignVCenter
       }
       Button {
-        text: "Choose folder…"
+        text: Commons.I18n.t("controlpanel.wallpaper.chooseFolder", "Choose folder…")
         bordered: true
         foreground: Commons.Color.popups.text
         fontSize: Style.font.bodySmall
@@ -273,9 +275,10 @@ Item {
       visible: bgModel.status === FolderListModel.Ready && bgModel.count === 0
       Layout.fillWidth: true
       text: root.subTab === "folder"
-            ? (root.localFolder.length ? "No images in " + root.localFolder
-                                       : "Choose a folder to show its wallpapers.")
-            : "No backgrounds in the current theme."
+            ? (root.localFolder.length
+                ? Commons.I18n.t("controlpanel.wallpaper.noImagesIn", "No images in %1").replace("%1", root.localFolder)
+                : Commons.I18n.t("controlpanel.wallpaper.chooseFolderHint", "Choose a folder to show its wallpapers."))
+            : Commons.I18n.t("controlpanel.wallpaper.noThemeBackgrounds", "No backgrounds in the current theme.")
       color: BarPalette.popupSubtext
       font.family: Style.font.family
       font.pixelSize: Style.font.bodySmall

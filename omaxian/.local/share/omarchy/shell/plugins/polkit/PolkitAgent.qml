@@ -7,15 +7,14 @@ import qs.Commons as Commons
 import qs.Ui
 import "PolkitModel.js" as PolkitModel
 
-// X11 delta (T1, deltas.md): the modal `PanelWindow` drops the
-// `WlrLayershell` namespace/layer/keyboardFocus block. Upstream uses
-// `WlrKeyboardFocus.Exclusive` because the password field needs keys; on
-// X11 that becomes `focusable: true` plus an `XSetInputFocus` nudge
-// (scripts/focus-polkit.py) once the dialog maps — the same class of
+// X11 delta: the modal `PanelWindow` drops upstream's layer-shell
+// namespace/layer/exclusive-keyboard-focus block. The password field needs
+// keys, so on X11 that becomes `focusable: true` plus an `XSetInputFocus`
+// nudge (scripts/focus-polkit.py) once the dialog maps -- the same class of
 // override-redirect / i3-focus problem the launcher popup hit. If password
-// input still doesn't land, fall back to a system polkit agent
-// (mate-polkit / xfce-polkit via scripts/i3_polkit) and disable this plugin.
-// The `Quickshell.Services.Polkit` agent itself is DBus, fully portable.
+// input still doesn't land, fall back to a system polkit agent (mate-polkit /
+// xfce-polkit via scripts/i3_polkit) and disable this plugin. The
+// `Quickshell.Services.Polkit` agent itself is DBus, fully portable.
 
 Item {
   id: root
@@ -61,7 +60,7 @@ Item {
   readonly property int cardWidth: fingerprintMode ? cardHeight : Math.min(Style.space(312), Math.max(Style.space(260), panel.width - Style.gapsOut * 2))
 
   function authorizationLabel(message) {
-    return PolkitModel.authorizationLabel(message)
+    return message ? PolkitModel.authorizationLabel(message, I18n.t) : I18n.t("polkit.authenticationNeeded")
   }
 
   function loadPamConfig(raw) {
@@ -88,7 +87,7 @@ Item {
     var flow = polkitAgent.flow
     if (!flow) return
 
-    currentMessage = String(flow.message || "Authentication is needed...")
+    currentMessage = String(flow.message || "")
     currentPrompt = String(flow.inputPrompt || "")
     currentSupplementary = String(flow.supplementaryMessage || "")
     responseRequired = !!flow.isResponseRequired
@@ -163,9 +162,9 @@ Item {
 
   SequentialAnimation {
     id: shakeAnimation
-    NumberAnimation { target: root; property: "shakeOffset"; to: -8; duration: 35; easing.type: Easing.OutQuad }
-    NumberAnimation { target: root; property: "shakeOffset"; to: 8; duration: 50; easing.type: Easing.InOutQuad }
-    NumberAnimation { target: root; property: "shakeOffset"; to: 0; duration: 55; easing.type: Easing.OutQuad }
+    NumberAnimation { target: root; property: "shakeOffset"; to: -8; duration: Style.duration(35); easing.type: Easing.OutQuad }
+    NumberAnimation { target: root; property: "shakeOffset"; to: 8; duration: Style.duration(50); easing.type: Easing.InOutQuad }
+    NumberAnimation { target: root; property: "shakeOffset"; to: 0; duration: Style.duration(55); easing.type: Easing.OutQuad }
   }
   // Safe-read refuses root-owned files (uid != euid). /etc/pam.d/polkit-1 is
   // system config, so keep FileView.text() here until a world-readable path
@@ -265,6 +264,10 @@ Item {
 
   PanelWindow {
     id: panel
+    // Right-to-left languages read this window mirrored.
+    Binding { target: panel.contentItem; property: "LayoutMirroring.enabled"; value: Commons.I18n.rightToLeft }
+    Binding { target: panel.contentItem; property: "LayoutMirroring.childrenInherit"; value: true }
+
     visible: root.dialogVisible
     screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
     anchors { top: true; bottom: true; left: true; right: true }
@@ -396,7 +399,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: root.errorFlash ? "Wrong" : (root.submitted ? "Checking..." : "Enter password")
+            text: root.errorFlash ? I18n.t("polkit.wrong") : (root.submitted ? I18n.t("polkit.checking") : I18n.t("polkit.enterPassword"))
             color: root.errorFlash ? Commons.Color.polkit.textError : root.foreground
             opacity: root.errorFlash ? 1 : 0.36
             font.family: root.fontFamily

@@ -100,7 +100,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         Layout.fillWidth: true
-        text: "Theme"
+        text: Commons.I18n.t("agents.theme", "Theme")
         color: BarPalette.popupHeaderAccent
         font.family: Style.font.family
         font.pixelSize: Style.font.title
@@ -108,7 +108,9 @@ Item {
       }
       Text {
         textFormat: Text.PlainText
-        text: root.themes.length + (root.themes.length === 1 ? " theme" : " themes")
+        text: root.themes.length === 1
+          ? Commons.I18n.t("controlpanel.themeCount.one", "%1 theme").replace("%1", Commons.I18n.formatNumber(root.themes.length))
+          : Commons.I18n.t("controlpanel.themeCount.other", "%1 themes").replace("%1", Commons.I18n.formatNumber(root.themes.length))
         color: BarPalette.popupSubtext
         font.family: Style.font.family
         font.pixelSize: Style.font.caption

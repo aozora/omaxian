@@ -72,6 +72,11 @@ Item {
   // text rather than with the slot it sits in. Zero on icon-only buttons.
   readonly property real labelWidth: label.visible ? label.implicitWidth : 0
   readonly property bool iconLabel: labelVisible && isIconGlyph(text)
+  // OpticalGlyph paints at Style.bar.iconSize by default. Callers that set a
+  // larger fontSize (e.g. MenuButton's display+2 logo) must win — otherwise the
+  // 4.5 optical path shrinks deliberately oversized bar glyphs to ~12px.
+  readonly property real resolvedIconPaintedSize: Math.max(Style.bar.iconSize, fontSize)
+  readonly property real resolvedIconCanvas: Math.max(Style.bar.iconCanvas, resolvedIconPaintedSize)
   readonly property real iconPaintedWidth: iconLabel && iconLoader.item ? iconLoader.item.paintedWidth : 0
   readonly property real iconPaintedHeight: iconLabel && iconLoader.item ? iconLoader.item.paintedHeight : 0
   readonly property real iconCenterErrorX: iconLabel && iconLoader.item
@@ -93,9 +98,13 @@ Item {
   visible: hasVisualContent || keepSpace
   opacity: !hasVisualContent || concealed ? 0 : (dimmed ? 0.45 : 1)
   implicitWidth: fixedWidth > 0 ? fixedWidth
-    : (vertical ? barSize : (iconLabel ? Style.bar.iconSlot : Math.max(12, label.implicitWidth + scaledHorizontalMargin * 2)))
+    : (vertical ? barSize : (iconLabel
+        ? Math.max(Style.bar.iconSlot, Math.ceil(resolvedIconPaintedSize) + scaledHorizontalMargin * 2)
+        : Math.max(12, label.implicitWidth + scaledHorizontalMargin * 2)))
   implicitHeight: fixedHeight > 0 ? fixedHeight
-    : (vertical ? (iconLabel ? Style.bar.iconSlot : Math.max(12, label.implicitHeight + scaledVerticalPadding * 2)) : barSize)
+    : (vertical ? (iconLabel
+        ? Math.max(Style.bar.iconSlot, Math.ceil(resolvedIconPaintedSize) + scaledVerticalPadding * 2)
+        : Math.max(12, label.implicitHeight + scaledVerticalPadding * 2)) : barSize)
 
   Behavior on opacity {
     NumberAnimation { duration: Style.duration(140); easing.type: Easing.OutCubic }
@@ -149,8 +158,8 @@ Item {
   Loader {
     id: iconLoader
     active: root.iconLabel
-    width: Style.bar.iconCanvas
-    height: Style.bar.iconCanvas
+    width: root.resolvedIconCanvas
+    height: root.resolvedIconCanvas
     x: (root.width - width) / 2
     y: (root.height - height) / 2
     scale: root.pressScale
@@ -159,7 +168,7 @@ Item {
         text: root.text
         fontFamily: root.fontFamily
         fontSize: root.fontSize
-        paintedSize: Style.bar.iconSize
+        paintedSize: root.resolvedIconPaintedSize
         color: root.active && root.useActiveColor ? root.activeColor : root.foreground
         rotation: root.textRotation
       }

@@ -20,12 +20,15 @@ function nodeProps(node) {
   return node && node.ready && node.properties ? node.properties : {}
 }
 
-function nodeLabel(node) {
-  if (!node) return "Unknown"
+// tr is an optional translate(key, english) from the QML side (I18n.t);
+// without it the English text stands.
+function nodeLabel(node, tr) {
+  var t = typeof tr === "function" ? tr : function(key, english) { return english }
+  if (!node) return t("audio.unknownDevice", "Unknown")
   var p = nodeProps(node)
   var nickname = friendlyDeviceLabel(node.nickname || node.nick || p["node.nick"] || p["device.profile.description"] || "")
   if (nickname) return nickname
-  return friendlyDeviceLabel(node.description || p["node.description"] || node.name || "Unknown")
+  return friendlyDeviceLabel(node.description || p["node.description"] || node.name || t("audio.unknownDevice", "Unknown"))
 }
 
 function isHeadphones(node) {
@@ -72,17 +75,39 @@ function sourceGlyph(node) {
   return "󰍬"
 }
 
-function outputVolumeName(volume, muted) {
-  if (muted) return "Muted"
+function outputVolumeName(volume, muted, tr) {
+  var t = typeof tr === "function" ? tr : function(key, english) { return english }
+  if (muted) return t("audio.level.muted", "Muted")
   var p = Math.round(volume * 100)
-  if (p === 0) return "Silenced"
-  if (p >= 100) return "Concert hall"
-  if (p >= 85) return "Party mode"
-  if (p >= 70) return "Cranked up"
-  if (p >= 50) return "Steady groove"
-  if (p >= 30) return "Easy listening"
-  if (p >= 15) return "Murmur"
-  return "Whisper"
+  if (p === 0) return t("audio.level.silenced", "Silenced")
+  if (p >= 100) return t("audio.level.concertHall", "Concert hall")
+  if (p >= 85) return t("audio.level.partyMode", "Party mode")
+  if (p >= 70) return t("audio.level.crankedUp", "Cranked up")
+  if (p >= 50) return t("audio.level.steadyGroove", "Steady groove")
+  if (p >= 30) return t("audio.level.easyListening", "Easy listening")
+  if (p >= 15) return t("audio.level.murmur", "Murmur")
+  return t("audio.level.whisper", "Whisper")
+}
+
+// Tab-separated name\t0|1 lines from omarchy-audio-sink-availability.
+function parseSinkAvailability(raw) {
+  var next = {}
+  var lines = String(raw || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim()
+    if (!line) continue
+    var parts = line.split("\t")
+    if (parts.length >= 2) next[parts[0]] = parts[1] !== "0"
+  }
+  return next
+}
+
+// Audio/Source/Virtual (EasyEffects mic, platform monitors) listed by pactl
+// availability but without a PwNode.audio handle.
+function isUntypedSource(node, sourceAvailability) {
+  if (!node || node.audio || node.isStream || node.isSink) return false
+  var name = String(node.name || "")
+  return name !== "" && !!sourceAvailability && Object.prototype.hasOwnProperty.call(sourceAvailability, name)
 }
 
 function isPlaybackStream(node) {
@@ -103,10 +128,11 @@ function isAudioSource(node) {
     || mediaClass.indexOf("Source") !== -1
 }
 
-function rawStreamLabel(node) {
-  if (!node) return "Stream"
+function rawStreamLabel(node, tr) {
+  var t = typeof tr === "function" ? tr : function(key, english) { return english }
+  if (!node) return t("audio.stream", "Stream")
   var p = nodeProps(node)
-  return p["application.name"] || node.description || p["media.name"] || p["node.name"] || node.name || "Stream"
+  return p["application.name"] || node.description || p["media.name"] || p["node.name"] || node.name || t("audio.stream", "Stream")
 }
 
 // ------------------------------------------------------------ Bluetooth tab
@@ -233,18 +259,24 @@ function monitorIconFor(outputs) {
   return "󰍹"
 }
 
-function monitorStatusLine(outputs, lidPresent, lidClosed) {
+function monitorStatusLine(outputs, lidPresent, lidClosed, tr) {
+  var t = typeof tr === "function" ? tr : function(key, english) { return english }
   var enabled = enabledOutputs(outputs)
   var laptop = laptopOutput(outputs)
   var laptopOn = !!(laptop && laptop.enabled)
   var externalCount = enabled.length - (laptopOn ? 1 : 0)
-  var lidPrefix = (lidPresent && lidClosed) ? "Lid closed · " : ""
+  var lidPrefix = (lidPresent && lidClosed) ? t("controlpanel.monitor.lidClosedPrefix", "Lid closed · ") : ""
 
-  if (enabled.length === 0) return lidPrefix + "No displays"
-  if (laptopOn && externalCount === 0) return lidPrefix + "Laptop only"
-  if (!laptopOn && externalCount > 0 && laptop) return lidPrefix + (externalCount === 1 ? "External" : externalCount + " displays")
-  if (laptopOn && externalCount > 0) return lidPrefix + enabled.length + " displays · docked"
-  return lidPrefix + enabled.length + " displays"
+  if (enabled.length === 0) return lidPrefix + t("controlpanel.monitor.noDisplays", "No displays")
+  if (laptopOn && externalCount === 0) return lidPrefix + t("controlpanel.monitor.laptopOnly", "Laptop only")
+  if (!laptopOn && externalCount > 0 && laptop) {
+    return lidPrefix + (externalCount === 1
+      ? t("controlpanel.monitor.external", "External")
+      : t("controlpanel.monitor.nDisplays", "%1 displays").replace("%1", String(externalCount)))
+  }
+  if (laptopOn && externalCount > 0)
+    return lidPrefix + t("controlpanel.monitor.nDisplaysDocked", "%1 displays · docked").replace("%1", String(enabled.length))
+  return lidPrefix + t("controlpanel.monitor.nDisplays", "%1 displays").replace("%1", String(enabled.length))
 }
 
 // -------------------------------------------------------------- Wallpaper tab

@@ -23,14 +23,9 @@ Item {
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
 
     if (payload.fontFamily) root.fontFamily = payload.fontFamily
-
-    // After a live deploy the JSONC watchers can race and leave the palette
-    // with only the synthetic root. Re-read once so Super+L is not empty.
-    if (!root.dmenuActive
-        && (!root.defaultMenuItems || root.defaultMenuItems.length === 0)) {
-      root.reloadDefaultMenuFile()
-      root.reloadUserMenuFile()
-    }
+    // A shell that started mid-update may never have read the shipped menu
+    // whole; reading it again here keeps the menu from opening empty.
+    if (root.defaultMenuItems.length === 0) root.reloadDefaultMenuFile()
 
     if (payload.mode === "select" || payload.mode === "input") {
       root.openDmenu(payload)
@@ -46,6 +41,8 @@ Item {
   function refresh() {
     root.reloadDefaultMenuFile()
     root.reloadUserMenuFile()
+    languageFile.reload()
+    menuCatalogFile.reload()
     return "ok"
   }
 
@@ -57,13 +54,32 @@ Item {
   // path doesn't have to shell out to bash + jq on every open.
   property string defaultMenuPath: omarchyPath + "/default/omarchy/omarchy-menu.jsonc"
   property string userMenuPath: Quickshell.env("HOME") + "/.config/omarchy/extensions/omarchy-menu.jsonc"
+  // Display language for the shipped rows. The code lives in
+  // ~/.config/omarchy/language (omarchy-language owns it); a missing file
+  // means English. The catalog at default/i18n/<code>/menu.json is applied
+  // to the default items before the user extension merges on top, so a
+  // user's own rows and retitles always win.
+  property string language: "en"
+  property var menuCatalog: ({})
+  readonly property string languagePath: Quickshell.env("OMARCHY_LANGUAGE_FILE") || ((Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/omarchy/language")
   property var defaultMenuItems: []
   property var userMenuItems: []
+  // Whether each file has answered once, loaded or (the user's) missing. At
+  // startup both arrive separately, and evaluating guards for the first alone
+  // would run the whole batch twice; an open before then evaluates anyway.
+  property bool defaultMenuSettled: false
+  property bool userMenuSettled: false
   property bool opened: false
   property string mode: "menu"
   readonly property bool dmenuActive: mode === "select" || mode === "input"
   property string dmenuPrompt: ""
   property var dmenuOptions: []
+  property bool dmenuMultiple: false
+  property var dmenuSelected: []
+  // What the last confirmed change applied; a failed change returns the checks here.
+  property var dmenuSaved: []
+  property string dmenuChangeKey: ""
+  property var dmenuOnChange: []
   property string selectionFile: ""
   property string doneFile: ""
   property int dmenuWidth: 300
@@ -72,6 +88,8 @@ Item {
   property bool rowsLoaded: false
   property string activeMenu: "root"
   property string filterText: ""
+  // Resets of filterText reach the search line; its edits come back through setFilter.
+  onFilterTextChanged: if (filterInput.text !== filterText) filterInput.text = filterText
   property int selectedIndex: 0
   property bool cursorActive: false
   property int requestSerial: 0
@@ -121,7 +139,7 @@ Item {
   readonly property var _screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
   readonly property real _screenW: _screen ? _screen.width : 1920
   readonly property real _screenH: _screen ? _screen.height : 1080
-  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : Style.space(300), _screenW - Style.gapsOut * 2)
+  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : ((root.activeMenu === "trigger.capture.screenrecord" || root.activeMenu === "appearance.font" || root.activeMenu === "update.kernel") ? Style.space(520) : Style.space(300)), _screenW - Style.gapsOut * 2)
   property int visibleRowsHeight: root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)
   property int cardHeight: root.dmenuActive
     ? Math.min(contentMargin * 2 + headerHeight + (mode === "input" ? 0 : contentSpacing + visibleRowsHeight), _screenH - Style.gapsOut * 2)
@@ -191,6 +209,9 @@ Item {
   function runAction(action) {
     var command = String(action || "")
     if (!command) return
+
+    var summon = MenuModel.summonAction(command)
+    if (summon && root.shell && root.shell.summon(summon.id, summon.payload)) return
 
     Util.execDetached(command)
   }
@@ -294,18 +315,42 @@ Item {
     return MenuModel.parseMenuJsonc(raw)
   }
 
+  function parseCatalog(raw) {
+    try {
+      var parsed = JSON.parse(raw || "{}")
+      return (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : ({})
+    } catch (e) {
+      return ({})
+    }
+  }
+
+  function setLanguage(raw) {
+    var code = String(raw || "").trim()
+    if (!/^[a-z]{2,3}(-[A-Za-z]{2})?$/.test(code)) code = "en"
+    if (root.language === code) return
+    root.language = code
+    menuCatalogFile.reload()
+  }
+
   // Merge defaults + user extension. Later entries override earlier ones
   // on a per-key basis (so the user can tweak label/icon/action without
   // re-declaring the whole row).
-  function rebuildItemsFromSources() {
-    var mergedMenu = MenuModel.mergeMenuSources(root.defaultMenuItems, root.userMenuItems)
+  // Catalog-only rebuilds pass skipGuards: retitling rows cannot change any
+  // when/checked answer, so re-running the guard batch would be pure waste.
+  function rebuildItemsFromSources(skipGuards) {
+    var translatedDefaults = MenuModel.applyTranslations(root.defaultMenuItems, root.menuCatalog)
+    // The root row is injected by the merge (it has no JSONC entry), so its
+    // "Go" label comes from the catalog's root entry; the merge only uses
+    // it for the injected row, never over a user-supplied heading.
+    var rootCatalog = root.menuCatalog.root
+    var mergedMenu = MenuModel.mergeMenuSources(translatedDefaults, root.userMenuItems, rootCatalog && rootCatalog.label)
     root.providerRevision += 1
     root.providersLoaded = ({})
     root.providerQueue = []
     root.items = mergedMenu.items
     root.itemOrder = mergedMenu.itemOrder
     root.rowsLoaded = true
-    root.evaluateGuards()
+    if (!skipGuards && root.defaultMenuSettled && root.userMenuSettled) root.evaluateGuards()
     if (root.opened) {
       root.rebuildDisplay()
       if (!root.dmenuActive) {
@@ -330,7 +375,31 @@ Item {
     "power-profiles": {
       script: "current=$(powerprofilesctl get 2>/dev/null); omarchy-powerprofiles-list 2>/dev/null | while read -r p; do [[ -z $p ]] && continue; printf '%s\\t%s\\t%s\\n' \"$p\" \"$p\" \"$current\"; done",
       icon: "\udb81\udc0b",
+      // Profile names are powerprofilesctl ids; only the label is translated,
+      // and the id stays searchable through searchTerms.
+      labelFor: function(value) {
+        if (value === "power-saver") return Commons.I18n.t("menu.powerProfilePowerSaver")
+        if (value === "balanced") return Commons.I18n.t("menu.powerProfileBalanced")
+        if (value === "performance") return Commons.I18n.t("menu.powerProfilePerformance")
+        return value
+      },
       actionFor: function(value) { return "omarchy-powerprofiles-set autodetect " + Util.shellQuote(value) }
+    },
+    // Kernel names are package names, the same in every language.
+    "kernels": {
+      script: "current=$(omarchy-kernel get 2>/dev/null); omarchy-kernel list 2>/dev/null | while read -r k; do [[ -z $k ]] && continue; printf '%s\\t%s\\t%s\\n' \"$k\" \"$k\" \"$current\"; done",
+      icon: "\uf17c",
+      volatile: true,
+      actionFor: function(value) { return "omarchy-kernel set " + Util.shellQuote(value) }
+    },
+    // Rows carry a fourth field (the English name) so searching "danish"
+    // finds the row labeled with its native name; mergeProviderRows turns
+    // it into an alias.
+    "languages": {
+      script: "current=$(omarchy-language 2>/dev/null); omarchy-language list 2>/dev/null | while IFS=$'\\t' read -r name code english; do [[ -z $code ]] && continue; printf '%s\\t%s\\t%s\\t%s\\n' \"$name\" \"$code\" \"$current\" \"$english\"; done",
+      icon: "\uf1ab",
+      volatile: true,
+      actionFor: function(value) { return "omarchy-language " + Util.shellQuote(value) }
     }
   })
 
@@ -350,7 +419,7 @@ Item {
       var row = rows[j]
       // omaxian AppLibrary returns bare DesktopEntry / AppImage objects
       // (dock matching uses .id / .startupClass). Upstream menu expected
-      // AppSearch wrappers `{ entry, score, … }` — accept both.
+      // AppSearch wrappers `{ entry, score, ... }`: accept both.
       var entry = (row && row.entry) ? row.entry : row
       if (!entry) continue
       var appId = String(entry.id || "")
@@ -374,8 +443,10 @@ Item {
         action: "",
         provider: "",
         aliases: aliases,
+        searchTerms: [],
         when: "",
         checked: "",
+        disabled: "",
         order: 0
       })
     }
@@ -416,7 +487,8 @@ Item {
       var line = lines[i].trim()
       if (!line) continue
       var parts = line.split("\t")
-      var label = parts[0] || ""
+      var rawLabel = parts[0] || ""
+      var label = spec.labelFor ? spec.labelFor(rawLabel) : rawLabel
       var value = parts[1] || parts[0] || ""
       var current = parts[2] || ""
       if (!label) continue
@@ -439,8 +511,10 @@ Item {
         action: spec.actionFor(value),
         provider: "",
         aliases: [],
+        searchTerms: (parts[3] ? [parts[3]] : []).concat(label !== rawLabel ? [rawLabel] : []),
         when: "",
         checked: "",
+        disabled: "",
         order: 0
       })
     }
@@ -529,9 +603,10 @@ Item {
     return MenuModel.isVisible(root.items, root.itemOrder, root.whenResults, entry)
   }
 
-  // Label with the ✓ marker baked in when `checked:` evaluated truthy.
+  // Label with the ✓ marker baked in when `checked:` or `disabled:` evaluated
+  // truthy.
   function labelFor(entry) {
-    return MenuModel.labelFor(entry, root.checkedResults)
+    return MenuModel.labelFor(entry, root.checkedResults, root.disabledResults)
   }
 
   function searchableToken(value) {
@@ -554,8 +629,17 @@ Item {
     return MenuModel.descriptionTextMatches(query, text)
   }
 
+  // Rows whose `disabled:` evaluated truthy stay listed but dimmed, and the
+  // cursor steps over them.
+  function isDisabled(entry) {
+    return MenuModel.isDisabled(root.disabledResults, entry)
+  }
+
+  // A disabled row earns its place in the submenu it belongs to, where the
+  // list around it is the point. Search is a list of what you can do, so it
+  // leaves them out.
   function matchesQuery(entry, query) {
-    return MenuModel.matchesQuery(entry, query, root.isVisible(entry))
+    return MenuModel.matchesQuery(entry, query, root.isVisible(entry) && !root.isDisabled(entry))
   }
 
   function searchScore(entry, query) {
@@ -563,7 +647,38 @@ Item {
   }
 
   function displayRow(entry, detail, score, section) {
-    return MenuModel.displayRow(root.items, root.itemOrder, root.checkedResults, entry, detail, score, section)
+    return MenuModel.displayRow(root.items, root.itemOrder, root.checkedResults, root.disabledResults, entry, detail, score, section)
+  }
+
+  function rowSelectable(index) {
+    if (index < 0 || index >= displayModel.count) return false
+    return !displayModel.get(index).disabled
+  }
+
+  // First selectable row at or past `from`, continuing in the direction of
+  // travel and wrapping. -1 when every row is disabled, which leaves the menu
+  // with no cursor at all rather than one parked on a row Enter won't run.
+  function nextSelectable(from, direction) {
+    var count = displayModel.count
+    if (count === 0) return -1
+
+    var step = direction < 0 ? -1 : 1
+    var index = ((from % count) + count) % count
+    for (var i = 0; i < count; i++) {
+      if (root.rowSelectable(index)) return index
+      index = (index + step + count) % count
+    }
+
+    return -1
+  }
+
+  // Park the cursor on a selectable row after the rows underneath it changed.
+  // A menu with nothing selectable in it -- every app in it already installed
+  // -- shows no cursor at all, and grows one the moment a row can take it.
+  function settleCursor() {
+    var target = root.nextSelectable(root.selectedIndex, 1)
+    root.selectedIndex = target >= 0 ? target : 0
+    root.cursorActive = target >= 0
   }
 
   function rebuildDmenuDisplay() {
@@ -575,6 +690,14 @@ Item {
       return
     }
 
+    if (root.dmenuMultiple && root.dmenuOnChange.length === 0) {
+      displayModel.append({
+        itemId: "dmenu.apply", disabled: false, kind: "dmenu", icon: "", iconFont: "",
+        appIcon: "", appId: "", label: Commons.I18n.t("common.apply"), target: "",
+        detail: Commons.I18n.tn("menu.selectedCount", root.dmenuSelected.length).arg(Commons.I18n.formatNumber(root.dmenuSelected.length)), path: "", childCount: 0,
+        action: "", provider: "", score: -1, section: ""
+      })
+    }
     var query = root.filterText.trim().toLowerCase()
     for (var i = 0; i < root.dmenuOptions.length; i++) {
       // An option is "<label>", "<glyph>\t<label>", or
@@ -589,8 +712,9 @@ Item {
           && detail.toLowerCase().indexOf(query) < 0) continue
       displayModel.append({
         itemId: "dmenu." + i,
+        disabled: false,
         kind: "dmenu",
-        icon: icon,
+        icon: root.dmenuMultiple ? (root.dmenuSelected.indexOf(MenuModel.dmenuValue(root.dmenuOptions[i])) !== -1 ? "✓" : "○") : icon,
         iconFont: "",
         appIcon: "",
         appId: "",
@@ -615,6 +739,18 @@ Item {
     Qt.callLater(function() {
       if (displayModel.count > 0) root.revealCursor()
     })
+  }
+
+  function updateDmenuChecks() {
+    for (var i = 0; i < displayModel.count; i++) {
+      var row = displayModel.get(i)
+      if (row.itemId === "dmenu.apply") {
+        displayModel.setProperty(i, "detail", Commons.I18n.tn("menu.selectedCount", root.dmenuSelected.length).arg(Commons.I18n.formatNumber(root.dmenuSelected.length)))
+      } else if (row.kind === "dmenu") {
+        var value = MenuModel.dmenuValue(root.dmenuOptions[Number(row.itemId.substring(6))])
+        displayModel.setProperty(i, "icon", root.dmenuSelected.indexOf(value) !== -1 ? "✓" : "○")
+      }
+    }
   }
 
   function rebuildDisplay() {
@@ -689,9 +825,7 @@ Item {
     for (var k = 0; k < rows.length; k++) displayModel.append(rows[k])
     layoutSerial += 1
 
-    if (displayModel.count === 0) selectedIndex = 0
-    else if (selectedIndex >= displayModel.count) selectedIndex = displayModel.count - 1
-    else if (selectedIndex < 0) selectedIndex = 0
+    root.settleCursor()
 
     Qt.callLater(function() {
       if (displayModel.count > 0) root.revealCursor()
@@ -724,12 +858,12 @@ Item {
     if (displayModel.count === 0) return
 
     root.disarmPointer()
-    if (!cursorActive) {
-      cursorActive = true
-      selectedIndex = delta < 0 ? displayModel.count - 1 : 0
-    } else {
-      selectedIndex = (selectedIndex + delta + displayModel.count) % displayModel.count
-    }
+    var from = cursorActive ? selectedIndex + delta : (delta < 0 ? displayModel.count - 1 : 0)
+    var target = root.nextSelectable(from, delta)
+    if (target < 0) return
+
+    cursorActive = true
+    selectedIndex = target
     revealCursor()
   }
 
@@ -782,11 +916,26 @@ Item {
       }
       if (index < 0 || index >= displayModel.count) return
       var picked = displayModel.get(index)
-      root.applyDmenuSelection(picked.detail ? picked.label + "\t" + picked.detail : picked.label)
+      if (root.dmenuMultiple) {
+        if (picked.itemId === "dmenu.apply") {
+          root.applyDmenuSelection(JSON.stringify(MenuModel.dmenuSelections(root.dmenuOptions, root.dmenuSelected)))
+        } else {
+          var value = MenuModel.dmenuValue(root.dmenuOptions[Number(picked.itemId.substring(6))])
+          var selected = MenuModel.toggleDmenuSelection(selectionProc.requestedSelection(), value)
+          if (root.dmenuOnChange.length > 0) {
+            selectionProc.enqueue(selected)
+          } else {
+            root.dmenuSelected = selected
+            root.updateDmenuChecks()
+          }
+        }
+      } else {
+        root.applyDmenuSelection(picked.detail ? picked.label + "\t" + picked.detail : picked.label)
+      }
       return
     }
 
-    if (index < 0 || index >= displayModel.count) return
+    if (!root.rowSelectable(index)) return
 
     var row = displayModel.get(index)
     if (row.kind === "menu" || row.kind === "link") {
@@ -817,7 +966,7 @@ Item {
     root.deleteTarget = null
     deleteConfirm.selectedIndex = 1
     root.disarmPointer()
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    Qt.callLater(function() { filterInput.forceActiveFocus() })
   }
 
   function confirmDelete() {
@@ -876,14 +1025,22 @@ Item {
         root.appLibrary.refreshAppImages()
     }
 
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    Qt.callLater(function() { filterInput.forceActiveFocus() })
   }
 
   function openDmenu(payload) {
     requestSerial += 1
     mode = payload.mode === "input" ? "input" : "select"
-    dmenuPrompt = String(payload.prompt || (mode === "input" ? "Input" : "Select"))
+    dmenuPrompt = String(payload.prompt || (mode === "input" ? Commons.I18n.t("menu.inputPrompt") : Commons.I18n.t("menu.selectPrompt")))
     dmenuOptions = Array.isArray(payload.options) ? payload.options : []
+    dmenuMultiple = mode === "select" && payload.multiple === true
+    dmenuOnChange = dmenuMultiple && Array.isArray(payload.onChange)
+      && payload.onChange.every(function(arg) { return typeof arg === "string" }) ? payload.onChange : []
+    dmenuChangeKey = String(payload.changeKey || JSON.stringify(dmenuOnChange))
+    dmenuSelected = MenuModel.dmenuSelections(dmenuOptions, Array.isArray(payload.selected) ? payload.selected : [], dmenuOnChange.length > 0)
+    dmenuSaved = dmenuSelected
+    if (dmenuOnChange.length > 0)
+      dmenuSelected = MenuModel.dmenuSelections(dmenuOptions, selectionProc.requestedSelection(), true)
     selectionFile = String(payload.selectionFile || "")
     doneFile = String(payload.doneFile || "")
     // Reject non-temp handshake paths up front so the UI never looks interactive
@@ -908,7 +1065,7 @@ Item {
     opened = true
     rebuildDisplay()
 
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    Qt.callLater(function() { filterInput.forceActiveFocus() })
   }
   ListModel { id: displayModel }
 
@@ -947,6 +1104,7 @@ Item {
 
   function selectFromPointer(index, item, mouse) {
     if (!pointerGate.moved(item, mouse)) return
+    if (!root.rowSelectable(index)) return
     root.cursorActive = true
     root.selectedIndex = index
   }
@@ -970,6 +1128,66 @@ Item {
   }
 
   Process {
+    id: selectionProc
+    property int serial: 0
+    property string changeKey: ""
+    property var selected: []
+    property var queue: []
+    property string collected: ""
+
+    function requestedSelection() {
+      for (var i = queue.length - 1; i >= 0; i--) {
+        if (queue[i].key === root.dmenuChangeKey) return queue[i].selected
+      }
+      if (running && changeKey === root.dmenuChangeKey) return selected
+      return root.dmenuSelected
+    }
+
+    function enqueue(values) {
+      var selected = MenuModel.dmenuSelections(root.dmenuOptions, values, true)
+      queue = queue.concat([{
+        serial: root.requestSerial, key: root.dmenuChangeKey, selected: selected,
+        command: root.dmenuOnChange.concat([JSON.stringify(selected)])
+      }])
+      if (!running) startNext()
+    }
+
+    function startNext() {
+      if (queue.length === 0) return
+      var change = queue[0]
+      queue = queue.slice(1)
+      serial = change.serial
+      changeKey = change.key
+      selected = change.selected
+      collected = ""
+      command = change.command
+      running = true
+    }
+
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: selectionProc.collected = text
+    }
+    onExited: function(exitCode) {
+      if (changeKey === root.dmenuChangeKey && root.dmenuActive && root.dmenuOnChange.length > 0) {
+        if (exitCode === 0) {
+          var applied = selected
+          if (collected.trim()) {
+            try { applied = JSON.parse(collected) } catch (error) { applied = root.dmenuSelected }
+          }
+          if (Array.isArray(applied))
+            root.dmenuSelected = MenuModel.dmenuSelections(root.dmenuOptions, applied, true)
+          root.dmenuSaved = root.dmenuSelected
+        } else {
+          root.dmenuSelected = root.dmenuSaved
+        }
+        root.updateDmenuChecks()
+      }
+      startNext()
+    }
+  }
+
+  Process {
     id: resultProc
     onExited: {
       if (root.applySerial === root.requestSerial)
@@ -979,7 +1197,7 @@ Item {
 
   PointerMoveGate {
     id: pointerGate
-    referenceItem: panel
+    referenceItem: keyCatcher
   }
 
   Connections {
@@ -991,7 +1209,8 @@ Item {
 
   // The JSONC sources are watched so live edits to the default file (or the
   // user extension at ~/.config/omarchy/extensions/omarchy-menu.jsonc) take
-  // effect without restarting the shell.
+  // effect without restarting the shell. Bytes come from scripts/safe-read.py
+  // (bounded, symlink/FIFO-safe, owner-checked); the FileViews only watch.
   property string defaultMenuReadBuf: ""
   property string userMenuReadBuf: ""
   // Generation counters so a killed in-flight read cannot apply an empty
@@ -1046,7 +1265,7 @@ Item {
     onTriggered: root.reloadUserMenuFile()
   }
 
-  // Watcher only — bytes come from safe-read.py.
+  // Watchers only: bytes come from safe-read.py.
   FileView {
     id: defaultMenuFile
     path: root.defaultMenuPath
@@ -1085,13 +1304,16 @@ Item {
       var raw = root.defaultMenuReadBuf
       root.defaultMenuReadBuf = ""
       if (defaultMenuReadProc.readGen !== root.defaultMenuReadGen) return
-      if (exitCode !== 0) return
-      var parsed = root.parseMenuJsonc(raw)
-      // A raced/killed read can land exit 0 with an empty buffer. Never let
-      // that wipe a menu that already loaded (post-deploy empty palette).
-      if ((!parsed || parsed.length === 0) && root.defaultMenuItems && root.defaultMenuItems.length > 0)
+      if (exitCode !== 0) {
+        // A user file that loaded first held its evaluation for this one.
+        root.defaultMenuSettled = true
+        if (root.userMenuSettled) root.evaluateGuards()
         return
-      root.defaultMenuItems = parsed
+      }
+      // keepMenuRows never lets a raced or empty read wipe a menu that
+      // already loaded (the shipped menu is never legitimately empty).
+      root.defaultMenuItems = MenuModel.keepMenuRows(root.defaultMenuItems, raw, true)
+      root.defaultMenuSettled = true
       root.rebuildItemsFromSources()
     }
   }
@@ -1121,9 +1343,15 @@ Item {
       var raw = root.userMenuReadBuf
       root.userMenuReadBuf = ""
       if (userMenuReadProc.readGen !== root.userMenuReadGen) return
-      if (exitCode !== 0) return
-      // Missing user extension is a normal empty read — always apply.
-      root.userMenuItems = root.parseMenuJsonc(raw)
+      if (exitCode !== 0) {
+        root.userMenuItems = []
+      } else {
+        // A missing extension reads as empty (safe-read exits 0 with no
+        // bytes); keepMenuRows keeps the previous rows only for a file that
+        // was caught mid-write.
+        root.userMenuItems = MenuModel.keepMenuRows(root.userMenuItems, raw, false)
+      }
+      root.userMenuSettled = true
       root.rebuildItemsFromSources()
     }
   }
@@ -1140,6 +1368,28 @@ Item {
     root.reloadUserMenuFile()
   }
 
+  // The language choice and its catalog are watched the same way, so
+  // picking a language under Setup retitles the menu with no shell restart.
+  FileView {
+    id: languageFile
+    path: root.languagePath
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.setLanguage(text())
+    onLoadFailed: root.setLanguage("")
+    onFileChanged: reload()
+  }
+
+  FileView {
+    id: menuCatalogFile
+    path: root.omarchyPath + "/default/i18n/" + root.language + "/menu.json"
+    watchChanges: true
+    printErrors: false
+    onLoaded: { root.menuCatalog = root.parseCatalog(text()); root.rebuildItemsFromSources(true) }
+    onLoadFailed: { root.menuCatalog = ({}); root.rebuildItemsFromSources(true) }
+    onFileChanged: reload()
+  }
+
   // ---------------------------------------------------------------- guards
   //
   // `when:` (visibility) and `checked:` (✓ marker) are bash expressions the
@@ -1149,6 +1399,7 @@ Item {
 
   property var whenResults: ({})       // id → true|false (allow visibility)
   property var checkedResults: ({})    // id → true|false (show ✓)
+  property var disabledResults: ({})   // id → true|false (dim, skip cursor)
   property bool guardsPending: false
 
   function evaluateGuards() {
@@ -1168,6 +1419,7 @@ Item {
     if (!script) {
       root.whenResults = ({})
       root.checkedResults = ({})
+      root.disabledResults = ({})
       return
     }
     guardProc.collected = ""
@@ -1193,6 +1445,7 @@ Item {
 
       var nextWhen = ({})
       var nextChecked = ({})
+      var nextDisabled = ({})
       var lines = guardProc.collected.split("\n")
       for (var i = 0; i < lines.length; i++) {
         var line = lines[i].trim()
@@ -1207,19 +1460,22 @@ Item {
         var tag = rest.substring(tagAt + 1)
         if (tag === "w") nextWhen[id] = value
         else if (tag === "c") nextChecked[id] = value
+        else if (tag === "d") nextDisabled[id] = value
       }
       root.whenResults = nextWhen
       root.checkedResults = nextChecked
+      root.disabledResults = nextDisabled
       if (root.opened) root.rebuildDisplay()
       // Run the evaluation that had to stand aside. Deferred by a turn so the
       // process is settled before its command is set again.
       if (root.guardsPending) Qt.callLater(function() { root.evaluateGuards() })
     }
   }
-  // X11 delta: upstream is a full-screen WlrLayershell scrim overlay
-  // (picom glx blacks that out). The palette lives in Ui/CenteredModal —
-  // a content-sized PopupWindow, no full-screen surface. No dimming scrim;
-  // Escape / IPC toggle / grabFocus-outside-press dismiss.
+
+  // X11 delta: upstream is a full-screen layer-shell scrim overlay (picom glx
+  // blacks that out). The palette lives in Ui/CenteredModal: a content-sized
+  // PopupWindow, no full-screen surface. No dimming scrim; Escape / IPC toggle
+  // / grabFocus-outside-press dismiss.
   CenteredModal {
     id: panel
     open: root.opened && root.rowsLoaded
@@ -1233,7 +1489,7 @@ Item {
     padding: root.contentMargin
     background: root.background
     borderSpec: root.borderSpec
-    focusTarget: keyCatcher
+    focusTarget: filterInput
     onDismissed: root.cancel()
 
     // Freeze-top is a no-op for position (CenteredModal always recentres)
@@ -1250,359 +1506,386 @@ Item {
     }
     onOpenChanged: if (!open) { cardTop = -1; maxRowsHeight = -1 }
 
-      Item {
-        id: keyCatcher
-        anchors.fill: parent
-        z: root.deleteConfirmOpen ? 20 : 0
-        focus: true
+    Item {
+      id: keyCatcher
+      anchors.fill: parent
+      z: root.deleteConfirmOpen ? 20 : 0
 
-        Keys.priority: Keys.BeforeItem
-        Keys.onPressed: function(event) {
-          if (root.deleteConfirmOpen) {
-            if (deleteConfirm.handleKey(event)) event.accepted = true
-            return
-          }
-
-          if (event.key === Qt.Key_Delete) {
-            root.requestDeleteSelected()
-            event.accepted = true
-          } else if (event.key === Qt.Key_Escape) {
-            if (root.filterText) root.setFilter("")
-            else root.cancel()
-            event.accepted = true
-          } else if (Util.editsFilter(event, root.filterText)) {
-            root.setFilter(Util.editedFilter(event, root.filterText))
-            event.accepted = true
-          } else if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !root.filterText) {
-            root.goBack()
-            event.accepted = true
-          } else if (event.key === Qt.Key_Up) {
-            root.select(-1)
-            event.accepted = true
-          } else if (event.key === Qt.Key_Down) {
-            root.select(1)
-            event.accepted = true
-          } else if (event.key === Qt.Key_PageUp) {
-            root.select(-6)
-            event.accepted = true
-          } else if (event.key === Qt.Key_PageDown) {
-            root.select(6)
-            event.accepted = true
-          } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Right) {
-            if (root.dmenuActive) {
-              if (root.mode === "input") root.applyDmenuSelection(root.filterText)
-              else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
-            } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
-            else if (displayModel.count > 0) root.cursorActive = true
-            event.accepted = true
-          } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
-            root.setFilter(root.filterText + event.text)
-            event.accepted = true
-          }
+      // Focus is on filterInput, which forwards every key here first.
+      Keys.onPressed: function(event) {
+        if (root.deleteConfirmOpen) {
+          // Swallow the rest too, or it would type into the search line behind the dialog.
+          deleteConfirm.handleKey(event)
+          event.accepted = true
+          return
         }
 
-        ConfirmDialog {
-          id: deleteConfirm
-
-          anchors.fill: parent
-          opened: root.deleteConfirmOpen
-          z: 10
-          message: Util.plain("Do you want to uninstall " + ((root.deleteTarget && root.deleteTarget.label) || "") + "?")
-          confirmText: "Uninstall"
-          background: root.background
-          foreground: root.foreground
-          scrim: root.scrim
-          selectedBackground: root.selectedBackground
-          selectedText: root.selectedText
-          fontFamily: root.fontFamily
-          cornerRadius: root.cornerRadius
-          onCanceled: root.cancelDelete()
-          onConfirmed: root.confirmDelete()
+        if (event.key === Qt.Key_Delete) {
+          root.requestDeleteSelected()
+          event.accepted = true
+        } else if (event.key === Qt.Key_Escape) {
+          if (root.filterText) root.setFilter("")
+          else root.cancel()
+          event.accepted = true
+        } else if (Util.editsFilter(event, root.filterText)) {
+          root.setFilter(Util.editedFilter(event, root.filterText))
+          event.accepted = true
+        } else if ((event.key === Qt.Key_Backspace || Util.readingKey(event) === Qt.Key_Left) && !root.filterText) {
+          root.goBack()
+          event.accepted = true
+        } else if (event.key === Qt.Key_Up) {
+          root.select(-1)
+          event.accepted = true
+        } else if (event.key === Qt.Key_Down) {
+          root.select(1)
+          event.accepted = true
+        } else if (event.key === Qt.Key_PageUp) {
+          root.select(-6)
+          event.accepted = true
+        } else if (event.key === Qt.Key_PageDown) {
+          root.select(6)
+          event.accepted = true
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || Util.readingKey(event) === Qt.Key_Right) {
+          if (root.dmenuActive) {
+            if (root.mode === "input") root.applyDmenuSelection(root.filterText)
+            else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
+          } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
+          else root.settleCursor()
+          event.accepted = true
         }
       }
 
-      Column {
+      ConfirmDialog {
+        id: deleteConfirm
+
         anchors.fill: parent
-        spacing: root.contentSpacing
+        opened: root.deleteConfirmOpen
+        z: 10
+        message: Commons.I18n.t("common.uninstallConfirm").arg((root.deleteTarget && root.deleteTarget.label) || "")
+        confirmText: Commons.I18n.t("common.uninstall")
+        background: root.background
+        foreground: root.foreground
+        scrim: root.scrim
+        selectedBackground: root.selectedBackground
+        selectedText: root.selectedText
+        fontFamily: root.fontFamily
+        cornerRadius: root.cornerRadius
+        onCanceled: root.cancelDelete()
+        onConfirmed: root.confirmDelete()
+      }
+    }
 
-        Rectangle {
-          width: parent.width
-          height: root.headerHeight
-          radius: root.cornerRadius
-          color: "transparent"
+    Column {
+      anchors.fill: parent
+      spacing: root.contentSpacing
 
-          Text {
-            textFormat: Text.PlainText
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…"))
-            color: root.foreground
-            opacity: root.filterText ? 1 : 0.58
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.heading
-            elide: Text.ElideRight
-          }
+      Rectangle {
+        width: parent.width
+        height: root.headerHeight
+        radius: root.cornerRadius
+        color: "transparent"
 
+        FilterInput {
+          id: filterInput
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          keyHandler: keyCatcher
+          // Input-method commits bypass key handling, so the dialog has to refuse them here.
+          readOnly: root.deleteConfirmOpen
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.heading
+          onTextChanged: if (text !== root.filterText) root.setFilter(text)
         }
 
-        Item {
-          width: parent.width
-          height: root.visibleRowsHeight
+        Text {
+          textFormat: Text.PlainText
+          anchors.fill: filterInput
+          verticalAlignment: Text.AlignVCenter
+          visible: !root.filterText && !filterInput.preeditText
+          text: root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")
+          color: root.foreground
+          opacity: 0.58
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.heading
+          elide: Text.ElideRight
+        }
 
-          ListView {
-            id: resultList
-            anchors.fill: parent
-            model: displayModel
-            clip: true
-            spacing: root.rowSpacing
-            boundsBehavior: Flickable.StopAtBounds
+      }
 
-            section.property: "section"
-            section.criteria: ViewSection.FullString
-            section.delegate: Item {
-              required property string section
+      Item {
+        width: parent.width
+        height: root.visibleRowsHeight
 
-              width: ListView.view.width
-              height: section === "drilldown" ? root.dividerHeight : 0
-              visible: section === "drilldown"
+        ListView {
+          id: resultList
+          anchors.fill: parent
+          model: displayModel
+          clip: true
+          spacing: root.rowSpacing
+          boundsBehavior: Flickable.StopAtBounds
 
-              Rectangle {
-                anchors.left: parent.left
-                anchors.leftMargin: Style.space(4)
-                anchors.right: parent.right
-                anchors.rightMargin: Style.space(4)
-                anchors.verticalCenter: parent.verticalCenter
-                height: Style.spacing.hairline
-                color: Util.alpha(root.foreground, 0.2)
+          WheelHandler {
+            target: null
+            onWheel: function(event) {
+              var delta = event.pixelDelta.y || event.angleDelta.y / 120 * root.rowHeightForDetail("") * 3
+              var bottom = resultList.originY + Math.max(0, resultList.contentHeight - resultList.height)
+              resultList.contentY = Math.max(resultList.originY, Math.min(bottom, resultList.contentY - delta))
+              event.accepted = true
+            }
+          }
+
+          section.property: "section"
+          section.criteria: ViewSection.FullString
+          section.delegate: Item {
+            required property string section
+
+            width: ListView.view.width
+            height: section === "drilldown" ? root.dividerHeight : 0
+            visible: section === "drilldown"
+
+            Rectangle {
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(4)
+              anchors.right: parent.right
+              anchors.rightMargin: Style.space(4)
+              anchors.verticalCenter: parent.verticalCenter
+              height: Style.spacing.hairline
+              color: Util.alpha(root.foreground, 0.2)
+            }
+          }
+
+          delegate: BorderSurface {
+            id: row
+            required property int index
+            required property string itemId
+            required property string kind
+            required property string icon
+            required property string iconFont
+            required property string appIcon
+            required property string appId
+            required property string label
+            required property string target
+            required property string detail
+            required property string path
+            required property string action
+            required property int childCount
+            required property bool disabled
+
+            readonly property bool hasCursor: root.cursorActive && row.index === root.selectedIndex
+            readonly property bool isApp: row.kind === "app"
+            readonly property bool hasIcon: row.icon.length > 0 || row.isApp
+
+            width: ListView.view.width
+            height: root.rowHeightForDetail(row.detail)
+            // Faded: the row is here to say the software is already
+            // installed, not to be picked.
+            opacity: row.disabled ? 0.4 : 1
+            radius: root.cornerRadius
+            color: row.hasCursor ? root.selectedBackground : "transparent"
+            borderSpec: row.hasCursor ? root.selectedBorderSpec : Border.none()
+
+            Rectangle {
+              visible: false
+              width: Style.space(4)
+              height: parent.height - Style.space(18)
+              radius: Math.min(root.cornerRadius, Style.space(4))
+              color: root.selectedBackground
+              anchors.left: parent.left
+              anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Text {
+              id: iconText
+              textFormat: Text.PlainText
+              visible: row.hasIcon && !row.isApp
+              text: row.icon
+              color: row.hasCursor ? root.selectedText : root.foreground
+              font.family: row.iconFont.length > 0 ? row.iconFont : root.fontFamily
+              font.pixelSize: Style.font.iconLarge
+              width: Style.space(36)
+              horizontalAlignment: Text.AlignHCenter
+              verticalAlignment: Text.AlignVCenter
+              anchors.left: parent.left
+              anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8)
+              y: contentColumn.y + labelText.y + (labelText.height - height) / 2
+            }
+
+            Image {
+              id: appIconImage
+              visible: row.isApp
+              width: Style.font.iconLarge
+              height: Style.font.iconLarge
+              fillMode: Image.PreserveAspectFit
+              // Decode at physical pixels — a logical-size decode leaves
+              // PNG icons upscaled and blurry on HiDPI displays.
+              sourceSize.width: width * Screen.devicePixelRatio
+              sourceSize.height: height * Screen.devicePixelRatio
+              source: row.isApp && root.appLibrary ? root.appLibrary.iconSource(row.appIcon) : ""
+              asynchronous: true
+              anchors.left: parent.left
+              anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8) + (Style.space(36) - width) / 2
+              y: contentColumn.y + labelText.y + (labelText.height - height) / 2
+            }
+
+            Column {
+              id: contentColumn
+              anchors.left: row.hasIcon ? iconText.right : parent.left
+              anchors.leftMargin: row.hasIcon ? Style.space(6) : root.rowReservedBorderLeft + Style.space(18)
+              anchors.right: trail.left
+              anchors.rightMargin: Style.space(6)
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(3)
+
+              Text {
+                id: labelText
+                textFormat: Text.PlainText
+                width: parent.width
+                text: row.label
+                color: row.hasCursor ? root.selectedText : root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.heading
+                font.weight: Font.Medium
+                elide: Text.ElideRight
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                width: parent.width
+                // A parent path's separator points along the reading direction.
+                text: Commons.I18n.rightToLeft && row.kind !== "dmenu" ? row.detail.replace(/ › /g, " ‹ ") : row.detail
+                visible: (root.filterText || row.kind === "dmenu") && row.detail.length > 0
+                color: root.foreground
+                opacity: 0.52
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                elide: Text.ElideRight
               }
             }
 
-            delegate: BorderSurface {
-              id: row
-              required property int index
-              required property string itemId
-              required property string kind
-              required property string icon
-              required property string iconFont
-              required property string appIcon
-              required property string appId
-              required property string label
-              required property string target
-              required property string detail
-              required property string path
-              required property string action
-              required property int childCount
+            Row {
+              id: trail
+              width: Style.space(14)
+              anchors.right: parent.right
+              anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
+              y: contentColumn.y + labelText.y + (labelText.height - height) / 2
+              spacing: 0
 
-              readonly property bool hasCursor: root.cursorActive && row.index === root.selectedIndex
-              readonly property bool isApp: row.kind === "app"
-              readonly property bool hasIcon: row.icon.length > 0 || row.isApp
-
-              width: ListView.view.width
-              height: root.rowHeightForDetail(row.detail)
-              radius: root.cornerRadius
-              color: row.hasCursor ? root.selectedBackground : "transparent"
-              borderSpec: row.hasCursor ? root.selectedBorderSpec : Border.none()
-
-              Rectangle {
+              Text {
+                textFormat: Text.PlainText
                 visible: false
-                width: Style.space(4)
-                height: parent.height - Style.space(18)
-                radius: Math.min(root.cornerRadius, Style.space(4))
-                color: root.selectedBackground
-                anchors.left: parent.left
-                anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8)
+                text: row.childCount
+                color: root.foreground
+                opacity: 0.45
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
                 anchors.verticalCenter: parent.verticalCenter
               }
 
               Text {
-                id: iconText
                 textFormat: Text.PlainText
-                visible: row.hasIcon && !row.isApp
-                text: row.icon
+                text: row.kind === "menu" || row.kind === "link" ? (Commons.I18n.rightToLeft ? "‹" : "›") : ""
                 color: row.hasCursor ? root.selectedText : root.foreground
-                font.family: row.iconFont.length > 0 ? row.iconFont : root.fontFamily
-                font.pixelSize: Style.font.iconLarge
-                width: Style.space(36)
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                anchors.left: parent.left
-                anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8)
-                y: contentColumn.y + labelText.y + (labelText.height - height) / 2
-              }
-
-              Image {
-                id: appIconImage
-                visible: row.isApp
-                width: Style.font.iconLarge
-                height: Style.font.iconLarge
-                fillMode: Image.PreserveAspectFit
-                // Decode at physical pixels — a logical-size decode leaves
-                // PNG icons upscaled and blurry on HiDPI displays.
-                sourceSize.width: width * Screen.devicePixelRatio
-                sourceSize.height: height * Screen.devicePixelRatio
-                source: row.isApp && root.appLibrary ? root.appLibrary.iconSource(row.appIcon) : ""
-                asynchronous: true
-                anchors.left: parent.left
-                anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8) + (Style.space(36) - width) / 2
-                y: contentColumn.y + labelText.y + (labelText.height - height) / 2
-              }
-
-              Column {
-                id: contentColumn
-                anchors.left: row.hasIcon ? iconText.right : parent.left
-                anchors.leftMargin: row.hasIcon ? Style.space(6) : root.rowReservedBorderLeft + Style.space(18)
-                anchors.right: trail.left
-                anchors.rightMargin: Style.space(6)
+                opacity: row.kind === "menu" || row.kind === "link" ? 0.36 : 0
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.heading
+                font.weight: Font.Normal
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(3)
-
-                Text {
-                  id: labelText
-                  textFormat: Text.PlainText
-                  width: parent.width
-                  text: row.label
-                  color: row.hasCursor ? root.selectedText : root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.heading
-                  font.weight: Font.Medium
-                  elide: Text.ElideRight
-                }
-
-                Text {
-                  textFormat: Text.PlainText
-                  width: parent.width
-                  text: row.detail
-                  visible: (root.filterText || row.kind === "dmenu") && row.detail.length > 0
-                  color: root.foreground
-                  opacity: 0.52
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  elide: Text.ElideRight
-                }
-              }
-
-              Row {
-                id: trail
-                width: Style.space(14)
-                anchors.right: parent.right
-                anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
-                y: contentColumn.y + labelText.y + (labelText.height - height) / 2
-                spacing: 0
-
-                Text {
-                  textFormat: Text.PlainText
-                  visible: false
-                  text: row.childCount
-                  color: root.foreground
-                  opacity: 0.45
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                Text {
-                  textFormat: Text.PlainText
-                  text: row.kind === "menu" || row.kind === "link" ? "›" : ""
-                  color: row.hasCursor ? root.selectedText : root.foreground
-                  opacity: row.kind === "menu" || row.kind === "link" ? 0.36 : 0
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.heading
-                  font.weight: Font.Normal
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-              }
-
-              MouseArea {
-                id: mouseArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onEntered: root.selectFromPointer(row.index, row, {
-                  x: mouseArea.mouseX,
-                  y: mouseArea.mouseY
-                })
-                onPositionChanged: function(mouse) {
-                  root.selectFromPointer(row.index, row, mouse)
-                }
-                onClicked: {
-                  root.cursorActive = true
-                  root.selectedIndex = row.index
-                  root.activateIndex(row.index, true)
-                }
               }
             }
-          }
 
-          // Scroll scrims. The clipped row already marks the fold at rest;
-          // these keep both edges honest once the list has been scrolled,
-          // when content hides above the card top as well as below. Strength
-          // tracks the distance still hidden past each edge rather than
-          // animating on a clock, so a programmatic jump — wrapping from the
-          // last row back to the first — lands with the fade already applied.
-          Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: Math.min(Style.space(28), parent.height / 2)
-            visible: opacity > 0
-            opacity: resultList.contentHeight > resultList.height
-              ? Math.max(0, Math.min(1, (resultList.contentY - resultList.originY) / height))
-              : 0
-            gradient: Gradient {
-              GradientStop { position: 0; color: root.background }
-              GradientStop { position: 1; color: Util.alpha(root.background, 0) }
-            }
-          }
-
-          Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: Math.min(Style.space(28), parent.height / 2)
-            visible: opacity > 0
-            opacity: resultList.contentHeight > resultList.height
-              ? Math.max(0, Math.min(1, (resultList.originY + resultList.contentHeight - resultList.height - resultList.contentY) / height))
-              : 0
-            gradient: Gradient {
-              GradientStop { position: 0; color: Util.alpha(root.background, 0) }
-              GradientStop { position: 1; color: root.background }
-            }
-          }
-
-          Column {
-            anchors.centerIn: parent
-            spacing: Style.space(8)
-            visible: displayModel.count === 0 && root.mode !== "input"
-
-            Text {
-              textFormat: Text.PlainText
-              text: "󰈉"
-              color: root.selectedText
-              opacity: 0.8
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.displayLarge
-              horizontalAlignment: Text.AlignHCenter
-              width: Style.space(320)
-            }
-
-            Text {
-              textFormat: Text.PlainText
-              text: root.filterText ? "No matches for “" + root.filterText + "”" : "Nothing here yet"
-              color: root.foreground
-              opacity: 0.7
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.title
-              horizontalAlignment: Text.AlignHCenter
-              width: Style.space(320)
+            MouseArea {
+              id: mouseArea
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: row.disabled ? Qt.ArrowCursor : Qt.PointingHandCursor
+              onEntered: root.selectFromPointer(row.index, row, {
+                x: mouseArea.mouseX,
+                y: mouseArea.mouseY
+              })
+              onPositionChanged: function(mouse) {
+                root.selectFromPointer(row.index, row, mouse)
+              }
+              onClicked: {
+                if (row.disabled) return
+                root.cursorActive = true
+                root.selectedIndex = row.index
+                root.activateIndex(row.index, true)
+              }
             }
           }
         }
 
-        Item {
-          width: parent.width
-          height: 0
+        // Scroll scrims. The clipped row already marks the fold at rest;
+        // these keep both edges honest once the list has been scrolled,
+        // when content hides above the card top as well as below. Strength
+        // tracks the distance still hidden past each edge rather than
+        // animating on a clock, so a programmatic jump — wrapping from the
+        // last row back to the first — lands with the fade already applied.
+        Rectangle {
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          height: Math.min(Style.space(28), parent.height / 2)
+          visible: opacity > 0
+          opacity: resultList.contentHeight > resultList.height
+            ? Math.max(0, Math.min(1, (resultList.contentY - resultList.originY) / height))
+            : 0
+          gradient: Gradient {
+            GradientStop { position: 0; color: root.background }
+            GradientStop { position: 1; color: Util.alpha(root.background, 0) }
+          }
+        }
+
+        Rectangle {
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          height: Math.min(Style.space(28), parent.height / 2)
+          visible: opacity > 0
+          opacity: resultList.contentHeight > resultList.height
+            ? Math.max(0, Math.min(1, (resultList.originY + resultList.contentHeight - resultList.height - resultList.contentY) / height))
+            : 0
+          gradient: Gradient {
+            GradientStop { position: 0; color: Util.alpha(root.background, 0) }
+            GradientStop { position: 1; color: root.background }
+          }
+        }
+
+        Column {
+          anchors.centerIn: parent
+          spacing: Style.space(8)
+          visible: displayModel.count === 0 && root.mode !== "input"
+
+          Text {
+            text: "󰈉"
+            color: root.selectedText
+            opacity: 0.8
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.displayLarge
+            horizontalAlignment: Text.AlignHCenter
+            width: Style.space(320)
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: root.filterText ? Commons.I18n.t("common.noMatchesFor").arg(root.filterText) : Commons.I18n.t("menu.nothingHere")
+            color: root.foreground
+            opacity: 0.7
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.title
+            horizontalAlignment: Text.AlignHCenter
+            width: Style.space(320)
+          }
         }
       }
+
+      Item {
+        width: parent.width
+        height: 0
+      }
+    }
   }
 }

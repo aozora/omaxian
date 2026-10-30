@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -106,6 +107,9 @@ Item {
 
   function stopPhase() {
     phaseTimer.stop()
+    error = I18n.t("speedtest.failed")
+    phase = ""
+    running = false
     if (speedTestProc.running) {
       expectedStop = true
       speedTestProc.running = false
@@ -127,34 +131,19 @@ Item {
 
   Process {
     id: speedTestProc
-    property string stderrBuf: ""
-    property int maxStderr: 16384
-    property bool overflowed: false
     stdout: SplitParser { onRead: function(line) { root.updateSpeedTestLine(line) } }
-    stderr: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (speedTestProc.overflowed) return
-        speedTestProc.stderrBuf += chunk
-        if (speedTestProc.stderrBuf.length > speedTestProc.maxStderr) {
-          speedTestProc.overflowed = true
-          speedTestProc.stderrBuf = ""
-          speedTestProc.signal(15)
-          speedTestKillTimer.start()
-        }
+    // Exit and stream-finished have no guaranteed order: when a failed exit
+    // beat the collector and published the generic message, replace it with
+    // the specific one once it lands.
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.stderrText = String(text || "").trim()
+        if (root.error !== "" && root.stderrText !== "") root.error = root.stderrText
       }
     }
-    onStarted: {
-      speedTestKillTimer.stop()
-      stderrBuf = ""
-      overflowed = false
-    }
     onExited: function(exitCode) {
-      speedTestKillTimer.stop()
       phaseTimer.stop()
-      root.stderrText = overflowed ? "" : String(stderrBuf || "").trim()
-      stderrBuf = ""
-      overflowed = false
 
       if (root.pendingRun) {
         root.pendingRun = false
@@ -164,7 +153,7 @@ Item {
       }
 
       if (!root.expectedStop && exitCode !== 0) {
-        root.error = root.stderrText || "Speed test failed"
+        root.error = root.stderrText || I18n.t("speedtest.failed")
         root.phase = ""
         root.running = false
         return
@@ -176,14 +165,10 @@ Item {
   }
 
   Timer {
-    id: speedTestKillTimer
-    interval: 2000
-    onTriggered: speedTestProc.signal(9)
-  }
-
-  Timer {
     id: phaseTimer
-    interval: 5000
+    // The helper owns warm-up and the five-second measurement window.
+    // This timer is only a watchdog for a helper that never exits.
+    interval: 20000
     repeat: false
     onTriggered: root.stopPhase()
   }
@@ -192,53 +177,24 @@ Item {
   // field is the kind, second the SSID (wifi) or device (ethernet).
   Process {
     id: statusProc
-    property string stdoutBuf: ""
-    property int maxStdout: 4096
-    property bool overflowed: false
     command: ["omarchy-network-status"]
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (statusProc.overflowed) return
-        statusProc.stdoutBuf += chunk
-        if (statusProc.stdoutBuf.length > statusProc.maxStdout) {
-          statusProc.overflowed = true
-          statusProc.stdoutBuf = ""
-          statusProc.signal(15)
-          statusKillTimer.start()
-        }
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var fields = String(text || "").trim().split("\t")
+        if (fields[0] === "wifi") root.connectionName = fields[1] || "Wi-Fi"
+        else if (fields[0] === "ethernet") root.connectionName = I18n.t("network.ethernet")
       }
     }
-    onStarted: {
-      statusKillTimer.stop()
-      stdoutBuf = ""
-      overflowed = false
-    }
-    onExited: function() {
-      statusKillTimer.stop()
-      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
-      stdoutBuf = ""
-      overflowed = false
-      if (!raw) return
-      var fields = raw.split("\t")
-      if (fields[0] === "wifi") root.connectionName = fields[1] || "Wi-Fi"
-      else if (fields[0] === "ethernet") root.connectionName = "Ethernet"
-    }
-  }
-
-  Timer {
-    id: statusKillTimer
-    interval: 2000
-    onTriggered: statusProc.signal(9)
   }
 
   SpeedTestOverlay {
     fontFamily: Style.font.family
     layerNamespace: "omarchy-network-speedtest"
     title: root.connectionName
-    leftLabel: "DOWNLOAD"
-    rightLabel: "UPLOAD"
-    runAgainTooltip: "Measure again via fast.com"
+    leftLabel: I18n.t("speedtest.download")
+    rightLabel: I18n.t("speedtest.upload")
+    runAgainTooltip: I18n.t("speedtest.measureAgainVia").arg("speed.omarchy.org")
     running: root.running
     leftValue: root.downloadValue
     rightValue: root.uploadValue

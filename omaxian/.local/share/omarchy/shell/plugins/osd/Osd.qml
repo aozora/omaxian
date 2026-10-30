@@ -6,9 +6,9 @@ import qs.Commons as Commons
 import qs.Ui
 import "OsdModel.js" as OsdModel
 
-// X11 / picom note: a full-screen transparent PanelWindow (the Wayland
-// WlrLayershell shape) blacks out tiled windows under picom glx — the same
-// failure KeyboardPanel / CenteredModal already left behind. This OSD is a
+// X11 / picom note: upstream draws the OSD in a full-screen transparent
+// layer-shell overlay, which blacks out tiled windows under picom glx (the same
+// failure KeyboardPanel / CenteredModal already left behind). This OSD is a
 // content-sized PopupWindow anchored to a 1px top host strip, bottom-centred
 // on the screen. Visual-only: grabFocus stays false (Qt::ToolTip) so volume
 // keys never steal keyboard focus from the focused client.
@@ -27,22 +27,35 @@ Item {
 
   readonly property bool mediaOsd: iconKey.indexOf("media") === 0 || iconKey.indexOf("player") === 0
 
-  // Volume/brightness glyphs are Nerd Font / MDI codepoints. Style.font.family
-  // stays "monospace" on this port (no fc-match resolver), which resolves to
-  // DejaVu — Font Awesome BMP speakers (U+F026–F028) then fall back to Arial
-  // PUA junk. Pin a Nerd Font face that actually has the Material volume set.
+  // The card is built out of measured columns instead of fixed widths, so it
+  // keeps exactly `pad` between border and content on every side whatever
+  // glyph or message it carries. Messages grow with their text up to
+  // `maxMessageWidth` and elide beyond it.
+  // Volume/brightness glyphs are Nerd Font / MDI codepoints (OsdModel.js).
+  // Style.font.family stays "monospace" on this port (no fc-match resolver),
+  // which resolves to DejaVu, so pin a Nerd Font face that has the set.
   readonly property string iconFontFamily: "JetBrainsMono Nerd Font"
 
   readonly property int pad: Style.space(16)
   readonly property int gap: Style.space(16)
+  // A glyph next to a message reads airier than it measures: the icon outline
+  // and the letterforms both fall away from their ink extremes, so the space
+  // between them opens up well past the nominal gap. Text takes two thirds of
+  // it; the progress bar's hard edge keeps the full gap.
   readonly property int messageGap: Math.round(root.gap * 2 / 3)
   readonly property int barWidth: Style.space(142)
   readonly property int maxMessageWidth: root.mediaOsd ? Style.space(325) : Style.space(190)
 
+  // Nerd Font glyphs draw well outside their monospace cell, so the icon
+  // column is measured by ink rather than by advance width. Progress OSDs pin
+  // it to the widest glyph the model can return, so the bar doesn't shift when
+  // volume crosses an icon threshold.
   readonly property int iconInkWidth: Math.ceil(iconMetrics.tightBoundingRect.width)
   readonly property int iconWidth: root.hasProgress
     ? Math.max(root.iconInkWidth, Math.ceil(widestIconMetrics.tightBoundingRect.width))
     : root.iconInkWidth
+  // Same idea for the readout: it is as wide as the longest percentage so the
+  // digits don't jitter between 9% and 100%.
   readonly property int valueWidth: Math.ceil(Math.max(valueMetrics.advanceWidth, messageMetrics.advanceWidth))
   readonly property int messageWidth: Math.min(Math.ceil(messageMetrics.advanceWidth), root.maxMessageWidth)
   readonly property int contentWidth: root.hasProgress
@@ -64,7 +77,9 @@ Item {
   }
 
   function show(iconName, rawMessage, rawValue, rawMax, rawProgressText, rawDuration) {
-    var next = OsdModel.stateForShow(iconName, rawMessage, rawValue, rawMax, rawProgressText, rawDuration)
+    var next = OsdModel.stateForShow(iconName, rawMessage, rawValue, rawMax, rawProgressText, rawDuration, Commons.I18n.formatNumber)
+    // Update before opening so a fresh OSD starts at its new value; only
+    // subsequent updates while it remains open animate the progress bar.
     iconKey = next.iconKey
     maxValue = next.maxValue
     hasProgress = next.hasProgress
@@ -106,7 +121,7 @@ Item {
   TextMetrics {
     id: valueMetrics
     font: messageMetrics.font
-    text: "100%"
+    text: Commons.I18n.formatNumber(100) + "%"
   }
 
   TextMetrics {
@@ -122,7 +137,7 @@ Item {
     text: OsdModel.widestIcon
   }
 
-  IpcHandler {
+  ShellIpc {
     target: "osd"
     function show(payloadJson: string): string {
       root.open(payloadJson)
@@ -149,12 +164,12 @@ Item {
     id: card
     visible: root.opened
     color: "transparent"
-    // See Ui/PopupCard.qml — opaque surfaces square off rounded OSD cards.
+    // See Ui/PopupCard.qml: opaque surfaces square off rounded OSD cards.
     surfaceFormat.opaque: false
     implicitWidth: root.cardWidth
     implicitHeight: root.cardHeight
     // Static false: PopupWindow latches grabFocus at create time. ToolTip is
-    // correct here — OSD must not grab pointer/keyboard from the focused app.
+    // correct here; the OSD must not grab pointer/keyboard from the focused app.
     grabFocus: false
 
     anchor {
@@ -183,24 +198,20 @@ Item {
         anchors.bottomMargin: cardSurface.borderBottom + root.pad
         anchors.leftMargin: cardSurface.borderLeft + root.pad
         spacing: root.hasProgress ? root.gap : root.messageGap
-
         Item {
           width: root.iconWidth
           height: parent.height
           Text {
             textFormat: Text.PlainText
-            anchors.centerIn: parent
-            // Optical center: Nerd Font icons often have a non-zero ink origin.
-            anchors.horizontalCenterOffset: Math.round(
-              (implicitWidth / 2) - (iconMetrics.tightBoundingRect.x + root.iconInkWidth / 2))
+            // Sit the glyph's ink flush in the column, centered when the
+            // column is wider than this particular glyph.
+            x: Math.round((root.iconWidth - root.iconInkWidth) / 2 - iconMetrics.tightBoundingRect.x)
+            anchors.verticalCenter: parent.verticalCenter
             text: root.icon
+            font: iconMetrics.font
             color: Commons.Color.popups.text
-            font.family: root.iconFontFamily
-            font.pixelSize: Style.font.displayLarge
-            renderType: Text.NativeRendering
           }
         }
-
         Rectangle {
           visible: root.hasProgress
           width: root.barWidth
@@ -208,21 +219,24 @@ Item {
           anchors.verticalCenter: parent.verticalCenter
           color: Util.alpha(Commons.Color.popups.text, 0.45)
           Rectangle {
+            // Anchored so a right-to-left layout fills from the right.
+            anchors.left: parent.left
             height: parent.height
             width: parent.width * (root.hasProgress ? root.value / root.maxValue : 0)
             color: Commons.Color.accent
 
             Behavior on width {
               enabled: root.opened
-              NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+              NumberAnimation { duration: Style.duration(140); easing.type: Easing.OutCubic }
             }
           }
         }
-
         Text {
           textFormat: Text.PlainText
           visible: root.message !== ""
           width: root.hasProgress ? root.valueWidth : root.messageWidth
+          // The readout hugs the card edge so a short percentage doesn't leave
+          // a hole in the padding; the slack lands in the gap after the bar.
           horizontalAlignment: root.hasProgress ? Text.AlignRight : Text.AlignLeft
           anchors.verticalCenter: parent.verticalCenter
           text: root.message

@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -188,7 +189,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: "Monitor"
+          text: Commons.I18n.t("monitor.display", "Display")
           color: root.bar.foreground
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.title
@@ -199,7 +200,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: Model.monitorStatusLine(root.outputs, root.lidPresent, root.lidClosed).toUpperCase()
+          text: Model.monitorStatusLine(root.outputs, root.lidPresent, root.lidClosed, Commons.I18n.t).toUpperCase()
           color: Qt.darker(root.bar.foreground, 1.4)
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.caption
@@ -241,8 +242,12 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
               elide: Text.ElideRight
               text: Util.plain(outputSection.output.name.toUpperCase()
-                + (outputSection.output.isLaptopPanel ? " (LAPTOP)" : ""))
-                + (outputSection.output.primary ? " · PRIMARY" : "")
+                + (outputSection.output.isLaptopPanel
+                    ? " " + Commons.I18n.t("controlpanel.monitor.laptopSuffix", "(LAPTOP)")
+                    : ""))
+                + (outputSection.output.primary
+                    ? " · " + Commons.I18n.t("controlpanel.monitor.primary", "PRIMARY")
+                    : "")
               foreground: root.bar.foreground
               fontFamily: root.bar.fontFamily
             }
@@ -258,7 +263,9 @@ Item {
 
               Text {
                 textFormat: Text.PlainText
-                text: outputSection.output.enabled ? "On" : "Off"
+                text: outputSection.output.enabled
+                  ? Commons.I18n.t("controlpanel.monitor.on", "On")
+                  : Commons.I18n.t("controlpanel.monitor.off", "Off")
                 color: outputSection.output.enabled
                   ? root.bar.foreground
                   : Qt.darker(root.bar.foreground, 1.5)
@@ -306,7 +313,7 @@ Item {
     Text {
       textFormat: Text.PlainText
       visible: root.connectedOutputs.length === 0
-      text: "No displays detected"
+      text: Commons.I18n.t("controlpanel.monitor.noneDetected", "No displays detected")
       color: Qt.darker(root.bar.foreground, 1.5)
       font.family: root.bar.fontFamily
       font.pixelSize: Style.font.bodySmall

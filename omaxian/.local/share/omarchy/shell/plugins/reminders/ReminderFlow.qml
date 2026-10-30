@@ -5,12 +5,11 @@ import qs.Commons as Commons
 import qs.Ui
 import "ReminderFlowModel.js" as ReminderFlowModel
 
-// X11 delta (Phase 9): upstream is a full-screen `WlrLayershell` scrim overlay
-// (picom blacks that out). Here the two-step prompt (minutes → message) lives
-// in a `Ui/CenteredModal` — a content-sized card centred on screen. Replaces
-// the fragile `omarchy-reminder -i` rofi path (the repo's `.rasi` theme files
-// segfault rofi 1.7.5). Summoned by `omarchy-reminder -i` →
-// `omarchy-shell shell summon omarchy.reminders`.
+// X11 delta: upstream is a full-screen scrim overlay on a layer-shell surface
+// (picom blacks that out). The two-step prompt (minutes -> message) lives in a
+// `Ui/CenteredModal` instead: a content-sized card centred on screen, no
+// scrim, still themed with the menu palette. Summoned by `omarchy-reminder -i`
+// -> `omarchy-shell shell summon omarchy.reminders`.
 Item {
   id: root
 
@@ -24,7 +23,14 @@ Item {
   property string filterText: ""
   property string fontFamily: Style.font.menuFamily
 
-  readonly property string promptText: root.step === "message" ? "Reminder message" : "Remind in minutes"
+  property color background: Commons.Color.menu.background
+  property color foreground: Commons.Color.menu.text
+  property color border: Commons.Color.menu.border
+  property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, Style.space(2)))
+  readonly property int cornerRadius: Style.cornerRadius
+  property int contentMargin: Style.spacing.panelPadding
+  property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
+  readonly property string promptText: root.step === "message" ? I18n.t("reminders.messagePrompt") : I18n.t("reminders.minutesPrompt")
 
   // Anchor the card to the live bar PanelWindow so opening does not map a
   // second DOCK surface (i3 restack flash of bar + dock).
@@ -43,6 +49,7 @@ Item {
     root.step = "minutes"
     root.minutes = ""
     root.filterText = ""
+    // CenteredModal re-acquires focus once its popup is mapped.
   }
 
   function close() {
@@ -76,13 +83,14 @@ Item {
       }
 
       if (!nextMinutes) {
-        Util.notify("Invalid reminder", "Enter the number of minutes")
+        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send", I18n.t("reminders.invalidTitle"), I18n.t("reminders.invalidBody")])
         return
       }
 
       root.minutes = nextMinutes
       root.step = "message"
       root.filterText = ""
+      Qt.callLater(function() { keyCatcher.forceActiveFocus() })
       return
     }
 
@@ -102,8 +110,13 @@ Item {
     open: root.opened
     anchorWindow: root.modalAnchorWindow
     focusTarget: keyCatcher
+    background: root.background
+    borderSpec: root.borderSpec
+    padding: root.contentMargin
     contentWidth: Style.space(340)
-    contentHeight: Math.round(prompt.implicitHeight) + Style.space(20)
+    // Card = prompt row plus padding and border on both sides.
+    contentHeight: Math.max(root.headerHeight, Math.round(prompt.implicitHeight))
+      + 2 * (root.contentMargin + Math.max(1, Style.space(2)))
     onDismissed: root.dismiss()
 
     Item {
@@ -135,9 +148,9 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        text: root.filterText || (root.promptText + "…")
-        color: Commons.Color.popups.text
-        opacity: root.filterText ? 1 : 0.55
+        text: root.filterText || root.promptText
+        color: root.foreground
+        opacity: root.filterText ? 1 : 0.58
         font.family: root.fontFamily
         font.pixelSize: Style.font.heading
         elide: Text.ElideRight
