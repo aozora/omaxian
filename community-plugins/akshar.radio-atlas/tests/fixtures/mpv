@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+arguments=" $* "
+[[ $arguments == *" --cache-secs=20 "* ]]
+[[ $arguments == *" --demuxer-max-bytes=8MiB "* ]]
+[[ $arguments == *" --demuxer-max-back-bytes=2MiB "* ]]
+[[ $arguments == *" --network-timeout=30 "* ]]
+[[ $arguments == *" --load-unsafe-playlists=no "* ]]
+mapfile -t interfaces < <(ip -o link show | awk -F': ' '{ print $2 }')
+[[ ${#interfaces[@]} == 1 && ${interfaces[0]} == lo ]]
+grep -Eq '^CapEff:[[:space:]]+0+$' /proc/self/status
+[[ ${http_proxy:-} == http://127.0.0.1:18765 ]]
+[[ ${https_proxy:-} == "$http_proxy" ]]
+proxy_reply=$(printf 'GET http://127.0.0.1/ HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n' \
+  | /usr/bin/socat -T 1 - TCP4:127.0.0.1:18765)
+[[ $proxy_reply == 'HTTP/1.1 403 Forbidden'* ]]
+[[ -z ${RADIO_ATLAS_TEST_MPV_MARKER:-} ]] || : > "$RADIO_ATLAS_TEST_MPV_MARKER"
+exit 0
