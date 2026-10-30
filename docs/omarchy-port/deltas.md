@@ -197,7 +197,7 @@ console / non-Latin vconsole. Impact note: [v4_0_6.md](v4_0_6.md).
 |---|---|---|---|---|---|
 | `shell/` (except lock) | unchanged vs v4.0.5 | **no port work** — byte-identical to previous pin | — | — | Confirmed with `diff -rq` against a v4.0.5 snapshot. |
 | `plugins/lock/Service.qml` | `currentlyLocked()` for suspend lock | **not ported** | — | — | Port lock is `i3lock-omaxian` + `xss-lock`. |
-| `bin/omarchy-agent`, OpenClaw install/launch/remove | OpenClaw package / own-install guards | **not ported** | — | — | Agents meter stays soft-launch only. |
+| `bin/omarchy-agent`, OpenClaw install/launch/remove | OpenClaw package / own-install guards | **agent launch ported in 4.5**; OpenClaw install/launch/remove **not ported** | — | — | mise / own CLI when present; no Arch OpenClaw seed. |
 | migrations / mkinitcpio vconsole / OpenClaw tests | Arch ISO + update path | **not ported** | — | — | |
 
 ## 4.0.5 (2026-10-18)
@@ -216,7 +216,7 @@ Impact note: [v4_0_5.md](v4_0_5.md).
 | `plugins/bar/Bar.qml` | `pluginObjectOwners: new Map()`, `schedulePluginBarApiSync` / layout snapshot, inline popout sync, `Math.floor` indicator, hover-guarded `cursorShape` | **merged** onto T1/T3 bar. | `T1`/`T3` | **keep** | Bar startup stall fix (#11015). |
 | `plugins/bar/widgets/Indicators.qml` | single-orientation `Loader` (stops doubled indicator processes) | **done.** Kept X11 `defaultIndicatorEntries` + `alwaysShowIndicators` settings-bag wrapper. | — | **keep** | |
 | `plugins/panels/clock/{Model.js,Panel.qml}` | UTC month grid / `stepMonth`; `viewDate` at local noon | **done.** Kept port `clockNeedsSeconds` + second-bearing formats. | — | **keep** (seconds) + UTC **converged** | |
-| `plugins/agents/Panel.qml` + `bin/omarchy-agent-usage-claude` | expired usage windows → 0% | **done** (panel + collector). Soft launch still `omarchy-notification-send`. | — | **keep** | |
+| `plugins/agents/Panel.qml` + `bin/omarchy-agent-usage-claude` | expired usage windows → 0% | **done** (panel + collector). Launch is `omarchy-agent --pick` (4.5). | — | **keep** | |
 | `bin/omarchy-cmd-present`, `omarchy-network-qr`, `omarchy-audio-output-sink` | `--` operand; empty `route_device`; EasyEffects 8 / `pw-link` | **copied verbatim** | — | **converged** | `pw-link` no-ops without PipeWire. |
 | `bin/omarchy-launch-editor` | `--` before editor args | **`--` applied** on X11 `i3_term` / `setsid` path. | `local` | **keep** | |
 | `bin/omarchy-launch-webapp`, `omarchy-cmd-{default-browser,browser-handoff}`, `omarchy-launch-browser` | Chromium handoff / mimeapps | **not taken** — port webapp stays `xdg-open`; no `uwsm`. | `local` | **keep** | |
@@ -246,13 +246,15 @@ Impact note: [v4_0_5.md](v4_0_5.md).
 | `bin/omarchy-menu{,-select,-input,-plugin,-keybindings,-timezone}` + `omarchy-launch-{webapp,floating-terminal-with-presentation,config-editor}` + `omarchy-system-{lock,logout,reboot,shutdown}` + `omarchy-toggle-{enabled,idle,notification-silencing}` + `omarchy-plugin-{list,enable,disable,add,clone,remove}` | Hyprland/`uwsm`/`systemctl`/`timedatectl` originals | X11/elogind/i3 wrappers. Timezone writes `/etc/timezone` + `/etc/localtime`. Notifications toggle is `dunstctl`. | `local` | **keep** | Only the helpers kept JSONC rows actually call. |
 | Port-authored plugin ids | `local.*` | **Renamed 2026-09-03** to `omaxian.*` (`id`, `moduleName`, IPC targets, `shell.json`, i3 `shell toggle`). | `local` | **keep** | Distinguishes from upstream `omarchy.*`. Retired `local.weather` / `local.volume` / `local.mpd` names left as history (plugins already gone). |
 
-## Agents meter (2026-10-11)
+## Agents meter (2026-10-11) — superseded by 4.5 + 2026-10-30 UX
+
+Historical first meter-only pass. Current state is the 4.5.0-rc2 rows above
+(`plugins/agents/`, agent bins, stock `shell.json`) plus the menu/hotkey close:
 
 | File | Upstream | omaxian | Transform | Status | Notes |
 |---|---|---|---|---|---|
-| `plugins/agents/` | `Panel.qml` + `Main.qml` + `Agent.qml` + assets; bar-widget `omarchy.agents` | **copied** — QML/assets/README/manifest; `launchAgent()` → `omarchy-notification-send` (meter-only; no `omarchy-agent`) | — | **keep** | Opt-in: not in stock `shell.json`. Self-hides until usage JSON exists. |
-| `bin/omarchy-agent-usage-{update,claude,codex,fireworks}` | collectors → `~/.local/state/omarchy/agents/usage/` | **vendored**; `update` adds `: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"` | `local` | **keep** | Pure Python/bash + HTTPS; no Wayland/systemd. |
-| `bin/omarchy-agent`, `omarchy-default-agent`, `omarchy-launch-tui`, menu/hotkey | launch stack | **not ported** | — | — | Scope B follow-up. |
+| `default/omarchy/omarchy-menu.jsonc` | `setup.default.agent.*` (branded `iconFont: omarchy`) | **ported** — same actions/checked; Nerd Font `󰚩` / Copilot `` (no omarchy.ttf) | `local` | **keep** | Needed by `omarchy-agent --pick` when no default is set. |
+| `config/i3/config.d/02_keybindings.conf` | Hypr `SUPER+SHIFT+CTRL+A` → `omarchy-agent --pick` | **added** `$MOD+Shift+Ctrl+a` | `local` | **keep** | |
 
 ## Not ported (absent from omaxian by decision — not a divergence to track)
 
