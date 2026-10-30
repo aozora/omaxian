@@ -1504,14 +1504,25 @@ Item {
         maxRowsHeight = root.visibleRowsHeight
       }
     }
-    onOpenChanged: if (!open) { cardTop = -1; maxRowsHeight = -1 }
+    onOpenChanged: {
+      if (!open) {
+        cardTop = -1
+        maxRowsHeight = -1
+        return
+      }
+      // rowsLoaded can flip after openExistingMenu's callLater; re-arm the
+      // FilterInput once the CenteredModal is actually open.
+      Qt.callLater(function() {
+        if (panel.open) filterInput.forceActiveFocus()
+      })
+    }
 
     Item {
       id: keyCatcher
       anchors.fill: parent
       z: root.deleteConfirmOpen ? 20 : 0
 
-      // Focus is on filterInput, which forwards every key here first.
+      // Focus is on filterInput, which forwards navigation keys here first.
       Keys.onPressed: function(event) {
         if (root.deleteConfirmOpen) {
           // Swallow the rest too, or it would type into the search line behind the dialog.

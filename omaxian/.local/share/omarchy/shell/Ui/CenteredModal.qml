@@ -69,9 +69,13 @@ Item {
     if (root.open) {
       // grabFocus dismissal clobbers the declarative `visible` binding; re-arm.
       root.rearmVisible()
+      // TextInput focusTargets (menu FilterInput) need the window mapped first;
+      // one nudge at 60ms plus a short retry covers slow XSetInputFocus.
       focusNudge.restart()
+      focusNudgeRetry.restart()
       return
     }
+    focusNudgeRetry.stop()
     // Never unmap the grabFocus PopupWindow synchronously from a Keys
     // handler living inside it — that use-after-frees in Quickshell 0.3.0
     // (seen as SIGSEGV in the IPC ready-read path right after ReminderFlow
@@ -95,6 +99,16 @@ Item {
       if (!root.open) return
       Quickshell.execDetached(["python3", Quickshell.shellDir + "/scripts/focus-window.py"])
       if (root.focusTarget) root.focusTarget.forceActiveFocus()
+    }
+  }
+
+  Timer {
+    id: focusNudgeRetry
+    interval: 180
+    onTriggered: {
+      if (!root.open || !root.focusTarget) return
+      Quickshell.execDetached(["python3", Quickshell.shellDir + "/scripts/focus-window.py"])
+      root.focusTarget.forceActiveFocus()
     }
   }
 
@@ -160,7 +174,10 @@ Item {
         anchors.rightMargin: cardSurface.contentRightInset
         anchors.bottomMargin: cardSurface.contentBottomInset
         anchors.leftMargin: cardSurface.contentLeftInset
-        focus: true
+        // When a focusTarget is set (e.g. menu FilterInput), do not keep
+        // focus on this scope — that steals keys from the TextInput under i3
+        // after XSetInputFocus lands on the PopupWindow.
+        focus: root.focusTarget === null
         Keys.priority: Keys.AfterItem
         Keys.onEscapePressed: function(event) {
           // Same deferral as onOpenChanged: do not tear down from inside Keys.

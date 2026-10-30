@@ -6,12 +6,13 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 
-// X11 delta (Phase 9): upstream is a full-screen `WlrLayershell` scrim overlay
-// (picom blacks that out — fullscreen unredirection). Here the dial cluster
-// lives in a `Ui/CenteredModal` — a content-sized `PopupWindow` centred on
-// screen. No dimming scrim; Escape / the IPC toggle dismiss (the modal's
-// `grabFocus` also dismisses on an outside press). `SpeedDial` (the Shapes
-// gauge) is unchanged. Shared by `plugins/panels/{speedtest,disk-speedtest}`.
+// X11 delta (Phase 9 / 4.5): upstream is a full-screen `WlrLayershell` scrim
+// overlay (picom blacks that out — fullscreen unredirection). Here the dial
+// cluster lives in a `Ui/CenteredModal` — a content-sized `PopupWindow`
+// centred on screen. No dimming scrim; Escape / the IPC toggle dismiss (the
+// modal's `grabFocus` also dismisses on an outside press). `SpeedDial` (the
+// Shapes gauge) tracks upstream (I18n / Style.duration / formatNumber).
+// Shared by `plugins/panels/{speedtest,disk-speedtest}`.
 Item {
   id: root
 
@@ -22,7 +23,7 @@ Item {
   property string unit: "Mbps"
   property string title: ""
   property string layerNamespace: "omarchy-speed-test"   // X11: unused, kept for API compat
-  property string runAgainTooltip: "Measure again"
+  property string runAgainTooltip: Commons.I18n.t("speedtest.measureAgain")
   property real leftValue: 0
   property real rightValue: 0
   property bool leftLive: false
@@ -31,7 +32,8 @@ Item {
   property bool open: false
   // Prefer the live bar PanelWindow (see Ui/CenteredModal).
   property var anchorWindow: null
-  // Full-scale latch points for the dials, smallest first.
+  // Full-scale latch points for the dials, smallest first. The first stop is
+  // the base scale a fresh run starts from.
   property var scaleStops: [100, 250, 500, 1000, 2500, 5000, 10000]
   property real fullScale: scaleStops[0]
 
@@ -45,6 +47,8 @@ Item {
   }
 
   function expandScale(value) {
+    // Either reading ranges the entire cluster upward. Keeping this latch on
+    // the overlay ensures both dials always describe the same scale.
     for (var i = 0; i < scaleStops.length; i++) {
       if (value <= scaleStops[i] * 0.92) {
         if (scaleStops[i] > fullScale) fullScale = scaleStops[i]
@@ -60,7 +64,7 @@ Item {
   onRightValueChanged: expandScale(rightValue)
 
   Behavior on fullScale {
-    NumberAnimation { duration: 400; easing.type: Easing.OutCubic }
+    NumberAnimation { duration: Style.duration(400); easing.type: Easing.OutCubic }
   }
 
   // Fixed light palette for the readouts/ticks — they sit on the dark popup
@@ -91,6 +95,9 @@ Item {
       id: keyCatcher
       anchors.fill: parent
       focus: true
+      // Right-to-left languages read this overlay mirrored.
+      LayoutMirroring.enabled: Commons.I18n.rightToLeft
+      LayoutMirroring.childrenInherit: true
 
       Keys.onEscapePressed: root.closeRequested()
       Keys.onReturnPressed: if (!root.running) root.runAgainRequested()
@@ -134,8 +141,10 @@ Item {
           }
         }
 
+        // Centered on the dial pair. Fades rather than unmounts while a run
+        // is in flight, so the cluster never shifts.
         Button {
-          text: "Run Again"
+          text: Commons.I18n.t("speedtest.runAgain")
           tooltipText: root.runAgainTooltip
           bordered: true
           enabled: !root.running
@@ -149,7 +158,7 @@ Item {
           onClicked: root.runAgainRequested()
 
           Behavior on opacity {
-            NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: Style.duration(240); easing.type: Easing.OutCubic }
           }
         }
 
@@ -171,7 +180,9 @@ Item {
 
   // One floating cluster dial: an open 270° scale with the gap at the
   // bottom, a faint tick ring, a glowing accent value arc, a hubless needle
-  // that fades toward the pivot, and a digital readout in the middle.
+  // that fades toward the pivot, and a digital readout in the middle. All
+  // writes to the needle funnel through `shown` so the ignition sweep and
+  // live readings share one animation.
   component SpeedDial: Item {
     id: dial
 
@@ -180,6 +191,7 @@ Item {
     required property bool live
 
     readonly property real diameter: Style.space(210)
+    // 0° = 3 o'clock, increasing clockwise (PathAngleArc's convention).
     readonly property real dialStart: 135
     readonly property real dialSweep: 270
     readonly property int tickCount: 46
@@ -188,9 +200,12 @@ Item {
     readonly property color trackColor: Qt.rgba(1, 1, 1, 0.14)
     readonly property color minorTickColor: Qt.rgba(1, 1, 1, 0.12)
     readonly property color majorTickColor: Qt.rgba(1, 1, 1, 0.3)
+    // The dial that isn't measuring yet sits dimmed until it gets a figure.
     readonly property bool engaged: live || value > 0
 
     property real shown: 0
+    // The digital readout stays on the real figure while the ignition sweep
+    // drives the needle -- a cluster sweeps its gauges, not its numerals.
     readonly property real reading: ignition.running ? value : shown
     readonly property real fullScale: root.fullScale
     readonly property real fraction: fullScale > 0 ? Math.max(0, Math.min(1, shown / fullScale)) : 0
@@ -201,12 +216,13 @@ Item {
     opacity: engaged ? 1 : 0.5
 
     Behavior on opacity {
-      NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+      NumberAnimation { duration: Style.duration(240); easing.type: Easing.OutCubic }
     }
 
+    // Live readings land once a second; glide between them rather than snap.
     Behavior on shown {
       enabled: !ignition.running
-      NumberAnimation { duration: 600; easing.type: Easing.OutCubic }
+      NumberAnimation { duration: Style.duration(600); easing.type: Easing.OutCubic }
     }
 
     onValueChanged: {
@@ -217,10 +233,12 @@ Item {
       ignition.restart()
     }
 
+    // Car-cluster power-on: needle sweeps to full scale and falls back before
+    // the live figures take over.
     SequentialAnimation {
       id: ignition
-      NumberAnimation { target: dial; property: "shown"; to: dial.fullScale; duration: 550; easing.type: Easing.InOutCubic }
-      NumberAnimation { target: dial; property: "shown"; to: 0; duration: 650; easing.type: Easing.OutCubic }
+      NumberAnimation { target: dial; property: "shown"; to: dial.fullScale; duration: Style.duration(550); easing.type: Easing.InOutCubic }
+      NumberAnimation { target: dial; property: "shown"; to: 0; duration: Style.duration(650); easing.type: Easing.OutCubic }
       onFinished: dial.shown = dial.value
     }
 
@@ -228,6 +246,7 @@ Item {
       anchors.fill: parent
       preferredRendererType: Shape.CurveRenderer
 
+      // Track: the full scale, always visible, dim.
       ShapePath {
         strokeWidth: dial.arcWidth
         strokeColor: dial.trackColor
@@ -244,6 +263,9 @@ Item {
         }
       }
 
+      // Soft under-glow beneath the value arc, standing in for the backlit
+      // ring of a real cluster. Both arcs go transparent at rest, or their
+      // round caps would leave a stray dot at the foot of the scale.
       ShapePath {
         strokeWidth: dial.arcWidth * 3
         strokeColor: dial.arcVisible ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.18) : "transparent"
@@ -260,6 +282,7 @@ Item {
         }
       }
 
+      // Value: fills behind the needle.
       ShapePath {
         strokeWidth: dial.arcWidth
         strokeColor: dial.arcVisible ? Commons.Color.accent : "transparent"
@@ -277,6 +300,7 @@ Item {
       }
     }
 
+    // Faint tick ring just inside the arc; every fifth tick is a major.
     Repeater {
       model: dial.tickCount
 
@@ -298,6 +322,8 @@ Item {
       }
     }
 
+    // Hubless needle: a slender sliver that fades out toward the pivot, so
+    // it reads as floating like the rest of the cluster.
     Item {
       anchors.fill: parent
       rotation: dial.dialStart + dial.fraction * dial.dialSweep - 270
@@ -326,9 +352,8 @@ Item {
       Text {
         textFormat: Text.PlainText
         anchors.horizontalCenter: parent.horizontalCenter
-        text: dial.reading < 10
-          ? dial.reading.toLocaleString(Qt.locale(), 'f', 1)
-          : Math.round(dial.reading).toLocaleString(Qt.locale(), 'f', 0)
+        // Written in the interface language's decimal separator and digits.
+        text: Commons.I18n.formatNumber(dial.reading, dial.reading < 10 ? 1 : 0)
         color: root.onScrim
         font.family: root.fontFamily
         font.pixelSize: Style.font.display
@@ -345,6 +370,8 @@ Item {
       }
     }
 
+    // The 90° gap at the bottom of the scale is where a cluster prints its
+    // unit; here it names the direction.
     Text {
       textFormat: Text.PlainText
       anchors.horizontalCenter: parent.horizontalCenter

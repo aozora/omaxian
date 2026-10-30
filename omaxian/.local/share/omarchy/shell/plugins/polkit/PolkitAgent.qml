@@ -87,6 +87,7 @@ Item {
     var flow = polkitAgent.flow
     if (!flow) return
 
+    var wasPassword = responseRequired
     currentMessage = String(flow.message || "")
     currentPrompt = String(flow.inputPrompt || "")
     currentSupplementary = String(flow.supplementaryMessage || "")
@@ -95,6 +96,15 @@ Item {
     failed = !!flow.failed
 
     if (responseRequired) submitted = false
+    // PAM often starts in fingerprint mode then asks for a password; re-nudge
+    // so the password TextInput gets window + item focus under i3.
+    if (responseRequired && !wasPassword && dialogVisible) {
+      if (panel.visible) {
+        focusGrab.restart()
+        focusGrabRetry.restart()
+      }
+      Qt.callLater(refocus)
+    }
   }
 
   function beginFlow() {
@@ -277,7 +287,17 @@ Item {
     focusable: root.dialogVisible
     // Full-screen ARGB host (scrim + rounded card). Match bar/dock.
     surfaceFormat.opaque: false
-    onVisibleChanged: if (visible) focusGrab.restart()
+    onVisibleChanged: {
+      if (!visible) {
+        focusGrab.stop()
+        focusGrabRetry.stop()
+        return
+      }
+      // Full-screen PanelWindow + password TextInput: nudge, then retry once
+      // PAM has switched from fingerprint to the password field.
+      focusGrab.restart()
+      focusGrabRetry.restart()
+    }
 
     // X11 focus nudge: a full-screen PanelWindow doesn't reliably receive
     // window-level keyboard focus under i3 just by being `focusable`.
@@ -285,6 +305,16 @@ Item {
       id: focusGrab
       interval: 60
       onTriggered: {
+        Quickshell.execDetached(["python3", Quickshell.shellDir + "/scripts/focus-polkit.py"])
+        Qt.callLater(root.refocus)
+      }
+    }
+
+    Timer {
+      id: focusGrabRetry
+      interval: 220
+      onTriggered: {
+        if (!root.dialogVisible) return
         Quickshell.execDetached(["python3", Quickshell.shellDir + "/scripts/focus-polkit.py"])
         Qt.callLater(root.refocus)
       }
