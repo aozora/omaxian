@@ -1115,9 +1115,13 @@ Item {
       if (root.fetchAction === "country"
           && root.fetchValue !== root.browsedCountryCode) return
       if (exitCode !== 0) {
+        var detail = RadioModel.cleanText(root.fetchStderr || "").replace(/\s+/g, " ").trim()
+        if (detail.length > 120) detail = detail.slice(0, 117) + "..."
         root.fetchError = root.displayStations.length > 0
           ? "Showing cached stations · Radio Browser is unavailable"
-          : "Radio Browser is unavailable. Try again shortly."
+          : (detail
+            ? ("Radio Browser unavailable · " + detail)
+            : "Radio Browser is unavailable. Try again shortly.")
         return
       }
       if (stations === null) {

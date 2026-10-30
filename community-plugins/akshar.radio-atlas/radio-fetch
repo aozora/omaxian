@@ -34,6 +34,16 @@ cleanup() {
 trap cleanup EXIT
 request_dir=$(mktemp -d "$runtime_dir/fetch.XXXXXX")
 
+# Omaxian: all.api.radio-browser.info is often slow, 403, or a single unhealthy
+# edge. Keep known mirrors so request() can rotate when reverse-DNS discovery
+# returns one bad host (or none).
+# Concrete mirrors only (names that currently resolve under DNS). Discovery
+# above may already emit de1; duplicates are removed in load_bases.
+fallback_bases=(
+  'https://de1.api.radio-browser.info'
+  'https://de2.api.radio-browser.info'
+)
+
 discover_bases() {
   local ip hostname
   while read -r ip; do
@@ -43,15 +53,15 @@ discover_bases() {
     fi
   done < <(getent ahostsv4 all.api.radio-browser.info 2>/dev/null \
     | awk '!seen[$1]++ { print $1 }')
-
+  printf '%s\n' "${fallback_bases[@]}"
 }
 
 load_bases() {
   (( ${#bases[@]} > 0 )) && return
   mapfile -t bases < <(discover_bases | awk '!seen[$0]++' | shuf)
-  if (( ${#bases[@]} == 0 )); then
-    bases=('https://all.api.radio-browser.info')
-  fi
+  # Last-resort round-robin name; try after concrete mirrors.
+  bases+=('https://all.api.radio-browser.info')
+  mapfile -t bases < <(printf '%s\n' "${bases[@]}" | awk '!seen[$0]++')
 }
 
 normalize='def number_or_null: try tonumber catch null;
