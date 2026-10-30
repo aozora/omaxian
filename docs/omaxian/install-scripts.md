@@ -93,6 +93,9 @@ pgrep -x quickshell
 - Asks for the sudo password in a whiptail password box (cached for apt).
 - Streams setup/apt/install/deploy output through `dialog --programbox` so the
   flow stays in the TUI instead of dropping to a bare terminal.
+- Quiet steps (notably `apt-get update -qq` in `setup.sh`) use `omaxian_spin`
+  from `scripts/lib/ui.sh` — a TTY spinner, or heartbeat lines inside the
+  programbox — so the install does not look frozen.
 - Package radiolist: recommended (default) / minimal / + optional.
 - Runs `scripts/setup.sh` (no `--deploy`), then `install.sh`, then `deploy.sh`.
 - Checks that **Quickshell** is on `PATH` after setup. If missing, shows

@@ -172,8 +172,8 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 
 omaxian_phase "apt"
-omaxian_info "update"
-apt-get update -qq
+# -qq is silent for minutes on slow mirrors; spinner keeps TUI/TTY alive.
+omaxian_spin "apt update" apt-get update -qq
 
 PKGS=("${REQUIRED[@]}")
 if (( WITH_RECOMMENDED )); then PKGS+=("${RECOMMENDED[@]}"); fi

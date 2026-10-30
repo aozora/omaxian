@@ -58,3 +58,71 @@ omaxian_done() {
 	echo
 	echo "== $* =="
 }
+
+# Run a long quiet command with a loader so the TUI/TTY does not look stuck.
+# Usage: omaxian_spin "label" command [args…]
+# - TTY: in-place |/-\ spinner on one line
+# - Piped (dialog --programbox): heartbeat lines every ~2s
+# Command stdout/stderr go to a temp log; dumped on failure.
+omaxian_spin() {
+	local label="$1"
+	shift
+	(( $# > 0 )) || {
+		omaxian_err "omaxian_spin: missing command"
+		return 2
+	}
+
+	local log pid ec=0 frames i=0 next_beat=0 now
+	log=$(mktemp "${TMPDIR:-/tmp}/omaxian-spin.XXXXXX") || return 1
+
+	"$@" >"$log" 2>&1 &
+	pid=$!
+
+	# shellcheck disable=SC2064
+	trap "kill $pid 2>/dev/null || true; rm -f -- '$log'" INT TERM
+
+	if [[ -t 1 ]]; then
+		frames='|/-\'
+		printf '   %s  ' "$label"
+		while kill -0 "$pid" 2>/dev/null; do
+			printf '\b%s' "${frames:i++%${#frames}:1}"
+			sleep 0.12
+		done
+		wait "$pid" || ec=$?
+		if (( ec == 0 )); then
+			printf '\bdone\n'
+		else
+			printf '\bfailed\n'
+		fi
+	else
+		# programbox is line-oriented; \r redraws do nothing useful there.
+		echo "   $label ..."
+		next_beat=$((SECONDS + 2))
+		while kill -0 "$pid" 2>/dev/null; do
+			sleep 0.5
+			now=$SECONDS
+			if (( now >= next_beat )); then
+				echo "   ... still working ($label)"
+				next_beat=$((now + 2))
+			fi
+		done
+		wait "$pid" || ec=$?
+		if (( ec == 0 )); then
+			echo "   $label - done"
+		else
+			echo "   $label - failed"
+		fi
+	fi
+
+	trap - INT TERM
+
+	if (( ec != 0 )); then
+		omaxian_err "$label failed (exit $ec)"
+		# Cap dump so a huge apt log does not flood the programbox.
+		tail -n 40 "$log" >&2 || true
+		rm -f -- "$log"
+		return "$ec"
+	fi
+	rm -f -- "$log"
+	return 0
+}
