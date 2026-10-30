@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Installs omakeepickd, the plugin's helper daemon, as bin/omakeepickd next to this script.
+#
+# Omaxian port: always build from the local daemon/ sources. Upstream's GitHub
+# release binary is linked against wl-clipboard / wtype and is wrong on X11;
+# downloading it leaves a helper that fails with "wl-copy … is not installed".
+#
+#   bin/install           build from source (needs rustc/cargo: sudo apt install cargo)
+#   bin/install --source  same (kept for upstream CLI compatibility)
+#
+# The shell plugin runs this by itself when the binary is missing or older than the plugin.
+# A running daemon of another version is stopped (which locks the database) so the new one is
+# started on next use.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+version="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$root/manifest.json" | head -1)"
+target="$root/bin/omakeepickd"
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/omakeepick"
+
+say() { echo "omakeepick install: $*" >&2; }
+
+[[ -n $version ]] || { say "cannot read the plugin version from manifest.json"; exit 1; }
+mkdir -p "$cache"
+work="$(mktemp -d "$cache/install.XXXXXX")"
+trap 'rm -f -- "$work/omakeepickd"; rmdir -- "$work" 2>/dev/null || rm -rf -- "$work"' EXIT
+
+# Prefer a rustup toolchain when Debian's rustc is older than daemon/Cargo.toml
+# (rust-version 1.89). Upstream Omarchy ships a newer rust; apt often does not.
+resolve_cargo() {
+  local c candidate rustup
+  rustup="$(command -v rustup 2>/dev/null || true)"
+  if [[ -z $rustup ]]; then
+    for candidate in "$HOME/.cargo/bin/rustup" /usr/bin/rustup /bin/rustup; do
+      [[ -x $candidate ]] && { rustup=$candidate; break; }
+    done
+  fi
+  if [[ -n $rustup ]]; then
+    c="$("$rustup" which cargo 2>/dev/null || true)"
+    if [[ -n $c && -x $c ]] && "$c" --version >/dev/null 2>&1; then
+      printf '%s' "$c"
+      return 0
+    fi
+  fi
+  for candidate in \
+    "$HOME/.cargo/bin/cargo" \
+    "$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo" \
+    "$HOME/.rustup/toolchains/stable-aarch64-unknown-linux-gnu/bin/cargo"
+  do
+    [[ -x $candidate ]] || continue
+    # Skip rustup proxies that point at a missing default.
+    if "$candidate" --version >/dev/null 2>&1; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  c="$(command -v cargo || true)"
+  [[ -n $c && -x $c ]] || return 1
+  printf '%s' "$c"
+}
+
+build() {
+  local cargo rustc rustc_ver
+  cargo="$(resolve_cargo)" || { say "cargo is not installed (sudo apt install cargo, or rustup)"; return 1; }
+  rustc="$(dirname -- "$cargo")/rustc"
+  if [[ -x $rustc ]]; then
+    rustc_ver="$("$rustc" --version 2>/dev/null | awk '{print $2}')"
+  else
+    rustc_ver="?"
+  fi
+  say "building from source with $cargo (rustc ${rustc_ver}; X11 port — no upstream prebuild)"
+  # Build outside the plugin folder: the shell watches it and reloads on every change.
+  CARGO_TARGET_DIR="$cache/target" "$cargo" build --release --locked --quiet \
+    --manifest-path "$root/daemon/Cargo.toml" || { say "build failed"; return 1; }
+  install -m 0755 "$cache/target/release/omakeepickd" "$work/omakeepickd"
+}
+
+if ! build; then
+  say "could not install omakeepickd"
+  exit 1
+fi
+
+got="$("$work/omakeepickd" --version | cut -d' ' -f2)"
+[[ $got == "$version" ]] || say "warning: installed omakeepickd $got for plugin version $version"
+
+# Stop a running daemon so the new X11 binary is picked up on next attach
+# (same version string as the Wayland prebuild would otherwise leave it running).
+if [[ -x $target ]]; then
+  "$target" ctl quit >/dev/null 2>&1 || true
+fi
+mv -f "$work/omakeepickd" "$target"
+say "installed omakeepickd $got (built)"

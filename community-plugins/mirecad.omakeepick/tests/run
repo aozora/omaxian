@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Every check the QML side of this plugin ships. Run from anywhere.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+shell_dir="${OMARCHY_PATH:-$HOME/.local/share/omarchy}/shell"
+qmllint="${QMLLINT:-/usr/lib/qt6/bin/qmllint}"
+
+echo "== manifest =="
+# Omaxian: flat omarchy-plugin-validate (no `omarchy plugin` group dispatcher).
+if command -v omarchy-plugin-validate >/dev/null 2>&1; then
+  omarchy-plugin-validate "$root"
+elif command -v omarchy >/dev/null 2>&1; then
+  omarchy plugin validate "$root"
+else
+  echo "skip validate (no omarchy-plugin-validate); checking manifest.json shape"
+  jq -e '.schemaVersion == 1 and .id and .entryPoints' "$root/manifest.json" >/dev/null
+fi
+plugin_version="$(jq -r .version "$root/manifest.json")"
+daemon_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/daemon/Cargo.toml" | head -1)"
+[[ $plugin_version == "$daemon_version" ]] ||
+  { echo "FAIL: manifest.json is $plugin_version but daemon/Cargo.toml is $daemon_version"; exit 1; }
+echo "ok ($plugin_version)"
+
+echo "== model =="
+node --test "$root/tests"/*.test.js
+
+echo "== qml =="
+# Inside Quickshell `qs.*` resolves against the shell directory. Give qmllint
+# the same view through a throwaway `qs` link, kept outside the plugin folder
+# because plugins may not contain symlinks.
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+ln -s "$shell_dir" "$scratch/qs"
+"$qmllint" -I "$scratch" --json "$scratch/lint.json" "$root"/*.qml >/dev/null 2>&1 || true
+[[ -s $scratch/lint.json ]] || { echo "FAIL: qmllint produced no report"; exit 1; }
+node "$root/tests/lint.js" "$scratch/lint.json"
+
+echo "== daemon =="
+cargo="$(command -v cargo || echo "$HOME/.cargo/bin/cargo")"
+if [[ -x $cargo ]]; then
+  (cd "$root/daemon" && "$cargo" test --quiet)
+else
+  echo "skipped: cargo not found"
+fi

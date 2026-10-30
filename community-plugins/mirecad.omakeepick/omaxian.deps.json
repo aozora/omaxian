@@ -1,0 +1,11 @@
+{
+  "apt": [
+    "xclip",
+    "xdotool",
+    "cargo",
+    "rustc"
+  ],
+  "manual": [
+    "omakeepickd is always built from daemon/ on first use (upstream release binaries are Wayland-only). Needs rustc ≥ 1.89 — use rustup stable if Debian cargo is older."
+  ]
+}
