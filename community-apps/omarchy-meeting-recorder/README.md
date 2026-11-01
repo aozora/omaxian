@@ -18,6 +18,7 @@ This is a **standalone app**, not a Quickshell community plugin. It lives under
 | Upstream (Omarchy / Hyprland) | This port |
 | ----------------------------- | --------- |
 | `yay` / pacman / AUR `install.sh` | Debian `install.sh` → `~/.local` + apt deps |
+| Arch rustc / pacman Rust | **rustup** (`rust-toolchain.toml` → stable); Debian `rustc` is too old for gtk4-rs |
 | Hyprland float window rules | i3 `for_window` snippet (`omaxian/i3-meeting-recorder.conf`) |
 | First-run bar offer via `omarchy` + `omarchy plugin enable` | `omarchy-shell` / `omarchy-plugin-enable`; plugin under `~/.local/share/…` or `/usr/share/…` |
 | Compact resize via `hyprctl` | Unchanged; already gated on `HYPRLAND_INSTANCE_SIGNATURE` (GTK resize on i3) |
@@ -35,8 +36,9 @@ Runtime (also in `omaxian.deps.json`):
 - `ffmpeg`
 - `libvulkan1` (optional GPU transcription; CPU fallback works)
 
-Build: Rust/`cargo`, CMake, GTK4/Adwaita/Pulse/Vulkan headers, `glslc` (skip
-Vulkan pieces with `./install.sh --cpu-only`).
+Build: **rustup** (stable ≥ 1.92; `install.sh` installs it), CMake, GTK4 /
+Adwaita / Pulse / Vulkan headers, `glslc` (skip Vulkan pieces with
+`./install.sh --cpu-only`). Do not use Debian `apt install rustc cargo`.
 
 ## Install
 

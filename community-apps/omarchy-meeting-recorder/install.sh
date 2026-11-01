@@ -7,6 +7,7 @@
 #   ./install.sh --skip-apt   # do not apt-get install deps
 #   ./install.sh --binary     # download upstream release tarball instead of building
 #
+# Source builds use rustup (Debian rustc is too old for gtk4-rs / whisper-rs).
 # Upstream Arch packaging remains in install.arch.sh / packaging/aur/.
 
 set -euo pipefail
@@ -18,6 +19,8 @@ SHARE="$PREFIX/share/omarchy-meeting-recorder"
 APP_DIR="$PREFIX/share/applications"
 MIME_DIR="$PREFIX/share/mime/packages"
 I3_SNIPPET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/i3/config.d"
+# gtk4-rs 0.11 / cairo-rs 0.22 need rustc ≥ 1.92; pin via rust-toolchain.toml
+RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-stable}"
 
 CPU_ONLY=0
 SKIP_APT=0
@@ -27,7 +30,7 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [--cpu-only] [--skip-apt] [--binary]
 
-  (default)   build with Vulkan whisper backend and install to ~/.local
+  (default)   rustup build with Vulkan whisper backend → ~/.local
   --cpu-only  cargo build --no-default-features
   --skip-apt  do not apt-get install deps
   --binary    download upstream release tarball (no Omaxian bar-enable patch in the binary)
@@ -60,12 +63,13 @@ apt_runtime=(
   ffmpeg
   libvulkan1
 )
+# Native build deps only — Rust comes from rustup, not apt rustc/cargo.
 apt_build=(
   build-essential
   cmake
   pkg-config
-  cargo
-  rustc
+  curl
+  ca-certificates
   libgtk-4-dev
   libadwaita-1-dev
   libglib2.0-dev
@@ -96,6 +100,44 @@ install_apt() {
   fi
   echo ">> apt packages: ${pkgs[*]}"
   sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
+}
+
+# Prefer ~/.cargo/bin over Debian /usr/bin/{rustc,cargo}.
+use_rustup_path() {
+  if [[ -f $HOME/.cargo/env ]]; then
+    # shellcheck source=/dev/null
+    source "$HOME/.cargo/env"
+  fi
+  export PATH="$HOME/.cargo/bin:$PATH"
+}
+
+ensure_rustup() {
+  use_rustup_path
+  if ! command -v rustup >/dev/null; then
+    echo ">> installing rustup ($RUSTUP_TOOLCHAIN)"
+    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain "$RUSTUP_TOOLCHAIN"
+    use_rustup_path
+  fi
+  command -v rustup >/dev/null || {
+    echo "rustup not on PATH after install; open a new shell or source ~/.cargo/env" >&2
+    exit 1
+  }
+  # Install the channel from rust-toolchain.toml (stable) so gtk4-rs builds.
+  echo ">> rustup: ensure toolchain for this crate"
+  (
+    cd "$ROOT"
+    rustup show
+    # Force the directory override even if a leftover default is old.
+    rustup toolchain install "$RUSTUP_TOOLCHAIN"
+  )
+  local ver rustc_path
+  ver=$(cd "$ROOT" && rustc --version)
+  rustc_path=$(cd "$ROOT" && command -v rustc)
+  echo ">> $ver ($rustc_path)"
+  if [[ $rustc_path != *'/.cargo/bin/'* ]]; then
+    echo "error: rustc is not rustup's ($rustc_path). Put ~/.cargo/bin first on PATH." >&2
+    exit 1
+  fi
 }
 
 install_i3_rules() {
@@ -139,8 +181,9 @@ install_files() {
 }
 
 build_from_source() {
+  ensure_rustup
   command -v cargo >/dev/null || {
-    echo "cargo not found; install Rust or re-run without --skip-apt" >&2
+    echo "cargo not found after rustup setup" >&2
     exit 1
   }
   local -a features=()
@@ -152,6 +195,7 @@ build_from_source() {
   fi
   (
     cd "$ROOT"
+    # Explicit toolchain so Debian /usr/bin/cargo cannot sneak back in.
     cargo build --release --locked "${features[@]}"
   )
   install_files "$ROOT/target/release/omarchy-meeting-recorder"

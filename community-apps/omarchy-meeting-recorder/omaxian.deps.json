@@ -10,8 +10,8 @@
     "build-essential",
     "cmake",
     "pkg-config",
-    "cargo",
-    "rustc",
+    "curl",
+    "ca-certificates",
     "libgtk-4-dev",
     "libadwaita-1-dev",
     "libglib2.0-dev",
@@ -20,6 +20,7 @@
     "glslc"
   ],
   "manual": [
+    "Rust via rustup (install.sh installs it). Do not use Debian apt rustc/cargo — gtk4-rs needs rustc ≥ 1.92.",
     "Build with community-apps/omarchy-meeting-recorder/install.sh (or install.sh --cpu-only).",
     "First transcription downloads the whisper model (~1.6 GB) to ~/.local/share/omarchy-meeting-recorder/models/.",
     "Optional chapters need a default agent (omarchy-default-agent / Menu → Setup → Default Agent).",
