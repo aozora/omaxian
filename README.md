@@ -59,7 +59,7 @@ because a GUI was missing.
 | **Media widget**                                          | MPD shows up next to other MPRIS players via `mpDris2`. It's a modified version of the Omarchy Media Control (https://github.com/MrDemonc/Omarchy-media-control) by  @mrDemonc                                                                                                                                         |
 | **Help on the bar**                                       | Super+K / the `?` widget — a cheat-sheet of this session’s i3 binds.                                                                                                                                                                                                                                                   |
 | **`omarchy-plugin-check`**                                | Static check of a community plugin against this X11 port (Wayland/Hyprland/PipeWire/systemd couplings). Upstream only has schema validation.                                                                                                                                                                           |
-| **Optional community ports**                              | Curated X11/Debian-compatible third-party plugins live in [`community-plugins/`](community-plugins/README.md). Not installed by deploy; opt in via `~/.config/omarchy/plugins/`.                                                                                                                                       |
+| **Optional community ports**                              | Curated X11/Debian-compatible third-party plugins live in [`community-plugins/`](community-plugins/README.md) (opt in via `~/.config/omarchy/plugins/`). Standalone apps live in [`community-apps/`](community-apps/README.md). Neither is installed by deploy.                                                         |
 | **Debian / Devuan session**                               | Init-agnostic: systemd Debian uses logind; Devuan / sysvinit get **elogind**. Power/session via `omarchy-host` (`systemctl` → `loginctl` → `shutdown`). PulseAudio *or* PipeWire; `apt` instead of pacman; no `uwsm`. Reminders use `sleep`, not systemd timers; night light is **redshift**, not hyprsunset.          |
 
 The shared Omarchy surface is still there: themes, the command menu, weather,
@@ -443,6 +443,20 @@ Details, upstream links, and install steps:
 
 ---
 
+## Community apps (ported)
+
+Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
+[`community-apps/`](community-apps/). Opt-in only — each app ships its own
+`install.sh`.
+
+| App | What it does |
+| --- | ------------ |
+| [Meeting Recorder](community-apps/omarchy-meeting-recorder/) | Mic + computer audio as two tracks, local whisper transcription, optional bar waveform |
+
+Details: [`community-apps/README.md`](community-apps/README.md).
+
+---
+
 ## Going further
 
 | Want to…                                  | See                                                                                                                                                                                                                                                         |
@@ -450,6 +464,7 @@ Details, upstream links, and install steps:
 | Understand `setup` / `install` / `deploy` | [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md) — TUI, `scripts/` roles, flags, re-run guide; desktop packages live in `scripts/setup.sh`                                                                                              |
 | Customize bar / dock / displays           | [`docs/omaxian/customize/`](docs/omaxian/customize/) — [bar](docs/omaxian/customize/bar.md) (incl. floating island), [dock](docs/omaxian/customize/dock.md), [displays](docs/omaxian/customize/displays.md), [settings](docs/omaxian/customize/settings.md) |
 | Install optional community plugins        | [`community-plugins/README.md`](community-plugins/README.md) — opt-in only; not installed by setup/install/deploy                                                                                                                                           |
+| Install optional community apps           | [`community-apps/README.md`](community-apps/README.md) — standalone ports; each has `install.sh`                                                                                                                                                            |
 | Understand the port / bump upstream       | [`docs/omarchy-port/`](docs/omarchy-port/) — start with [migration](docs/omarchy-port/omarchy-migration.md) and [deltas](docs/omarchy-port/deltas.md)                                                                                                       |
 | Tinker with the Quickshell tree           | [`docs/quickshell/`](docs/quickshell/)                                                                                                                                                                                                                      |
 

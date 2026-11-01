@@ -3,7 +3,8 @@
 Omaxian-compatible **third-party** shell plugin ports live here. They are **not**
 installed by the desktop `setup` / `install` / `deploy` scripts. Stock desktop
 code stays under `omaxian/.local/share/omarchy/shell/plugins/`; this tree is
-opt-in only.
+opt-in only. Standalone GTK/Qt apps belong in
+[`community-apps/`](../community-apps/), not here.
 
 | Script | Installs community plugins? |
 | --- | --- |

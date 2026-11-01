@@ -3,10 +3,12 @@
 Omaxian is [Omarchy](https://omarchy.org) for **Devuan / Debian + X11/XLibre + i3**.
 Same bar, themes, launcher, and `omarchy-*` commands — no Wayland, Hyprland, or systemd.
 
-This checkout has two trees:
+This checkout has these trees:
 
 - `omarchy-quattro/` — pinned clone of upstream Omarchy. Treat it as **read-only**. Do not edit it. `scripts/setup.sh` / `scripts/install.sh` clone it; it is gitignored.
 - `omaxian/` — the port. Edit here. `./scripts/deploy.sh` copies it into `$HOME`.
+- `community-plugins/` — optional third-party Quickshell plugin ports (not deployed; install into `~/.config/omarchy/plugins/`).
+- `community-apps/` — optional standalone app ports (GTK/Qt/…; not deployed; each ships its own `install.sh`).
 
 First-time install: `./omaxian-install.sh` or `curl …/bootstrap.sh | bash`. See `README.md` for install, keybinds, and the list of things that are not 1:1 with Omarchy. Porting notes live in `docs/omarchy-port/`.
 
@@ -111,6 +113,7 @@ Commands that `scripts/setup.sh` installs as required are runtime invariants on 
 | `omaxian/.local/share/omarchy/shell.json` | Stock bar/plugins defaults (`$OMARCHY_PATH/shell.json`) |
 | `omaxian/.local/share/omarchy/default/` | Port overlays (menu JSONC, agent skills) on top of upstream `default/` |
 | `community-plugins/` | Optional third-party plugin ports (not deployed; install into `~/.config/omarchy/plugins/`) |
+| `community-apps/` | Optional standalone app ports (not deployed; each app’s `install.sh`) |
 | `~/.config/omarchy/shell.json` | User shell layout (Settings); seeded once by `scripts/deploy.sh` |
 | `~/.config/omarchy/plugins/` | User-installed / community shell plugins |
 | `~/.config/omarchy/keyboard.json` | XKB layouts (Settings → Keyboard); seeded once by `deploy.sh` from `/etc/default/keyboard`; applied by `omarchy-keyboard-apply` |
