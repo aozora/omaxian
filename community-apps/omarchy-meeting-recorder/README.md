@@ -36,9 +36,9 @@ Runtime (also in `omaxian.deps.json`):
 - `ffmpeg`
 - `libvulkan1` (optional GPU transcription; CPU fallback works)
 
-Build: **rustup** (stable ≥ 1.92; `install.sh` installs it), CMake, GTK4 /
-Adwaita / Pulse / Vulkan headers, `glslc` (skip Vulkan pieces with
-`./install.sh --cpu-only`). Do not use Debian `apt install rustc cargo`.
+Build: **rustup** (stable ≥ 1.92; `install.sh` installs it), CMake, OpenSSL
+(`libssl-dev`), GTK4 / Adwaita / Pulse / Vulkan headers, `glslc` (skip Vulkan
+pieces with `./install.sh --cpu-only`). Do not use Debian `apt install rustc cargo`.
 
 ## Install
 

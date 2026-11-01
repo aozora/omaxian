@@ -70,6 +70,7 @@ apt_build=(
   pkg-config
   curl
   ca-certificates
+  libssl-dev
   libgtk-4-dev
   libadwaita-1-dev
   libglib2.0-dev
