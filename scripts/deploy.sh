@@ -140,6 +140,11 @@ if [ ! -d "$HOME/.local/share/omarchy/shell" ]; then
 	exit 1
 fi
 omaxian_info "shell OK"
+# Settings → About reads $OMARCHY_PATH/version (repo-root version file).
+if [ -f "$REPO_DIR/version" ]; then
+	cp "$REPO_DIR/version" "$HOME/.local/share/omarchy/version"
+	omaxian_info "version $(tr -d '[:space:]' <"$REPO_DIR/version")"
+fi
 # install.sh seeds upstream default/agents (Hyprland skill). Replace that
 # leftover once the port's omaxian skill is in place — rsync does not delete.
 if [ -d "$HOME/.local/share/omarchy/default/agents/skills/omarchy" ]; then

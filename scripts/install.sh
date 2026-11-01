@@ -142,6 +142,10 @@ if [ -d "$PORT_AGENTS" ]; then
 fi
 
 cp -r "$REPO_DIR/omaxian/.local/share/omarchy/bin" "$OMARCHY_SHARE/bin"
+# Runtime version for Settings → About (`omarchy-system-info`).
+if [ -f "$REPO_DIR/version" ]; then
+	cp "$REPO_DIR/version" "$OMARCHY_SHARE/version"
+fi
 omaxian_info "default/ + bin/ + menu/agents overlays"
 
 if [ "$INSTALLED" -eq 0 ]; then
