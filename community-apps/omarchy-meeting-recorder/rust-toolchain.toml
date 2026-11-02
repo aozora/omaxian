@@ -1,0 +1,4 @@
+# gtk4-rs 0.11 / cairo-rs 0.22 need rustc ≥ 1.92; Debian's rustc is too old.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

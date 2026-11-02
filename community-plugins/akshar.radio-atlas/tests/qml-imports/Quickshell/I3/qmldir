@@ -1,0 +1,2 @@
+module Quickshell.I3
+singleton I3 1.0 I3.qml

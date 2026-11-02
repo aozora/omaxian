@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Omaxian: upstream installs a compositor Lua window_rule (float/center/size)
+# before the FloatingWindow maps. i3 has no equivalent dynamic rule API; size
+# comes from FloatingWindow.implicitWidth/Height, and float/center from a static
+# for_window (stock config.d/05_rules.conf + README). Always exit 0 so open
+# proceeds (upstream exit 2 = "no lua rules" still opens).
+set -euo pipefail
+
+width=${1:-}
+height=${2:-}
+
+[[ $width =~ ^[0-9]+$ && $height =~ ^[0-9]+$ ]] || {
+  echo "usage: radio-window WIDTH HEIGHT" >&2
+  exit 2
+}
+
+exit 0

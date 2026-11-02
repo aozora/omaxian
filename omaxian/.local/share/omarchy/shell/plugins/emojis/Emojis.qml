@@ -6,10 +6,10 @@ import qs.Commons as Commons
 import qs.Ui
 import "EmojiSearch.js" as EmojiSearch
 
-// X11 delta: upstream is a full-screen WlrLayershell scrim overlay (picom glx
-// blacks that out). The picker lives in Ui/CenteredModal — content-sized card,
-// no full-screen surface. Summoned by omarchy-menu-emoji /
-// Trigger → Emoji.
+// X11 delta: upstream is a full-screen scrim overlay on a layer-shell surface
+// (picom glx blacks that out). The picker lives in Ui/CenteredModal: a
+// content-sized card, no full-screen surface. Summoned by omarchy-menu-emoji /
+// Trigger -> Emoji; omarchy-menu-emoji-insert pastes via xclip + xdotool.
 Item {
   id: root
 
@@ -24,6 +24,9 @@ Item {
   property var emojis: []
   property var filteredEmojis: []
 
+  // Shares the [menu] surface tokens — themes that style the menu also
+  // style emojis. Selected-cell colors composed in the
+  // singleton so consumers drop them straight into Rectangle bindings.
   property color background: Commons.Color.menu.background
   property color foreground: Commons.Color.menu.text
   property color border: Commons.Color.menu.border
@@ -46,6 +49,8 @@ Item {
   property int cellHeight: Math.max(Style.space(44), Style.font.display + Style.spacing.md)
   property int columns: Math.max(1, Math.floor((cardWidth - contentMargin * 2) / cellWidth))
 
+  // Anchor the card to the live bar PanelWindow so opening does not map a
+  // second DOCK surface.
   readonly property var modalAnchorWindow: {
     var bar = root.shell && root.shell.bar
     if (!bar || typeof bar.panelWindowForScreen !== "function") return null
@@ -58,6 +63,7 @@ Item {
     root.selectedIndex = 0
     root.cursorActive = true
     root.rebuildDisplay()
+    // CenteredModal re-acquires focus once its popup is mapped.
   }
 
   function close() {
@@ -156,6 +162,7 @@ Item {
 
   function applySelected(emoji) {
     if (!emoji) return
+    // Defer so CenteredModal can leave its Keys handler before unmap.
     Qt.callLater(function() {
       root.dismiss()
       Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-menu-emoji-insert", emoji])
@@ -195,10 +202,10 @@ Item {
         } else if (Util.editsFilter(event, root.filterText)) {
           root.setFilter(Util.editedFilter(event, root.filterText))
           event.accepted = true
-        } else if (event.key === Qt.Key_Left) {
+        } else if (Util.readingKey(event) === Qt.Key_Left) {
           root.select(-1)
           event.accepted = true
-        } else if (event.key === Qt.Key_Right) {
+        } else if (Util.readingKey(event) === Qt.Key_Right) {
           root.select(1)
           event.accepted = true
         } else if (event.key === Qt.Key_Up) {
@@ -238,7 +245,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: root.filterText || "Search emojis…"
+            text: root.filterText || Commons.I18n.t("emojis.search")
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
             font.family: root.fontFamily
@@ -282,6 +289,7 @@ Item {
               }
 
               MouseArea {
+                id: mouseArea
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
@@ -315,7 +323,7 @@ Item {
 
             Text {
               textFormat: Text.PlainText
-              text: "No matches for “" + root.filterText + "”"
+              text: Commons.I18n.t("emojis.noMatches").arg(root.filterText)
               color: root.foreground
               opacity: 0.7
               font.family: root.fontFamily

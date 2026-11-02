@@ -37,7 +37,8 @@ Item {
     { value: "startup", label: "Startup", icon: "󰐥" },
     { value: "keyboard", label: "Keyboard", icon: "󰌌" },
     { value: "lock", label: "Lock screen", icon: "󰌾" },
-    { value: "advanced", label: "Advanced", icon: "" }
+    { value: "advanced", label: "Advanced", icon: "" },
+    { value: "about", label: "About", icon: "󰋼" }
   ]
 
   function tabExists(name) {
@@ -202,6 +203,7 @@ Item {
               if (root.activeTab === "keyboard") return keyboardLoader
               if (root.activeTab === "lock") return lockLoader
               if (root.activeTab === "advanced") return advancedLoader
+              if (root.activeTab === "about") return aboutLoader
               return null
             }
 
@@ -270,6 +272,7 @@ Item {
             TabLoader { id: keyboardLoader; tabId: "keyboard"; tabUrl: "KeyboardTab.qml" }
             TabLoader { id: lockLoader; tabId: "lock"; tabUrl: "LockTab.qml" }
             TabLoader { id: advancedLoader; tabId: "advanced"; tabUrl: "AdvancedTab.qml" }
+            TabLoader { id: aboutLoader; tabId: "about"; tabUrl: "AboutTab.qml" }
 
             Text {
               textFormat: Text.PlainText

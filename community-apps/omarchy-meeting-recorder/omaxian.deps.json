@@ -1,0 +1,30 @@
+{
+  "apt": [
+    "libgtk-4-1",
+    "libadwaita-1-0",
+    "pulseaudio-utils",
+    "ffmpeg",
+    "libvulkan1"
+  ],
+  "apt_build": [
+    "build-essential",
+    "cmake",
+    "pkg-config",
+    "curl",
+    "ca-certificates",
+    "libssl-dev",
+    "libgtk-4-dev",
+    "libadwaita-1-dev",
+    "libglib2.0-dev",
+    "libpulse-dev",
+    "libvulkan-dev",
+    "glslc"
+  ],
+  "manual": [
+    "Rust via rustup (install.sh installs it). Do not use Debian apt rustc/cargo — gtk4-rs needs rustc ≥ 1.92.",
+    "Build with community-apps/omarchy-meeting-recorder/install.sh (or install.sh --cpu-only).",
+    "First transcription downloads the whisper model (~1.6 GB) to ~/.local/share/omarchy-meeting-recorder/models/.",
+    "Optional chapters need a default agent (omarchy-default-agent / Menu → Setup → Default Agent).",
+    "Optional bar waveform: accept the first-run offer, or symlink plugin/ into ~/.config/omarchy/plugins/jankeesvw.meeting-recorder and omarchy-plugin-enable jankeesvw.meeting-recorder --section right."
+  ]
+}

@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -16,12 +17,13 @@ import "Model.js" as Model
 //    Every control is mouse-driven, same interaction model as the
 //    Wallpaper/Theme tabs; row highlight follows plain hover instead of a
 //    shared panel-wide cursor position.
-//  - No DSP-passthrough sink resolution (omarchy-audio-output-sink /
-//    -sink-availability) — volume/mute act on Audio.defaultAudioSink
-//    directly. Regresses only setups routing through a speaker-tuning/
-//    EasyEffects sink chain.
 //  - No wheel-to-adjust-volume on the (now removed) standalone bar icon —
 //    matches Wallpaper/Theme, which never had that either.
+//
+// DSP path matches the standalone audio panel: volume/mute act on the
+// physical sink behind EasyEffects / omarchy_speaker_tuning
+// (`omarchy-audio-output-sink`), and unavailable virtual sinks are filtered
+// via `omarchy-audio-sink-availability`.
 Item {
   id: root
 
@@ -38,11 +40,46 @@ Item {
   readonly property var source: Audio.defaultAudioSource
   readonly property var nodes: Audio.nodes ? Audio.nodes.values : []
 
+  readonly property var nodeNames: {
+    var names = []
+    for (var i = 0; i < nodes.length; i++)
+      if (nodes[i] && nodes[i].name) names.push(String(nodes[i].name))
+    return names
+  }
+
+  function platformHides(node) {
+    return !!node && AudioNodes.platformHides(node.name, nodeNames)
+  }
+
+  property var sinkAvailability: ({})
+  property bool sinkAvailabilityLoaded: false
+  property var sourceAvailability: ({})
+
+  // A DSP sink (speaker tuning / EasyEffects) can be the selected default
+  // without owning loudness — resolve through it to the physical sink the
+  // volume keys and output switcher use.
+  property string volumeSinkName: ""
+  property bool volumeSinkStale: false
+  property int volumeSinkGeneration: 0
+  property int volumeSinkRequest: -1
+
+  readonly property var volumeSink: {
+    if (volumeSinkName === "" || !sink) return sink
+    if (volumeSinkName === String(sink.name)) return sink
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i]
+      if (n && n.isSink && !n.isStream && String(n.name) === volumeSinkName && n.audio)
+        return n
+    }
+    return sink
+  }
+
   readonly property var candidateSinks: {
     var list = []
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i]
-      if (n && n.isSink && !n.isStream) list.push(n)
+      if (!n || !n.isSink || n.isStream || platformHides(n)) continue
+      list.push(n)
     }
     return list
   }
@@ -51,11 +88,19 @@ Item {
     var list = []
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i]
-      if (n && !n.isSink && !n.isStream && Model.isAudioSource(n)) {
-        if ((n.name || "") === "quickshell") continue
-        list.push(n)
-      }
+      if (!n || n.isSink || n.isStream) continue
+      if (!Model.isAudioSource(n) && !Model.isUntypedSource(n, sourceAvailability)) continue
+      if ((n.name || "") === "quickshell" || platformHides(n)) continue
+      list.push(n)
     }
+    return list
+  }
+
+  readonly property var audioSinks: {
+    var list = []
+    for (var i = 0; i < candidateSinks.length; i++)
+      if (sinkAvailable(candidateSinks[i])) list.push(candidateSinks[i])
+    if (sink && list.indexOf(sink) < 0) list.unshift(sink)
     return list
   }
 
@@ -65,16 +110,17 @@ Item {
       var n = nodes[i]
       if (!n || !n.isStream || !Model.isPlaybackStream(n)) continue
       if (String(n.name || "").indexOf("omarchy_speaker_tuning") === 0) continue
+      if (platformHides(n)) continue
       if (n.audio) list.push(n)
     }
     return list
   }
 
-  readonly property real outputVolume: sink && sink.audio ? sink.audio.volume : 0
-  readonly property bool outputMuted: sink && sink.audio ? sink.audio.muted : false
+  readonly property real outputVolume: volumeSink && volumeSink.audio ? volumeSink.audio.volume : 0
+  readonly property bool outputMuted: volumeSink && volumeSink.audio ? volumeSink.audio.muted : false
   readonly property real inputVolume: source && source.audio ? source.audio.volume : 0
   readonly property bool inputMuted: source && source.audio ? source.audio.muted : false
-  readonly property bool hasOutput: !!(sink && sink.audio)
+  readonly property bool hasOutput: !!(volumeSink && volumeSink.audio)
   readonly property bool hasInput: !!(source && source.audio)
   readonly property bool anyAudible: (hasOutput && !outputMuted) || (hasInput && !inputMuted)
 
@@ -84,6 +130,31 @@ Item {
   // percentage labels and squeezing device-row text against the edge.
   implicitWidth: Style.space(460)
   implicitHeight: column.implicitHeight
+
+  function sinkAvailable(node) {
+    if (!node || !node.name || !sinkAvailabilityLoaded) return true
+    return sinkAvailability[String(node.name)] !== false
+  }
+
+  function updateSinkAvailability(raw) {
+    sinkAvailability = Model.parseSinkAvailability(raw)
+    sinkAvailabilityLoaded = true
+  }
+
+  function resolveVolumeSink() {
+    volumeSinkGeneration++
+    // Hardware ALSA outputs are their own volume sink; only DSP needs the script.
+    if (sink && String(sink.name).indexOf("alsa_output.") === 0) {
+      volumeSinkName = String(sink.name)
+      return
+    }
+    if (volumeSinkProc.running) {
+      volumeSinkStale = true
+      return
+    }
+    volumeSinkRequest = volumeSinkGeneration
+    volumeSinkProc.running = true
+  }
 
   function outputIcon(volume) {
     if (!sink || !sink.audio) return "󰝟"
@@ -97,9 +168,9 @@ Item {
   }
 
   function setOutputVolume(v) {
-    if (!sink || !sink.audio) return outputVolume
+    if (!volumeSink || !volumeSink.audio) return outputVolume
     var volume = Math.max(0, Math.min(1, v))
-    sink.audio.volume = volume
+    volumeSink.audio.volume = volume
     return volume
   }
 
@@ -108,12 +179,14 @@ Item {
     source.audio.volume = Math.max(0, Math.min(1, v))
   }
 
-  function toggleOutputMute() { if (sink && sink.audio) sink.audio.muted = !sink.audio.muted }
+  function toggleOutputMute() {
+    if (volumeSink && volumeSink.audio) volumeSink.audio.muted = !volumeSink.audio.muted
+  }
   function toggleInputMute() { if (source && source.audio) source.audio.muted = !source.audio.muted }
 
   function toggleAllMuted() {
     var mute = anyAudible
-    if (hasOutput) sink.audio.muted = mute
+    if (hasOutput) volumeSink.audio.muted = mute
     if (hasInput) source.audio.muted = mute
   }
 
@@ -134,6 +207,71 @@ Item {
   function showVolumeOsd(volume) {
     if (!bar || !bar.shell) return
     bar.shell.summon("omarchy.osd", JSON.stringify({ icon: outputIcon(volume), value: Math.round(volume * 100) }))
+  }
+
+  onSinkChanged: resolveVolumeSink()
+  onNodesChanged: volumeSinkResolveTimer.restart()
+  Component.onCompleted: resolveVolumeSink()
+
+  // Idle EasyEffects is resolved through its configured output device, which
+  // can change without touching the audio graph.
+  FileView {
+    path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/easyeffects/db/easyeffectsrc"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: volumeSinkResolveTimer.restart()
+  }
+
+  Process {
+    id: sinkAvailabilityProc
+    command: ["omarchy-audio-sink-availability"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.updateSinkAvailability(text)
+    }
+  }
+
+  Process {
+    id: sourceAvailabilityProc
+    command: ["omarchy-audio-sink-availability", "sources"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.sourceAvailability = Model.parseSinkAvailability(text)
+    }
+  }
+
+  Process {
+    id: volumeSinkProc
+    command: ["omarchy-audio-output-sink"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        if (root.volumeSinkRequest === root.volumeSinkGeneration)
+          root.volumeSinkName = String(text).trim()
+      }
+    }
+    onExited: {
+      if (!root.volumeSinkStale) return
+      root.volumeSinkStale = false
+      Qt.callLater(root.resolveVolumeSink)
+    }
+  }
+
+  Timer {
+    interval: 5000
+    running: root.active
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: {
+      if (!sinkAvailabilityProc.running) sinkAvailabilityProc.running = true
+      if (!sourceAvailabilityProc.running) sourceAvailabilityProc.running = true
+    }
+  }
+
+  Timer {
+    id: volumeSinkResolveTimer
+    interval: 500
+    onTriggered: root.resolveVolumeSink()
   }
 
   Column {
@@ -178,7 +316,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: "Audio"
+          text: Commons.I18n.t("audio.title", "Audio")
           color: root.bar.foreground
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.title
@@ -189,7 +327,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: Model.outputVolumeName(root.outputVolume, root.outputMuted).toUpperCase()
+          text: Model.outputVolumeName(root.outputVolume, root.outputMuted, Commons.I18n.t).toUpperCase()
           color: Qt.darker(root.bar.foreground, 1.4)
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.caption
@@ -214,7 +352,7 @@ Item {
 
         PanelSectionHeader {
           id: outputHeader
-          text: "OUTPUT"
+          text: Commons.I18n.t("audio.output", "OUTPUT")
           foreground: root.bar.foreground
           fontFamily: root.bar.fontFamily
           anchors.left: parent.left
@@ -224,7 +362,7 @@ Item {
         Text {
           id: outputPercent
           textFormat: Text.PlainText
-          text: Math.round(root.outputVolume * 100) + "%"
+          text: Commons.I18n.formatNumber(Math.round(root.outputVolume * 100)) + "%"
           color: Qt.darker(root.bar.foreground, 1.4)
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.caption
@@ -253,7 +391,7 @@ Item {
           step: 0.05
           value: root.outputVolume
           opacity: root.outputMuted ? 0.5 : 1.0
-          enabled: !!root.sink
+          enabled: root.hasOutput
           onMoved: function(v) { root.setOutputVolume(v) }
           onReleased: function(v) { root.showVolumeOsd(v) }
           onRightClicked: root.toggleOutputMute()
@@ -263,7 +401,7 @@ Item {
       }
 
       Repeater {
-        model: root.candidateSinks
+        model: root.audioSinks
 
         SinkRow {
           required property var modelData
@@ -293,7 +431,7 @@ Item {
 
         PanelSectionHeader {
           id: inputHeader
-          text: "INPUT"
+          text: Commons.I18n.t("audio.input", "INPUT")
           foreground: root.bar.foreground
           fontFamily: root.bar.fontFamily
           anchors.left: parent.left
@@ -303,7 +441,7 @@ Item {
         Text {
           id: inputPercent
           textFormat: Text.PlainText
-          text: Math.round(root.inputVolume * 100) + "%"
+          text: Commons.I18n.formatNumber(Math.round(root.inputVolume * 100)) + "%"
           color: Qt.darker(root.bar.foreground, 1.4)
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.caption
@@ -367,7 +505,7 @@ Item {
       visible: root.audioStreams.length > 0
 
       PanelSectionHeader {
-        text: "SOURCES"
+        text: Commons.I18n.t("audio.sources", "SOURCES")
         foreground: root.bar.foreground
         fontFamily: root.bar.fontFamily
       }
@@ -387,7 +525,7 @@ Item {
     PanelSeparator { foreground: root.bar.foreground }
 
     Button {
-      text: "Volume control"
+      text: Commons.I18n.t("controlpanel.audio.volumeControl", "Volume control")
       bordered: true
       foreground: root.bar.foreground
       fontFamily: root.bar.fontFamily
@@ -429,7 +567,7 @@ Item {
 
       Text {
         textFormat: Text.PlainText
-        text: Model.nodeLabel(sinkRow.node)
+        text: Model.nodeLabel(sinkRow.node, Commons.I18n.t)
         color: sinkRow.bar ? sinkRow.bar.foreground : Commons.Color.foreground
         font.family: sinkRow.bar ? sinkRow.bar.fontFamily : Style.font.family
         font.pixelSize: Style.font.body
@@ -483,7 +621,7 @@ Item {
 
       Text {
         textFormat: Text.PlainText
-        text: Model.nodeLabel(sourceRow.node)
+        text: Model.nodeLabel(sourceRow.node, Commons.I18n.t)
         color: sourceRow.bar ? sourceRow.bar.foreground : Commons.Color.foreground
         font.family: sourceRow.bar ? sourceRow.bar.fontFamily : Style.font.family
         font.pixelSize: Style.font.body
@@ -548,7 +686,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: Model.rawStreamLabel(streamRow.node)
+          text: Model.rawStreamLabel(streamRow.node, Commons.I18n.t)
           color: streamRow.bar ? streamRow.bar.foreground : Commons.Color.foreground
           font.family: streamRow.bar ? streamRow.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.body
@@ -560,7 +698,7 @@ Item {
         Text {
           id: streamPct
           textFormat: Text.PlainText
-          text: Math.round(streamRow.streamVolume * 100) + "%"
+          text: Commons.I18n.formatNumber(Math.round(streamRow.streamVolume * 100)) + "%"
           color: streamRow.bar ? Qt.darker(streamRow.bar.foreground, 1.5) : Commons.Color.foreground
           font.family: streamRow.bar ? streamRow.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.caption

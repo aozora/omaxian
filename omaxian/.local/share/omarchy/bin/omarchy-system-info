@@ -1,0 +1,419 @@
+#!/bin/bash
+# omarchy:summary=Print Omaxian version and system info as JSON (Settings → About)
+# omarchy:group=system
+# omarchy:hidden=true
+
+set -euo pipefail
+
+OMARCHY_PATH="${OMARCHY_PATH:-$HOME/.local/share/omarchy}"
+
+export OMARCHY_PATH
+exec python3 - "$OMARCHY_PATH" <<'PY'
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+omarchy_path = sys.argv[1]
+
+
+def run(argv, timeout=8):
+  try:
+    out = subprocess.check_output(
+      argv, stderr=subprocess.DEVNULL, timeout=timeout, text=True
+    )
+    return out.strip()
+  except (OSError, subprocess.SubprocessError):
+    return ""
+
+
+def human_bytes(n):
+  try:
+    n = float(n)
+  except (TypeError, ValueError):
+    return ""
+  units = ("B", "KiB", "MiB", "GiB", "TiB")
+  i = 0
+  while n >= 1024 and i < len(units) - 1:
+    n /= 1024.0
+    i += 1
+  if i == 0:
+    return f"{int(n)} {units[i]}"
+  return f"{n:.1f} {units[i]}"
+
+
+def omaxian_version():
+  candidates = [
+    os.path.join(omarchy_path, "version"),
+    os.path.expanduser("~/.local/share/omarchy/version"),
+  ]
+  for path in candidates:
+    try:
+      with open(path, encoding="utf-8") as f:
+        text = f.read().strip()
+      if text:
+        return text
+    except OSError:
+      continue
+  return "unknown"
+
+
+def display_server():
+  """X11 / XLibre / Wayland string with version when available."""
+  session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
+  vendor = ""
+  release = ""
+  xdpy = run(["xdpyinfo"])
+  if xdpy:
+    for line in xdpy.splitlines():
+      if line.startswith("vendor string:"):
+        vendor = line.split(":", 1)[1].strip()
+      elif line.startswith("vendor release number:"):
+        release = line.split(":", 1)[1].strip()
+      elif line.startswith("version number:"):
+        # X11 protocol, e.g. 11.0
+        pass
+  # Prefer human X.Org / XLibre version from the release packing.
+  xorg_ver = ""
+  m = re.search(r"X\.Org version:\s*(\S+)", run(["Xorg", "-version"]) or "", re.I)
+  if not m:
+    # Xorg -version often writes to stderr; try both streams.
+    try:
+      proc = subprocess.run(
+        ["Xorg", "-version"],
+        capture_output=True,
+        text=True,
+        timeout=3,
+      )
+      blob = (proc.stdout or "") + (proc.stderr or "")
+      m = re.search(r"X\.Org version:\s*(\S+)", blob, re.I)
+      if not m:
+        m = re.search(r"XLibre[^\n]*version:\s*(\S+)", blob, re.I)
+      if m:
+        xorg_ver = m.group(1)
+    except (OSError, subprocess.SubprocessError):
+      pass
+  else:
+    xorg_ver = m.group(1)
+
+  # dpkg package names distinguish XLibre packages when installed.
+  dpkg = run(["dpkg-query", "-W", "-f=${Package} ${Version}\n", "xserver-xorg-core", "xlibre-xserver-xorg", "xserver-xlibre-core"])
+  is_xlibre = False
+  pkg_ver = ""
+  for line in dpkg.splitlines():
+    low = line.lower()
+    if "xlibre" in low:
+      is_xlibre = True
+      parts = line.split(None, 1)
+      if len(parts) == 2:
+        pkg_ver = parts[1]
+    elif line.startswith("xserver-xorg-core ") and not pkg_ver:
+      pkg_ver = line.split(None, 1)[1]
+
+  if "xlibre" in vendor.lower():
+    is_xlibre = True
+
+  name = "XLibre" if is_xlibre else ("X11" if session in ("", "x11", "tty") or xdpy else session.upper() or "unknown")
+  ver = xorg_ver or pkg_ver or release
+  if ver:
+    # vendor release 12101016 → 21.1.16 when Xorg -version failed
+    # (XORG_VERSION_NUMERIC: maj*1e7 + min*1e5 + patch*1e3 + snap)
+    if ver.isdigit() and len(ver) >= 7 and not xorg_ver:
+      try:
+        n = int(ver)
+        major, rem = divmod(n, 10000000)
+        minor, rem = divmod(rem, 100000)
+        patch, snap = divmod(rem, 1000)
+        if major == 1 and minor >= 7:
+          ver = f"{minor}.{patch}.{snap}"
+        else:
+          ver = f"{major}.{minor}.{patch}"
+      except ValueError:
+        pass
+    return f"{name} {ver}"
+  return name
+
+
+def local_ips():
+  raw = run(["ip", "-j", "-4", "addr"])
+  if not raw:
+    return []
+  try:
+    data = json.loads(raw)
+  except json.JSONDecodeError:
+    return []
+  ips = []
+  for iface in data:
+    name = iface.get("ifname") or ""
+    if name in ("lo",) or name.startswith("docker") or name.startswith("br-"):
+      continue
+    for addr in iface.get("addr_info") or []:
+      local = addr.get("local")
+      if local:
+        ips.append(f"{name} {local}")
+  return ips
+
+
+def fastfetch_modules():
+  if not shutil.which("fastfetch"):
+    return {}
+  structure = "Title:OS:Host:Kernel:Uptime:WM:CPU:GPU:Memory:Disk:Display:LocalIP"
+  # Debian fastfetch wants `--structure A:B` (space), not `--structure=A:B`.
+  raw = run(
+    ["fastfetch", "-c", "none", "--structure", structure, "--format", "json"],
+    timeout=12,
+  )
+  if not raw:
+    return {}
+  try:
+    items = json.loads(raw)
+  except json.JSONDecodeError:
+    return {}
+  out = {}
+  for item in items:
+    if not isinstance(item, dict):
+      continue
+    kind = item.get("type")
+    if kind and "result" in item:
+      out[kind] = item["result"]
+  return out
+
+
+def fmt_uptime(ms):
+  try:
+    secs = int(ms) // 1000
+  except (TypeError, ValueError):
+    return ""
+  days, rem = divmod(secs, 86400)
+  hours, rem = divmod(rem, 3600)
+  mins, _ = divmod(rem, 60)
+  parts = []
+  if days:
+    parts.append(f"{days}d")
+  if hours or days:
+    parts.append(f"{hours}h")
+  parts.append(f"{mins}m")
+  return " ".join(parts)
+
+
+def rows_from_fastfetch(ff):
+  rows = []
+
+  title = ff.get("Title") or {}
+  if isinstance(title, dict) and title.get("userName") and title.get("hostName"):
+    rows.append(("Host", f"{title['userName']}@{title['hostName']}"))
+
+  osinfo = ff.get("OS") or {}
+  if isinstance(osinfo, dict):
+    rows.append(("OS", osinfo.get("prettyName") or osinfo.get("name") or ""))
+
+  host = ff.get("Host") or {}
+  if isinstance(host, dict) and (host.get("name") or host.get("vendor")):
+    bits = [host.get("vendor"), host.get("name")]
+    rows.append(("Machine", " ".join(b for b in bits if b)))
+
+  kernel = ff.get("Kernel") or {}
+  if isinstance(kernel, dict):
+    rows.append(("Kernel", f"{kernel.get('name', 'Linux')} {kernel.get('release', '')}".strip()))
+
+  up = ff.get("Uptime") or {}
+  if isinstance(up, dict) and up.get("uptime") is not None:
+    rows.append(("Uptime", fmt_uptime(up["uptime"])))
+
+  rows.append(("Display", display_server()))
+
+  wm = ff.get("WM") or {}
+  if isinstance(wm, dict):
+    bits = [wm.get("prettyName") or wm.get("processName"), wm.get("version"), wm.get("protocolName")]
+    rows.append(("WM", " · ".join(b for b in bits if b)))
+
+  displays = ff.get("Display") or []
+  if isinstance(displays, list) and displays:
+    parts = []
+    for d in displays:
+      if not isinstance(d, dict):
+        continue
+      out = d.get("output") or {}
+      w, h = out.get("width"), out.get("height")
+      hz = out.get("refreshRate")
+      name = d.get("name") or d.get("id") or "display"
+      if w and h:
+        label = f"{name} {w}×{h}"
+        if hz:
+          label += f" @{hz:.0f}Hz"
+        parts.append(label)
+    if parts:
+      rows.append(("Monitors", ", ".join(parts)))
+
+  cpu = ff.get("CPU") or {}
+  if isinstance(cpu, dict) and cpu.get("cpu"):
+    cores = cpu.get("cores") or {}
+    extra = ""
+    if cores.get("physical") and cores.get("logical"):
+      extra = f" ({cores['physical']}C/{cores['logical']}T)"
+    rows.append(("CPU", f"{cpu['cpu']}{extra}"))
+
+  gpus = ff.get("GPU") or []
+  if isinstance(gpus, list):
+    for i, g in enumerate(gpus):
+      if not isinstance(g, dict):
+        continue
+      name = g.get("name") or "GPU"
+      vendor = g.get("vendor") or ""
+      driver = g.get("driver") or ""
+      gtype = g.get("type") or ""
+      label = "GPU" if len(gpus) == 1 else f"GPU {i + 1}"
+      if vendor and name.lower().startswith(vendor.lower()):
+        vendor = ""
+      bits = [vendor, name, gtype, f"({driver})" if driver else ""]
+      rows.append((label, " ".join(b for b in bits if b)))
+
+  mem = ff.get("Memory") or {}
+  if isinstance(mem, dict) and mem.get("total"):
+    used = mem.get("used")
+    total = mem["total"]
+    if used is not None:
+      rows.append(("Memory", f"{human_bytes(used)} / {human_bytes(total)}"))
+    else:
+      rows.append(("Memory", human_bytes(total)))
+
+  disks = ff.get("Disk") or []
+  if isinstance(disks, list):
+    for d in disks:
+      if not isinstance(d, dict):
+        continue
+      bytes_ = d.get("bytes") or {}
+      total = bytes_.get("total")
+      used = bytes_.get("used")
+      mount = d.get("mountpoint") or ""
+      fs = d.get("filesystem") or ""
+      if not total or mount not in ("/", "/home"):
+        # Prefer root and /home; still show a single big volume if only one.
+        if len(disks) > 2 and mount not in ("/", "/home"):
+          continue
+      label = f"Disk {mount}" if mount else "Disk"
+      if used is not None and total:
+        value = f"{human_bytes(used)} / {human_bytes(total)}"
+      else:
+        value = human_bytes(total)
+      if fs:
+        value += f" ({fs})"
+      rows.append((label, value))
+
+  # Prefer `ip` — fastfetch LocalIp is often empty or VPN-only here.
+  ips = local_ips()
+  if not ips:
+    lip = ff.get("LocalIp")
+    if isinstance(lip, list):
+      for item in lip:
+        if isinstance(item, dict):
+          name = item.get("name") or item.get("iface") or ""
+          ipv4 = item.get("ipv4") or item.get("address")
+          if isinstance(ipv4, list):
+            for a in ipv4:
+              ips.append(f"{name} {a}".strip())
+          elif ipv4:
+            ips.append(f"{name} {ipv4}".strip())
+        elif isinstance(item, str):
+          ips.append(item)
+  if ips:
+    rows.append(("Network", ", ".join(ips)))
+
+  return [(k, v) for k, v in rows if v]
+
+
+def fallback_rows():
+  rows = []
+  rows.append(("Display", display_server()))
+  pretty = ""
+  try:
+    with open("/etc/os-release", encoding="utf-8") as f:
+      data = dict(
+        line.split("=", 1) for line in f if "=" in line and not line.strip().startswith("#")
+      )
+    pretty = data.get("PRETTY_NAME", "").strip().strip('"')
+  except OSError:
+    pass
+  if pretty:
+    rows.append(("OS", pretty))
+  uname = run(["uname", "-sr"])
+  if uname:
+    rows.append(("Kernel", uname))
+  mem = ""
+  try:
+    info = {}
+    with open("/proc/meminfo", encoding="utf-8") as f:
+      for line in f:
+        key, _, rest = line.partition(":")
+        info[key] = int(rest.strip().split()[0]) * 1024
+    total = info.get("MemTotal")
+    avail = info.get("MemAvailable")
+    if total and avail is not None:
+      rows.append(("Memory", f"{human_bytes(total - avail)} / {human_bytes(total)}"))
+  except (OSError, ValueError, KeyError):
+    pass
+  df = run(["df", "-B1", "--output=source,target,fstype,size,used", "-x", "tmpfs", "-x", "devtmpfs", "-x", "squashfs"])
+  if df:
+    for line in df.splitlines()[1:]:
+      parts = line.split()
+      if len(parts) < 5:
+        continue
+      _src, target, fstype, size, used = parts[:5]
+      if target not in ("/", "/home"):
+        continue
+      rows.append((f"Disk {target}", f"{human_bytes(used)} / {human_bytes(size)} ({fstype})"))
+  ips = local_ips()
+  if ips:
+    rows.append(("Network", ", ".join(ips)))
+  wm = "i3" if run(["i3-msg", "-t", "get_version"]) else ""
+  if wm:
+    ver = ""
+    try:
+      raw = subprocess.check_output(["i3-msg", "-t", "get_version"], text=True, timeout=3)
+      data = json.loads(raw)
+      ver = data.get("human_readable") or ""
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+      pass
+    rows.append(("WM", f"i3 {ver}".strip() + " · X11"))
+  return [(k, v) for k, v in rows if v]
+
+
+def main():
+  version = omaxian_version()
+  ff = fastfetch_modules()
+  body = rows_from_fastfetch(ff) if ff else fallback_rows()
+
+  sections = []
+  sections.append({
+    "title": "Omaxian",
+    "rows": [
+      {"label": "Version", "value": version},
+      {"label": "Path", "value": omarchy_path},
+    ],
+  })
+
+  # Split body into System / Hardware-ish groups for the UI.
+  system_labels = {"Host", "OS", "Machine", "Kernel", "Uptime", "Display", "WM", "Monitors", "Network"}
+  system_rows = []
+  hardware_rows = []
+  for label, value in body:
+    item = {"label": label, "value": value}
+    if label in system_labels:
+      system_rows.append(item)
+    else:
+      hardware_rows.append(item)
+
+  if system_rows:
+    sections.append({"title": "System", "rows": system_rows})
+  if hardware_rows:
+    sections.append({"title": "Hardware", "rows": hardware_rows})
+
+  json.dump({"version": version, "sections": sections}, sys.stdout, ensure_ascii=False)
+  sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+  main()
+PY

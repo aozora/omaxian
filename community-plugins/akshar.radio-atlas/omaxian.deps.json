@@ -1,0 +1,19 @@
+{
+  "apt": [
+    "bubblewrap",
+    "curl",
+    "iproute2",
+    "jq",
+    "mpv",
+    "python3",
+    "python3-dbus",
+    "python3-gi",
+    "socat",
+    "file",
+    "xclip",
+    "pulseaudio-utils"
+  ],
+  "manual": [
+    "Audio routing uses pactl sink names with mpv's pipewire or pulse AO (pipewire-pulse or PulseAudio). For AirPlay/RAOP sinks, enable PipeWire RAOP discovery if your stack supports it."
+  ]
+}

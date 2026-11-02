@@ -27,14 +27,14 @@ Panel {
     openedFromHotkey = false
     setCenterHoverRevealSuppressed(false)
     root.controller.show()
-    root.reloadLocationFile()
+    locationFile.reload()
     root.refresh()
   }
 
   function openFromHotkey() {
     openedFromHotkey = true
     root.controller.show()
-    root.reloadLocationFile()
+    locationFile.reload()
     root.refresh()
     // Set after showing, not before: showing hands the popout coordinator
     // over, which closes whichever panel was open, and that close clears the
@@ -73,15 +73,24 @@ Panel {
   // Parsed wttr.in j1 response. Kept on failure so stale data stays visible.
   property var report: null
   property var dailyForecastReport: null
-  property string wttrLocation: ""
 
   // Configured location, read from the weather.json state file (owned by
-  // omarchy-weather-location). The query is the wttr.in path segment
-  // (coordinates when stored, else the encoded name); empty means IP
-  // auto-detect. The watch makes hand edits take effect live.
+  // omarchy-weather-location). The watch makes hand edits take effect live.
   property var configuredLocationState: ({ name: "", latitude: null, longitude: null })
   readonly property string configuredLocation: configuredLocationState.name
-  readonly property string locationQuery: Model.wttrLocationQuery(configuredLocationState.name, configuredLocationState.latitude, configuredLocationState.longitude)
+
+  // With nothing configured, where geo.omarchy.org places this network, in the
+  // same shape. Kept when a later lookup fails.
+  property var detectedLocationState: ({ name: "", latitude: null, longitude: null })
+  property bool detectingLocation: false
+  readonly property bool autoLocation: Model.isAutoLocation(configuredLocationState)
+  onAutoLocationChanged: if (autoLocation) detectLocation()
+
+  // The query is the wttr.in path segment (coordinates when known, else the
+  // encoded name); empty means wttr.in's own IP auto-detect, used only when
+  // geo.omarchy.org could not answer.
+  readonly property var locationState: Model.effectiveLocation(configuredLocationState, detectedLocationState)
+  readonly property string locationQuery: Model.wttrLocationQuery(locationState.name, locationState.latitude, locationState.longitude)
 
   // Keep the previous report visible while the new location loads. The
   // editor remains open with a spinner, so stale data is never presented
@@ -95,62 +104,13 @@ Panel {
     Qt.callLater(refresh)
   }
 
-  readonly property string locationPath: Quickshell.env("HOME") + "/.local/state/omarchy/settings/weather.json"
-  property string locationReadBuf: ""
-
-  function reloadLocationFile() {
-    if (locationReadProc.running) {
-      locationReadProc.signal(15)
-      locationReadKill.start()
-    }
-    root.locationReadBuf = ""
-    locationReadProc.command = [
-      "/usr/bin/python3", "-I", "-S",
-      Quickshell.shellDir + "/scripts/safe-read.py",
-      "65536", root.locationPath
-    ]
-    locationReadProc.running = true
-  }
-
-  // Watcher only — bytes come from safe-read.py (O_NOFOLLOW|O_NONBLOCK, capped).
-  FileView {
-    id: locationFile
-    path: root.locationPath
-    preload: false
-    blockAllReads: true
+  property FileView locationFile: FileView {
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/settings/weather.json"
     watchChanges: true
     printErrors: false
-    onFileChanged: root.reloadLocationFile()
-  }
-
-  Process {
-    id: locationReadProc
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        root.locationReadBuf += String(chunk || "")
-        if (root.locationReadBuf.length > 65536) {
-          locationReadProc.signal(15)
-          locationReadKill.start()
-          root.locationReadBuf = ""
-        }
-      }
-    }
-    onExited: function(exitCode) {
-      var raw = root.locationReadBuf
-      root.locationReadBuf = ""
-      // Exit 0 covers both a successful read and a missing file (empty raw).
-      // Non-zero means refuse (symlink/FIFO/overflow) — keep last-good state.
-      if (exitCode === 0)
-        root.configuredLocationState = Model.parseLocationFile(raw)
-    }
-  }
-
-  Timer {
-    id: locationReadKill
-    interval: 2000
-    repeat: false
-    onTriggered: locationReadProc.signal(9)
+    onFileChanged: reload()
+    onLoaded: root.configuredLocationState = Model.parseLocationFile(text())
+    onLoadFailed: root.configuredLocationState = Model.parseLocationFile("")
   }
 
   // The first read can race shell startup (observed sporadically), leaving a
@@ -160,10 +120,8 @@ Panel {
   Timer {
     interval: 1500
     running: true
-    onTriggered: root.reloadLocationFile()
+    onTriggered: locationFile.reload()
   }
-
-  Component.onCompleted: root.reloadLocationFile()
 
   property int forecastRetries: 0
   property int dailyForecastRetries: 0
@@ -183,29 +141,30 @@ Panel {
   // wttr's current conditions when available; open-meteo's (bundled with the
   // much faster daily forecast fetch) fill the hero while wttr is in flight.
   readonly property bool hasConfiguredCoordinates: !isNaN(parseFloat(String(configuredLocationState.latitude))) && !isNaN(parseFloat(String(configuredLocationState.longitude)))
+  readonly property bool hasCoordinates: !isNaN(parseFloat(String(locationState.latitude))) && !isNaN(parseFloat(String(locationState.longitude)))
   readonly property var openMeteoCurrent: Model.openMeteoCurrentCondition(dailyForecastReport)
-  readonly property var current: (hasConfiguredCoordinates && openMeteoCurrent) ? openMeteoCurrent : ((report && report.current_condition && report.current_condition[0]) ? report.current_condition[0] : openMeteoCurrent)
+  readonly property var current: (hasCoordinates && openMeteoCurrent) ? openMeteoCurrent : ((report && report.current_condition && report.current_condition[0]) ? report.current_condition[0] : openMeteoCurrent)
   readonly property var areaInfo: report && report.nearest_area && report.nearest_area[0] ? report.nearest_area[0] : null
   readonly property var forecastDays: buildForecastDays()
   readonly property string reportCountry: areaInfo && areaInfo.country && areaInfo.country[0] ? areaInfo.country[0].value : ""
 
-  readonly property bool useImperial: {
-    var _ = settings
-    return Model.shouldUseImperial(setting("unit", ""), Qt.locale().name, reportCountry)
-  }
+  readonly property bool useImperial: Model.shouldUseImperial(setting("unit", ""), Qt.locale().name, reportCountry)
 
   // Auto-refresh interval in minutes; clamped to a sane minimum.
-  readonly property int refreshMinutes: {
-    var _ = settings
-    return Math.max(1, parseInt(setting("refreshMinutes", 15), 10) || 15)
-  }
+  readonly property int refreshMinutes: Math.max(1, parseInt(setting("refreshMinutes", 15), 10) || 15)
 
-  readonly property string reportLocation:  configuredLocation || wttrLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "")
-  readonly property string reportTempNum:   current ? String(useImperial ? current.temp_F : current.temp_C) : ""
+  readonly property string reportLocation:  configuredLocation || (autoLocation ? detectedLocationState.name : "") || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "")
+  readonly property string reportTempNum:   current ? displayNumber(useImperial ? current.temp_F : current.temp_C) : ""
   readonly property string tempUnit:        "°" + (useImperial ? "F" : "C")
   readonly property string reportFeels:     current ? formatTemp(useImperial ? current.FeelsLikeF : current.FeelsLikeC) : ""
-  readonly property string reportWind:      current ? (useImperial ? (current.windspeedMiles + " mph") : (current.windspeedKmph + " km/h")) : ""
-  readonly property string reportHumidity:  current ? (current.humidity + "%") : ""
+  readonly property string reportWind:      current ? (useImperial ? (displayNumber(current.windspeedMiles) + " mph") : (displayNumber(current.windspeedKmph) + " km/h")) : ""
+  readonly property string reportHumidity:  current ? (displayNumber(current.humidity) + "%") : ""
+
+  // The report's numbers arrive as strings ("13"), and blank when missing.
+  function displayNumber(value) {
+    if (value === undefined || value === null || value === "") return ""
+    return Commons.I18n.formatNumber(value)
+  }
 
   function refresh() {
     // Each full refresh cycle gets a fresh retry budget, so an earlier
@@ -213,19 +172,28 @@ Panel {
     // starve retries for the rest of the session.
     forecastRetries = 0
     dailyForecastRetries = 0
+    // Until geo.omarchy.org answers there is nothing to ask for: wait for it
+    // rather than have wttr.in look this machine up. Its answer, or its
+    // failure, refreshes again.
+    if (detectingLocation && locationQuery === "") return
     if (!forecastProc.running) forecastProc.running = true
-    if (root.locationQuery === "" && !locationProc.running) locationProc.running = true
-    // With stored coordinates this fetches open-meteo right away — no need
-    // to wait for the slow wttr response. Without them it's a no-op until
-    // wttr reports the detected area.
+    // With coordinates this fetches open-meteo right away — no need to wait
+    // for the slow wttr response. Without them it's a no-op until wttr
+    // reports the area.
     refreshDailyForecast(null)
+  }
+
+  function detectLocation() {
+    if (locationProc.running) return
+    detectingLocation = true
+    locationProc.running = true
   }
 
   function refreshDailyForecast(sourceReport) {
     if (dailyForecastProc.running) return
 
-    var lat = parseFloat(String(root.configuredLocationState.latitude))
-    var lon = parseFloat(String(root.configuredLocationState.longitude))
+    var lat = parseFloat(String(root.locationState.latitude))
+    var lon = parseFloat(String(root.locationState.longitude))
     if (isNaN(lat) || isNaN(lon)) {
       var area = sourceReport && sourceReport.nearest_area && sourceReport.nearest_area[0] ? sourceReport.nearest_area[0] : root.areaInfo
       if (!area) return
@@ -241,18 +209,18 @@ Panel {
       + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"
       + "&forecast_days=4"
       + "&timezone=auto"
-    dailyForecastProc.command = [
-      "curl", "-q", "-sS", "--fail",
-      "--proto", "=https", "--proto-redir", "=https",
-      "--max-time", "5", "--max-filesize", "1048576",
-      "--", url
-    ]
+    dailyForecastProc.command = ["curl", "-fsS", "--max-time", "5", url]
     dailyForecastProc.running = true
   }
 
   // ---- Location editing. Clicking the location label swaps it for a search
   //      field; picking a geocoded suggestion persists name + coordinates to
   //      the module's shell.json entry. An empty commit returns to auto.
+  // The search field lives in the panel's lazily built content.
+  function locationInput() {
+    return panel.loadedContent ? panel.loadedContent.locationField : null
+  }
+
   function startEditingLocation() {
     editingLocation = true
     savingLocation = false
@@ -260,6 +228,8 @@ Panel {
     locationSuggestions = []
     suggestionIndex = 0
     Qt.callLater(function() {
+      var locationField = root.locationInput()
+      if (!locationField) return
       locationField.text = root.configuredLocation
       locationField.selectAll()
       locationField.forceActiveFocus()
@@ -272,10 +242,12 @@ Panel {
     savingLocationQueryStarted = false
     locationSuggestions = []
     geocodeDebounce.stop()
-    Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
+    Qt.callLater(function() { if (panel.loadedContent) panel.loadedContent.forceActiveFocus() })
   }
 
   function commitLocation() {
+    var locationField = root.locationInput()
+    if (!locationField) return
     var location = Model.locationCommit(locationField.text, locationSuggestions, suggestionIndex)
     if (location.name === "") {
       clearLocation()
@@ -293,7 +265,6 @@ Panel {
 
   function clearLocation() {
     persistLocation("", null, null)
-    wttrLocation = ""
     cancelEditingLocation()
   }
 
@@ -326,7 +297,8 @@ Panel {
   // Debounced geocoding. Only one curl runs at a time; if the query moved on
   // while a fetch was in flight, the latest query is fetched right after.
   function requestGeocode() {
-    var query = locationField.text.trim()
+    var locationField = root.locationInput()
+    var query = locationField ? locationField.text.trim() : ""
     if (query.length < 2) {
       locationSuggestions = []
       return
@@ -337,14 +309,8 @@ Panel {
 
   function startGeocode() {
     geocodeActiveQuery = geocodePendingQuery
-    geocodeProc.command = [
-      "curl", "-q", "-sS", "--fail",
-      "--proto", "=https", "--proto-redir", "=https",
-      "--max-time", "5", "--max-filesize", "65536",
-      "--",
-      "https://geocoding-api.open-meteo.com/v1/search?name="
-        + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json"
-    ]
+    geocodeProc.command = ["curl", "-fsS", "--max-time", "5",
+      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json"]
     geocodeProc.running = true
   }
 
@@ -373,16 +339,17 @@ Panel {
   }
 
   function formatTemp(value) {
-    return Model.formatTemp(value, useImperial)
+    return Model.formatTemp(value, useImperial, Commons.I18n.formatNumber)
   }
 
   function dayName(dateString) {
-    return Model.dayName(dateString, function(date) { return Qt.formatDate(date, "dddd") })
+    var locale = Qt.locale(Commons.I18n.formatLocale)
+    return Model.dayName(dateString, function(date) { return locale.standaloneDayName(date.getDay(), Locale.LongFormat) })
   }
 
   // Bare degree value (no unit letter), used in the forecast row.
   function bareTempForDay(day, kind) {
-    return Model.bareTempForDay(day, kind, useImperial)
+    return Model.bareTempForDay(day, kind, useImperial, Commons.I18n.formatNumber)
   }
 
   // Representative icon for a forecast day: the hourly entry nearest noon.
@@ -401,65 +368,34 @@ Panel {
 
   Process {
     id: forecastProc
-    property string stdoutBuf: ""
-    property int maxStdout: 1048576
-    property bool overflowed: false
-    command: [
-      "curl", "-q", "-sS", "--fail",
-      "--proto", "=https", "--proto-redir", "=https",
-      "--max-time", "10", "--max-filesize", "1048576",
-      "--", "https://wttr.in/" + root.locationQuery + "?format=j1"
-    ]
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (forecastProc.overflowed) return
-        forecastProc.stdoutBuf += chunk
-        if (forecastProc.stdoutBuf.length > forecastProc.maxStdout) {
-          forecastProc.overflowed = true
-          forecastProc.stdoutBuf = ""
-          forecastProc.signal(15)
-          forecastKillTimer.start()
+    command: ["curl", "-fsS", "--max-time", "10", "https://wttr.in/" + root.locationQuery + "?format=j1"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var raw = String(text || "").trim()
+        if (!raw) {
+          root.scheduleForecastRetry()
+          return
+        }
+        try {
+          var parsed = JSON.parse(raw)
+          root.report = parsed
+          if (!root.hasConfiguredCoordinates)
+            root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
+          root.forecastRetries = 0
+          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
+            root.finishSavingLocation()
+          // Known coordinates already drove the fast open-meteo fetch from
+          // refresh(); only a name, or wttr's own IP lookup, needs the area
+          // wttr reported.
+          if (!root.hasCoordinates)
+            root.refreshDailyForecast(parsed)
+        } catch (e) {
+          // Keep last-good report visible, but try again shortly.
+          root.scheduleForecastRetry()
         }
       }
     }
-    onStarted: {
-      forecastKillTimer.stop()
-      stdoutBuf = ""
-      overflowed = false
-    }
-    onExited: function() {
-      forecastKillTimer.stop()
-      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
-      stdoutBuf = ""
-      overflowed = false
-      if (!raw) {
-        root.scheduleForecastRetry()
-        return
-      }
-      try {
-        var parsed = JSON.parse(raw)
-        root.report = parsed
-        if (!root.hasConfiguredCoordinates)
-          root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
-        root.forecastRetries = 0
-        if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
-          root.finishSavingLocation()
-        // Stored coordinates already drove the fast open-meteo fetch from
-        // refresh(); only auto-detect needs the area wttr reported.
-        if (isNaN(parseFloat(String(root.configuredLocationState.latitude))))
-          root.refreshDailyForecast(parsed)
-      } catch (e) {
-        // Keep last-good report visible, but try again shortly.
-        root.scheduleForecastRetry()
-      }
-    }
-  }
-
-  Timer {
-    id: forecastKillTimer
-    interval: 2000
-    onTriggered: forecastProc.signal(9)
   }
 
   // wttr.in can be slow or flaky, especially for a location it hasn't
@@ -493,95 +429,40 @@ Panel {
 
   Process {
     id: dailyForecastProc
-    property string stdoutBuf: ""
-    property int maxStdout: 1048576
-    property bool overflowed: false
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (dailyForecastProc.overflowed) return
-        dailyForecastProc.stdoutBuf += chunk
-        if (dailyForecastProc.stdoutBuf.length > dailyForecastProc.maxStdout) {
-          dailyForecastProc.overflowed = true
-          dailyForecastProc.stdoutBuf = ""
-          dailyForecastProc.signal(15)
-          dailyForecastKillTimer.start()
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var raw = String(text || "").trim()
+        if (!raw) {
+          root.scheduleDailyForecastRetry()
+          return
+        }
+        try {
+          var parsed = JSON.parse(raw)
+          var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
+          root.dailyForecastReport = parsed
+          root.label = Model.currentIcon(parsedCurrent, root.label)
+          root.dailyForecastRetries = 0
+          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
+            root.finishSavingLocation()
+        } catch (e) {
+          // Keep last-good daily forecast visible, but try again shortly.
+          root.scheduleDailyForecastRetry()
         }
       }
     }
-    onStarted: {
-      dailyForecastKillTimer.stop()
-      stdoutBuf = ""
-      overflowed = false
-    }
-    onExited: function() {
-      dailyForecastKillTimer.stop()
-      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
-      stdoutBuf = ""
-      overflowed = false
-      if (!raw) {
-        root.scheduleDailyForecastRetry()
-        return
-      }
-      try {
-        var parsed = JSON.parse(raw)
-        var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
-        root.dailyForecastReport = parsed
-        root.label = Model.currentIcon(parsedCurrent, root.label)
-        root.dailyForecastRetries = 0
-        if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
-          root.finishSavingLocation()
-      } catch (e) {
-        // Keep last-good daily forecast visible, but try again shortly.
-        root.scheduleDailyForecastRetry()
-      }
-    }
-  }
-
-  Timer {
-    id: dailyForecastKillTimer
-    interval: 2000
-    onTriggered: dailyForecastProc.signal(9)
   }
 
   Process {
     id: geocodeProc
-    property string stdoutBuf: ""
-    property int maxStdout: 65536
-    property bool overflowed: false
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (geocodeProc.overflowed) return
-        geocodeProc.stdoutBuf += chunk
-        if (geocodeProc.stdoutBuf.length > geocodeProc.maxStdout) {
-          geocodeProc.overflowed = true
-          geocodeProc.stdoutBuf = ""
-          geocodeProc.signal(15)
-          geocodeKillTimer.start()
-        }
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.locationSuggestions = root.editingLocation ? Model.parseGeocodingResults(text) : []
+        root.suggestionIndex = 0
+        if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
       }
     }
-    onStarted: {
-      geocodeKillTimer.stop()
-      stdoutBuf = ""
-      overflowed = false
-    }
-    onExited: function() {
-      geocodeKillTimer.stop()
-      var raw = overflowed ? "" : stdoutBuf
-      stdoutBuf = ""
-      overflowed = false
-      root.locationSuggestions = root.editingLocation ? Model.parseGeocodingResults(raw) : []
-      root.suggestionIndex = 0
-      if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
-    }
-  }
-
-  Timer {
-    id: geocodeKillTimer
-    interval: 2000
-    onTriggered: geocodeProc.signal(9)
   }
 
   Timer {
@@ -595,9 +476,9 @@ Panel {
     onExited: function(exitCode) {
       if (exitCode !== 0 || !root.savingLocation) return
 
-      // Watcher + safe-read handle changed locations. Explicitly refresh here
-      // too so saving the already-active location cannot strand the spinner.
-      root.reloadLocationFile()
+      // FileView handles changed locations. Explicitly refresh here too so
+      // saving the already-active location cannot strand the spinner.
+      locationFile.reload()
       if (!root.savingLocationQueryStarted) {
         root.savingLocationQueryStarted = true
         root.forecastRetries = 0
@@ -609,49 +490,26 @@ Panel {
     }
   }
 
+  // Omarchy's own lookup: city and coordinates from Cloudflare's view of
+  // this network, in weather.json's shape.
   Process {
     id: locationProc
-    property string stdoutBuf: ""
-    property int maxStdout: 65536
-    property bool overflowed: false
-    command: [
-      "curl", "-q", "-sS", "--fail",
-      "--proto", "=https", "--proto-redir", "=https",
-      "--max-time", "4", "--max-filesize", "65536",
-      "--", "https://wttr.in/?format=%l"
-    ]
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (locationProc.overflowed) return
-        locationProc.stdoutBuf += chunk
-        if (locationProc.stdoutBuf.length > locationProc.maxStdout) {
-          locationProc.overflowed = true
-          locationProc.stdoutBuf = ""
-          locationProc.signal(15)
-          locationKillTimer.start()
-        }
+    command: ["curl", "-fsS", "--max-time", "4", "https://geo.omarchy.org/"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.detectingLocation = false
+        var detected = Model.parseLocationFile(text)
+        var query = Model.wttrLocationQuery(detected.name, detected.latitude, detected.longitude)
+        // A new place changes locationQuery, which refreshes. An unchanged
+        // one was already fetched; a failure keeps the last place, or with
+        // none falls back to wttr.in's own lookup.
+        if (query !== "" && query !== root.locationQuery)
+          root.detectedLocationState = detected
+        else if (root.locationQuery === "")
+          root.refresh()
       }
     }
-    onStarted: {
-      locationKillTimer.stop()
-      stdoutBuf = ""
-      overflowed = false
-    }
-    onExited: function() {
-      locationKillTimer.stop()
-      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
-      stdoutBuf = ""
-      overflowed = false
-      if (!raw) return
-      root.wttrLocation = raw.split(",")[0]
-    }
-  }
-
-  Timer {
-    id: locationKillTimer
-    interval: 2000
-    onTriggered: locationProc.signal(9)
   }
 
   Timer {
@@ -660,10 +518,13 @@ Panel {
     running: true
     repeat: true
     triggeredOnStart: true
-    onTriggered: root.refresh()
+    onTriggered: {
+      if (root.autoLocation) root.detectLocation()
+      root.refresh()
+    }
   }
 
-  IpcHandler {
+  ShellIpc {
     target: root.ipcTarget
 
     function open(): void { root.openFromHotkey() }
@@ -680,25 +541,22 @@ Panel {
     owner: root.barIdentity
     bar: root.bar
     open: root.opened
-    centerOnBar: true
-    focusTarget: keyCatcher
-    escapeBlocked: root.editingLocation
+    // Anchor under the widget rather than the middle of the bar, so the
+    // popup follows wherever the widget is placed.
+    centerOnBar: false
+    focusTarget: panel.loadedContent
     contentWidth: panel.fittedContentWidth(Style.space(480))
-    contentHeight: panel.fittedContentHeight(weatherColumn.implicitHeight)
+    contentHeight: panel.fittedContentHeight(panel.loadedContentHeight)
 
-    PanelKeyCatcher {
+    content: PanelKeyCatcher {
       id: keyCatcher
+      property alias locationField: locationField
+      implicitHeight: weatherColumn.implicitHeight
       anchors.fill: parent
       blocked: root.editingLocation
       onReturnRequested: root.startEditingLocation()
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
-
-      Keys.onEscapePressed: function(event) {
-        if (root.editingLocation) return
-        root.close()
-        event.accepted = true
-      }
 
       Flickable {
         id: weatherScroll
@@ -742,6 +600,9 @@ Panel {
           Row {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
+            // A reading and its unit ("13 °C") stay in that order in a
+            // right-to-left layout too, the way bidi text keeps them.
+            LayoutMirroring.enabled: false
 
             Text {
               id: tempBig
@@ -786,7 +647,6 @@ Panel {
             }
 
             Text {
-              textFormat: Text.PlainText
               text: ""  // nf-fa-map_marker
               color: Qt.darker(root.bar.foreground, 1.4)
               font.family: root.bar.fontFamily
@@ -812,7 +672,7 @@ Panel {
               id: locationField
               width: Style.space(190)
               enabled: !root.savingLocation
-              placeholderText: "Search city"
+              placeholderText: Commons.I18n.t("weather.searchCity")
               foreground: root.bar.foreground
               font.family: root.bar.fontFamily
 
@@ -853,9 +713,9 @@ Panel {
                 font.pixelSize: Style.font.bodySmall
 
                 RotationAnimator on rotation {
-                  running: root.savingLocation
+                  running: root.savingLocation && !Style.reduceMotion
                   from: 0; to: 360
-                  duration: 800
+                  duration: Style.duration(800)
                   loops: Animation.Infinite
                 }
               }
@@ -879,8 +739,8 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
+                text: Commons.I18n.t("weather.feels")
                 textFormat: Text.PlainText
-                text: "FEELS"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -898,8 +758,8 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
+                text: Commons.I18n.t("weather.wind")
                 textFormat: Text.PlainText
-                text: "WIND"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -917,8 +777,8 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
+                text: Commons.I18n.t("weather.humid")
                 textFormat: Text.PlainText
-                text: "HUMID"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -990,9 +850,9 @@ Panel {
       }
 
       Text {
-        textFormat: Text.PlainText
         visible: !root.current
-        text: "Fetching forecast…"
+        text: Commons.I18n.t("weather.fetching")
+        textFormat: Text.PlainText
         color: Qt.darker(root.bar.foreground, 1.5)
         font.family: root.bar.fontFamily
         font.pixelSize: Style.font.bodySmall

@@ -16,18 +16,12 @@ BarWidget {
 
   property date displayDate: clock.date
 
-  readonly property string configuredFormat: {
-    var _ = settings
-    return vertical
-      ? setting("verticalFormat", "HH\n—\nmm")
-      : setting("format", "dddd HH:mm")
-  }
-  readonly property string configuredAltFormat: {
-    var _ = settings
-    return vertical
-      ? setting("verticalFormatAlt", "dd\nMMM\n'W'ww\n''yy")
-      : setting("formatAlt", "d MMMM 'W'ww yyyy")
-  }
+  readonly property string configuredFormat: vertical
+    ? setting("verticalFormat", "HH\n—\nmm")
+    : setting("format", "dddd HH:mm")
+  readonly property string configuredAltFormat: vertical
+    ? setting("verticalFormatAlt", "dd\nMMM\n'W'ww\n''yy")
+    : setting("formatAlt", "d MMMM 'W'ww yyyy")
 
   readonly property var formatRing: Model.clockFormatRing(configuredFormat, configuredAltFormat, Model.clockFormats(vertical))
 
@@ -62,8 +56,16 @@ BarWidget {
       root.bar.shell.updateEntryInline(root.moduleName, entry)
   }
 
+  // Day and month names follow the Omarchy language, not the system locale,
+  // which only catches up at the next login.
+  readonly property var formatLocale: Qt.locale(I18n.formatLocale)
+
+  // The ISO week goes in as a literal, so its digits are localized here the
+  // way Qt localizes the rest of the format.
   function formatted(date) {
-    return Qt.formatDateTime(date, activeFormat.replace(/ww/g, Model.isoWeekLiteral(date.getFullYear(), date.getMonth(), date.getDate())))
+    var week = Model.isoWeekLiteral(date.getFullYear(), date.getMonth(), date.getDate())
+    week = week.split("").map(function(digit) { return I18n.formatNumber(digit) }).join("")
+    return date.toLocaleString(root.formatLocale, activeFormat.replace(/ww/g, week))
   }
 
   // ---- Calendar popup. Shape contract for shell.summon/hide/toggle
@@ -119,14 +121,6 @@ BarWidget {
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
 
-  Binding {
-    target: panelLoader.item
-    property: "settings"
-    value: root.settings
-    restoreMode: Binding.RestoreNone
-    when: panelLoader.item !== null
-  }
-
   SystemClock {
     id: clock
     precision: root.showsSeconds ? SystemClock.Seconds : SystemClock.Minutes
@@ -144,7 +138,7 @@ BarWidget {
     }
   }
 
-  IpcHandler {
+  ShellIpc {
     target: "omarchy.clock"
 
     function refresh(): void { root.broadcast("refresh") }
@@ -161,7 +155,7 @@ BarWidget {
   // which calls `qs ipc call -- calendar toggle` directly (not through the
   // namespaced `omarchy.clock` target above). Kept as a thin alias so that
   // keybinding doesn't need to change alongside this widget.
-  IpcHandler {
+  ShellIpc {
     target: "calendar"
     function toggle(): void { root.togglePanel() }
     function hide(): void { root.close() }
@@ -177,11 +171,14 @@ BarWidget {
     fixedHeight: root.vertical ? root.verticalLines.length * Style.bar.iconSlot : -1
     horizontalMargin: 8.75
     verticalPadding: 8.75
-    tooltipText: "Right-click to toggle format"
+    tooltipText: I18n.t("clock.toggleFormat")
+    // The clock is text to read, not an icon to press, so a click never
+    // shrinks it; the format it cycles to, or the panel it opens, is feedback.
+    pressFeedbackButtons: Qt.NoButton
 
     onPressed: function(b) {
       if (b === Qt.RightButton) root.cycleFormat()
-      else if (b === Qt.MiddleButton) { if (root.bar) root.bar.runArgv(["omarchy-menu-timezone"]) }
+      else if (b === Qt.MiddleButton) { if (root.bar) root.bar.run("omarchy-menu-timezone") }
       else root.togglePanel()
     }
 

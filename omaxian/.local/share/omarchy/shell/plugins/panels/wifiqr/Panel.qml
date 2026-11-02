@@ -7,13 +7,17 @@ import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
-// X11 delta (Phase 9): upstream is a full-screen `WlrLayershell` scrim overlay
-// with `WlrKeyboardFocus.Exclusive`. That maps to a full-screen `PanelWindow`
-// on X11, which picom's glx backend blacks out (fullscreen unredirection).
-// Here the QR sits in a `Ui/CenteredModal` — a content-sized `PopupWindow`
-// centred on screen, no full-screen surface. No dimming scrim; Escape / the
-// IPC toggle dismiss (the modal's `grabFocus` also dismisses on an outside
-// press). `omarchy-network-{qr,password}` were vendored in Phase 5.
+// Centered Wi-Fi share card. X11 delta: upstream is a
+// scrim overlay on a full-screen layer surface; a full-screen surface blacks out under
+// picom's glx backend, so the QR sits in a content-sized `Ui/CenteredModal`
+// (PopupWindow) instead. No dimming scrim; Esc, the IPC toggle, or a press
+// outside the card dismisses.
+//
+// Standalone panel plugin: each summon regenerates the code via
+// omarchy-network-qr, which emits the interface, security, and SSID it
+// shared ahead of the module matrix — so a bare summon self-detects the
+// connection. The payload may pin the interface and pre-title the card:
+// {"iface": "wlan0", "ssid": "MyWifi"}.
 Item {
   id: root
 
@@ -39,14 +43,24 @@ Item {
   property bool pwExpectedStop: false
 
   readonly property bool showingQr: qrSize > 0 && !loading && error === ""
+
+  // Text sits on the themed popup card, not a fixed dark scrim.
+  readonly property color onScrim: Commons.Color.popups.text
+  readonly property color onScrimDim: Qt.alpha(Commons.Color.popups.text, 0.7)
+  readonly property color onScrimUrgent: Commons.Color.urgent
   readonly property string fontFamily: Style.font.family
 
   function open(payloadJson) {
     var payload = {}
     try { payload = JSON.parse(payloadJson || "{}") || {} } catch (e) {}
+    // The payload SSID titles the card during generation; the meta line the
+    // generator emits is authoritative and overwrites it. A payload without
+    // one clears the title: a re-summon may be sharing a different
+    // connection, so the previous card's name must not label this one.
     root.ssid = payload.ssid !== undefined ? String(payload.ssid) : ""
     generate(String(payload.iface || ""))
     root.opened = true
+    // CenteredModal re-acquires focus once its popup is mapped.
   }
 
   function close() {
@@ -64,6 +78,7 @@ Item {
     root.iface = ""
     root.ssid = ""
     root.secured = false
+    // The Wi-Fi password only enters shell memory while the card is up.
     root.password = ""
     root.passwordVisible = false
     root.passwordError = ""
@@ -78,6 +93,9 @@ Item {
 
   function generate(requestedIface) {
     if (qrProc.running) {
+      // Whether the run in flight is a dismissal's SIGTERM still landing or
+      // a live generation for an earlier summon, the latest request wins:
+      // queue it for onExited and stop the old process.
       pendingShow = true
       pendingIface = requestedIface
       if (!expectedStop) {
@@ -91,6 +109,10 @@ Item {
     error = ""
     loading = true
     expectedStop = false
+    // A re-summon while the card is still loaded reaches here without a
+    // close() in between, and may be sharing a different connection now:
+    // neither the previous reveal's password nor a reveal still in flight
+    // may survive onto the new card.
     iface = ""
     secured = false
     password = ""
@@ -113,6 +135,8 @@ Item {
     if (parsed.meta.ssid !== "") ssid = parsed.meta.ssid
     if (parsed.meta.iface !== "") iface = parsed.meta.iface
     secured = parsed.meta.security !== "" && parsed.meta.security !== "nopass"
+    // Good output settles the run: a canceled predecessor's stderr may have
+    // landed after this generation started, and must not shadow its result.
     if (qrSize > 0) error = ""
   }
 
@@ -121,6 +145,8 @@ Item {
     if (password !== "") { passwordVisible = true; return }
     if (pwProc.running || !iface) return
     passwordError = ""
+    // Only a deliberate new lookup lowers the canceled-fetch guard, right as
+    // it launches -- see the pwProc comment.
     pwExpectedStop = false
     pwProc.command = ["omarchy-network-password", iface]
     pwProc.running = true
@@ -128,59 +154,26 @@ Item {
 
   Process {
     id: qrProc
-    property string stdoutBuf: ""
-    property string stderrBuf: ""
-    property int maxStdout: 65536
-    property int maxStderr: 4096
-    property bool overflowed: false
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (qrProc.overflowed) return
-        qrProc.stdoutBuf += chunk
-        if (qrProc.stdoutBuf.length > qrProc.maxStdout) {
-          qrProc.overflowed = true
-          qrProc.stdoutBuf = ""
-          qrProc.stderrBuf = ""
-          qrProc.signal(15)
-          qrKillTimer.start()
-        }
-      }
+    // Both collectors check expectedStop: a dismissal mid-generation kills
+    // the process, but buffered output still arrives afterwards and would
+    // repopulate qrSize -- reopening the card the user just closed. The flag
+    // stays set through onExited (generate resets it) because the exit and
+    // stream-finished signals have no guaranteed order.
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (!root.expectedStop) root.updateQr(text)
     }
-    stderr: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (qrProc.overflowed) return
-        qrProc.stderrBuf += chunk
-        if (qrProc.stderrBuf.length > qrProc.maxStderr) {
-          qrProc.overflowed = true
-          qrProc.stdoutBuf = ""
-          qrProc.stderrBuf = ""
-          qrProc.signal(15)
-          qrKillTimer.start()
-        }
-      }
-    }
-    onStarted: {
-      qrKillTimer.stop()
-      stdoutBuf = ""
-      stderrBuf = ""
-      overflowed = false
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (!root.expectedStop) root.error = String(text || "").trim()
     }
     onExited: function(exitCode) {
-      qrKillTimer.stop()
-      var out = overflowed ? "" : stdoutBuf
-      var err = overflowed ? "" : String(stderrBuf || "").trim()
-      stdoutBuf = ""
-      stderrBuf = ""
-      overflowed = false
-      if (!root.expectedStop) {
-        if (out) root.updateQr(out)
-        if (err) root.error = Util.plain(err, 240)
-      }
       root.loading = false
       if (root.pendingShow) {
         root.pendingShow = false
+        // expectedStop stays set until generate() launches the replacement:
+        // the canceled run's collectors may fire between here and then, and
+        // must keep being dropped.
         Qt.callLater(function() { root.generate(root.pendingIface) })
         return
       }
@@ -188,61 +181,31 @@ Item {
       if (exitCode !== 0 || root.qrSize === 0) {
         root.qrSize = 0
         root.qrRows = []
-        if (root.error === "") root.error = "Could not generate the Wi-Fi QR code"
+        if (root.error === "") root.error = I18n.t("wifiqr.generateFailed")
       }
     }
   }
 
-  Timer {
-    id: qrKillTimer
-    interval: 2000
-    onTriggered: qrProc.signal(9)
-  }
-
+  // The Wi-Fi password only enters shell memory when the user clicks to
+  // reveal it, and close() drops it again. Both handlers bail when the card
+  // is gone so a fetch that was in flight during dismissal can't stash the
+  // secret into a closed panel's state, and check pwExpectedStop so a fetch
+  // that a regeneration killed can't reveal the previous network's password
+  // under the new card. The exit and stream-finished signals have no
+  // guaranteed order, so the flag survives onExited; only togglePassword
+  // lowers it, as it launches the next deliberate lookup.
   Process {
     id: pwProc
-    property string stdoutBuf: ""
-    property int maxStdout: 4096
-    property bool overflowed: false
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (pwProc.overflowed) return
-        pwProc.stdoutBuf += chunk
-        if (pwProc.stdoutBuf.length > pwProc.maxStdout) {
-          pwProc.overflowed = true
-          pwProc.stdoutBuf = ""
-          pwProc.signal(15)
-          pwKillTimer.start()
-        }
-      }
-    }
-    onStarted: {
-      pwKillTimer.stop()
-      stdoutBuf = ""
-      overflowed = false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (root.opened && !root.pwExpectedStop) root.password = String(text || "").trim()
     }
     onExited: function(exitCode) {
-      pwKillTimer.stop()
-      var raw = overflowed ? "" : String(stdoutBuf || "").trim()
-      stdoutBuf = ""
-      overflowed = false
       if (root.pwExpectedStop) return
       if (!root.opened) return
-      // Cap before assign; never log the secret.
-      if (exitCode === 0 && raw !== "") {
-        root.password = raw.length > 4096 ? raw.slice(0, 4096) : raw
-        root.passwordVisible = true
-      } else {
-        root.passwordError = "Could not read the Wi-Fi password"
-      }
+      if (exitCode === 0 && root.password !== "") root.passwordVisible = true
+      else root.passwordError = I18n.t("wifiqr.passwordFailed")
     }
-  }
-
-  Timer {
-    id: pwKillTimer
-    interval: 2000
-    onTriggered: pwProc.signal(9)
   }
 
   CenteredModal {
@@ -255,13 +218,15 @@ Item {
     }
     focusTarget: keyCatcher
     contentWidth: Style.space(320)
-    contentHeight: Math.round(content.implicitHeight)
+    // Card size = content plus popup padding and border on both sides.
+    contentHeight: Math.round(content.implicitHeight) + 2 * (modal.padding + Math.max(1, Style.space(2)))
     onDismissed: root.dismiss()
 
     Item {
       id: keyCatcher
       anchors.fill: parent
       focus: true
+
       Keys.onEscapePressed: root.dismiss()
 
       ColumnLayout {
@@ -272,9 +237,8 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: (root.ssid ? Util.plain(root.ssid) : "Wi-Fi").toUpperCase()
-          color: Qt.darker(Commons.Color.popups.text, 1.0)
-          opacity: 0.7
+          text: (root.ssid || "Wi-Fi").toUpperCase()
+          color: root.onScrimDim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           font.bold: true
@@ -285,11 +249,17 @@ Item {
           horizontalAlignment: Text.AlignHCenter
         }
 
+        // Render every QR module as an integer-sized native rectangle. This
+        // stays crisp and avoids temporary images and file-cache races. Only
+        // the dark modules paint, so the white canvas can keep its rounded
+        // corners; the spec quiet zone baked into the matrix keeps the code
+        // itself clear of them.
         Rectangle {
           id: qrCanvas
           readonly property int moduleSize: root.qrSize > 0
-            ? Math.max(3, Math.floor(Style.space(220) / root.qrSize))
+            ? Math.max(4, Math.floor(Style.space(240) / root.qrSize))
             : 0
+
           visible: root.showingQr
           width: root.qrSize * moduleSize
           height: width
@@ -300,12 +270,18 @@ Item {
           Grid {
             anchors.fill: parent
             columns: root.qrSize
+            // A mirrored QR code does not scan: modules stay left to right
+            // in right-to-left languages too.
+            LayoutMirroring.enabled: false
+
             Repeater {
               model: root.qrSize * root.qrSize
+
               Rectangle {
                 required property int index
                 readonly property int matrixRow: Math.floor(index / root.qrSize)
                 readonly property int matrixColumn: index % root.qrSize
+
                 width: qrCanvas.moduleSize
                 height: qrCanvas.moduleSize
                 color: root.qrRows[matrixRow].charAt(matrixColumn) === "1" ? "#111111" : "transparent"
@@ -315,11 +291,10 @@ Item {
         }
 
         Text {
-          textFormat: Text.PlainText
           visible: root.loading
-          text: "Generating QR code…"
-          color: Commons.Color.popups.text
-          opacity: 0.7
+          text: I18n.t("wifiqr.generating")
+          textFormat: Text.PlainText
+          color: root.onScrimDim
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
           Layout.fillWidth: true
@@ -329,21 +304,21 @@ Item {
         Text {
           textFormat: Text.PlainText
           visible: root.error !== ""
-          text: Util.plain(root.error, 240)
-          color: Commons.Color.error !== undefined ? Commons.Color.error : "#ff6b6b"
+          text: root.error
+          color: root.onScrimUrgent
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
           wrapMode: Text.Wrap
           Layout.fillWidth: true
+          Layout.maximumWidth: parent.width
           horizontalAlignment: Text.AlignHCenter
         }
 
         Text {
-          textFormat: Text.PlainText
           visible: root.showingQr
-          text: "Scan to join this network"
-          color: Commons.Color.popups.text
-          opacity: 0.7
+          text: I18n.t("wifiqr.scanToJoin")
+          textFormat: Text.PlainText
+          color: root.onScrimDim
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
           Layout.fillWidth: true
@@ -355,13 +330,14 @@ Item {
           visible: root.showingQr && root.secured
           text: root.passwordError !== "" ? root.passwordError
             : root.passwordVisible ? root.password
-            : "Show password"
-          color: root.passwordError !== "" ? (Commons.Color.error !== undefined ? Commons.Color.error : "#ff6b6b") : Commons.Color.popups.text
+            : I18n.t("wifiqr.showPassword")
+          color: root.passwordError !== "" ? root.onScrimUrgent : root.onScrim
           opacity: root.passwordVisible || root.passwordError !== "" ? 1 : 0.6
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
           wrapMode: Text.WrapAnywhere
           Layout.fillWidth: true
+          Layout.maximumWidth: parent.width
           horizontalAlignment: Text.AlignHCenter
 
           MouseArea {

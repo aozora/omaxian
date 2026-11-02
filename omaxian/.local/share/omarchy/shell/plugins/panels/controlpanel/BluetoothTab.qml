@@ -50,11 +50,22 @@ Item {
     return "󰂯"
   }
 
+  property int phraseIndex: 0
+  readonly property var activePhrases: [
+    Commons.I18n.t("bluetooth.phrase1", "Untangling wires"),
+    Commons.I18n.t("bluetooth.phrase2", "Streaming vikings"),
+    Commons.I18n.t("bluetooth.phrase3", "Pairing mysteries"),
+    Commons.I18n.t("bluetooth.phrase4", "Herding headsets"),
+    Commons.I18n.t("bluetooth.phrase5", "Taming radios"),
+    Commons.I18n.t("bluetooth.phrase6", "Summoning speakers"),
+    Commons.I18n.t("bluetooth.phrase7", "Wrangling codecs"),
+    Commons.I18n.t("bluetooth.phrase8", "Polishing packets")
+  ]
+  readonly property bool rotatingPhrases: !!adapter && adapter.enabled
   readonly property string heroStatusText: {
-    if (!adapter) return "No adapter"
-    if (!adapter.enabled) return "Turned off"
-    if (connectedDevices.length > 0) return "Connected"
-    return adapter.discovering ? "Scanning…" : "On"
+    if (!adapter) return Commons.I18n.t("bluetooth.noAdapter", "No adapter")
+    if (!adapter.enabled) return Commons.I18n.t("bluetooth.turnedOff", "Turned Off")
+    return activePhrases[phraseIndex % activePhrases.length]
   }
 
   implicitWidth: Style.space(380)
@@ -126,6 +137,14 @@ Item {
   onDiscoveredDevicesChanged: syncPendingActions()
 
   onActiveChanged: if (active && adapter !== null && adapter.discovering) owesDiscoveryStop = true
+
+  Timer {
+    id: phraseTimer
+    interval: 2800
+    running: root.active && root.rotatingPhrases
+    repeat: true
+    onTriggered: root.phraseIndex = (root.phraseIndex + 1) % root.activePhrases.length
+  }
 
   Timer {
     id: discoveryRetry
@@ -210,7 +229,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: "Bluetooth"
+          text: Commons.I18n.t("bluetooth.title", "Bluetooth")
           color: root.bar.foreground
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.title
@@ -241,7 +260,7 @@ Item {
       visible: root.connectedDevices.length > 0
 
       PanelSectionHeader {
-        text: "CONNECTED"
+        text: Commons.I18n.t("bluetooth.connected", "CONNECTED")
         foreground: root.bar.foreground
         fontFamily: root.bar.fontFamily
       }
@@ -272,7 +291,7 @@ Item {
       visible: root.knownDevices.length > 0
 
       PanelSectionHeader {
-        text: "PAIRED"
+        text: Commons.I18n.t("bluetooth.paired", "PAIRED")
         foreground: root.bar.foreground
         fontFamily: root.bar.fontFamily
       }
@@ -303,7 +322,7 @@ Item {
       visible: root.discoveredDevices.length > 0
 
       PanelSectionHeader {
-        text: "AVAILABLE"
+        text: Commons.I18n.t("bluetooth.available", "AVAILABLE")
         foreground: root.bar.foreground
         fontFamily: root.bar.fontFamily
       }
@@ -325,9 +344,9 @@ Item {
     Text {
       textFormat: Text.PlainText
       visible: root.connectedDevices.length === 0 && root.knownDevices.length === 0 && root.discoveredDevices.length === 0
-      text: !root.adapter ? "No Bluetooth adapter"
-          : !root.adapter.enabled ? "Turn Bluetooth on to scan"
-          : "Scanning for devices…"
+      text: !root.adapter ? Commons.I18n.t("bluetooth.noBluetoothAdapter", "No Bluetooth adapter")
+          : !root.adapter.enabled ? Commons.I18n.t("bluetooth.turnOnToScan", "Turn Bluetooth on to scan")
+          : Commons.I18n.t("bluetooth.scanning", "Scanning for devices…")
       color: Qt.darker(root.bar.foreground, 1.5)
       font.family: root.bar.fontFamily
       font.pixelSize: Style.font.bodySmall
@@ -338,7 +357,7 @@ Item {
     PanelSeparator { foreground: root.bar.foreground }
 
     Button {
-      text: "Bluetooth manager"
+      text: Commons.I18n.t("controlpanel.bluetooth.manager", "Bluetooth manager")
       bordered: true
       foreground: root.bar.foreground
       fontFamily: root.bar.fontFamily
@@ -358,7 +377,11 @@ Item {
 
     readonly property bool isConnected: dev && dev.connected
     readonly property int devState: dev && dev.state !== undefined ? dev.state : -1
-    readonly property string actionTooltip: isConnected ? "Disconnect" : (isDiscovered ? "Pair" : "Connect")
+    readonly property string actionTooltip: isConnected
+      ? Commons.I18n.t("bluetooth.disconnect", "Disconnect")
+      : (isDiscovered
+          ? Commons.I18n.t("bluetooth.pair", "Pair")
+          : Commons.I18n.t("bluetooth.connect", "Connect"))
     readonly property bool forgetAvailable: !isDiscovered
     readonly property bool showForgetButton: forgetAvailable && rowMouse.containsMouse
 
@@ -368,13 +391,13 @@ Item {
 
     readonly property string statusText: {
       if (!dev) return ""
-      if (pendingActionText === "forgetting") return "Forgetting…"
-      if (pendingActionText === "disconnecting" || devState === 2) return "Disconnecting…"
+      if (pendingActionText === "forgetting") return Commons.I18n.t("bluetooth.forgetting", "Forgetting…")
+      if (pendingActionText === "disconnecting" || devState === 2) return Commons.I18n.t("bluetooth.disconnecting", "Disconnecting…")
       if (isConnected) {
-        if (dev.batteryAvailable) return Math.round(dev.battery * 100) + "%"
+        if (dev.batteryAvailable) return Commons.I18n.formatNumber(Math.round(dev.battery * 100)) + "%"
         return ""
       }
-      if (pendingActionText === "connecting" || devState === 3 || dev.pairing === true) return "Connecting…"
+      if (pendingActionText === "connecting" || devState === 3 || dev.pairing === true) return Commons.I18n.t("bluetooth.connecting", "Connecting…")
       return ""
     }
 
@@ -440,7 +463,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: Util.plain(Model.deviceLabel(row.dev) || "Device")
+          text: Util.plain(Model.deviceLabel(row.dev) || Commons.I18n.t("bluetooth.device", "Device"))
           color: row.bar ? row.bar.foreground : Commons.Color.foreground
           font.family: row.bar ? row.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.body
@@ -466,7 +489,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         visible: row.showForgetButton
         iconText: "󰅙"
-        tooltipText: "Forget"
+        tooltipText: Commons.I18n.t("bluetooth.forget", "Forget")
         foreground: row.bar ? row.bar.foreground : Commons.Color.foreground
         hoverColor: row.bar ? row.bar.foreground : Commons.Color.foreground
         fontFamily: row.bar ? row.bar.fontFamily : Style.font.family

@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -96,35 +97,19 @@ Item {
 
   Process {
     id: proc
-    property string stderrBuf: ""
-    property int maxStderr: 16384
-    property bool overflowed: false
     command: ["omarchy-disk-speedtest"]
     stdout: SplitParser { onRead: function(line) { root.updateLine(line) } }
-    stderr: SplitParser {
-      splitMarker: ""
-      onRead: function(chunk) {
-        if (proc.overflowed) return
-        proc.stderrBuf += chunk
-        if (proc.stderrBuf.length > proc.maxStderr) {
-          proc.overflowed = true
-          proc.stderrBuf = ""
-          proc.signal(15)
-          procKillTimer.start()
-        }
+    // Exit and stream-finished have no guaranteed order: when a failed exit
+    // beat the collector and published the generic message, replace it with
+    // the specific one once it lands.
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.stderrText = String(text || "").trim()
+        if (root.error !== "" && root.stderrText !== "") root.error = root.stderrText
       }
     }
-    onStarted: {
-      procKillTimer.stop()
-      stderrBuf = ""
-      overflowed = false
-    }
     onExited: function(exitCode) {
-      procKillTimer.stop()
-      root.stderrText = overflowed ? "" : String(stderrBuf || "").trim()
-      stderrBuf = ""
-      overflowed = false
-
       if (root.pendingRun) {
         root.pendingRun = false
         root.expectedStop = false
@@ -133,7 +118,7 @@ Item {
       }
 
       if (!root.expectedStop && exitCode !== 0) {
-        root.error = root.stderrText || "Disk speed test failed"
+        root.error = root.stderrText || I18n.t("diskSpeedtest.failed")
         root.phase = ""
         root.running = false
         return
@@ -145,20 +130,14 @@ Item {
     }
   }
 
-  Timer {
-    id: procKillTimer
-    interval: 2000
-    onTriggered: proc.signal(9)
-  }
-
   SpeedTestOverlay {
     fontFamily: Style.font.family
     layerNamespace: "omarchy-disk-speedtest"
     title: root.diskName
-    leftLabel: "READ"
-    rightLabel: "WRITE"
+    leftLabel: I18n.t("diskSpeedtest.read")
+    rightLabel: I18n.t("diskSpeedtest.write")
     unit: "MB/s"
-    runAgainTooltip: "Measure again"
+    runAgainTooltip: I18n.t("speedtest.measureAgain")
     running: root.running
     leftValue: root.toRate(root.readMBps)
     rightValue: root.toRate(root.writeMBps)
@@ -166,12 +145,12 @@ Item {
     rightLive: root.running && root.phase === "write"
     error: root.error
     open: root.opened
-    scaleStops: [500, 1000, 2500, 5000, 10000, 15000]
     anchorWindow: {
       var bar = root.shell && root.shell.bar
       if (!bar || typeof bar.panelWindowForScreen !== "function") return null
       return bar.panelWindowForScreen(Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
     }
+    scaleStops: [500, 1000, 2500, 5000, 10000, 15000]
     onCloseRequested: root.dismiss()
     onRunAgainRequested: root.runTest()
   }

@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# omarchy:summary=Set the system timezone (Devuan: /etc/localtime; else timedatectl)
+# omarchy:group=system
+# omarchy:name=timezone-set
+# omarchy:args=<IANA-zone>
+# omarchy:requires-sudo=true
+# omarchy:hidden=true
+#
+# Used by Elsewhen's "here" picker and by omarchy-menu-timezone. Graphical
+# callers get pkexec; a TTY can fall back to sudo.
+
+set -euo pipefail
+
+timezone=${1:-}
+[[ -n $timezone ]] || {
+  echo "usage: omarchy-timezone-set <IANA-zone>" >&2
+  exit 1
+}
+
+[[ $timezone != /* && $timezone != *".."* ]] || {
+  echo "omarchy-timezone-set: invalid timezone $timezone" >&2
+  exit 1
+}
+
+zone="/usr/share/zoneinfo/$timezone"
+[[ -f $zone || -L $zone ]] || {
+  echo "omarchy-timezone-set: unknown timezone $timezone" >&2
+  exit 1
+}
+zone_real=$(readlink -f "$zone")
+[[ $zone_real == /usr/share/zoneinfo/* ]] || {
+  echo "omarchy-timezone-set: timezone resolves outside zoneinfo: $timezone" >&2
+  exit 1
+}
+
+as_root() {
+  if (( EUID == 0 )); then
+    "$@"
+  elif command -v pkexec >/dev/null 2>&1; then
+    pkexec "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+if command -v timedatectl >/dev/null 2>&1; then
+  # Prefer timedatectl when present (updates /etc/localtime + systemd state).
+  if (( EUID == 0 )); then
+    timedatectl set-timezone "$timezone"
+  elif command -v pkexec >/dev/null 2>&1; then
+    pkexec timedatectl set-timezone "$timezone"
+  else
+    sudo timedatectl set-timezone "$timezone"
+  fi
+else
+  as_root ln -sf "$zone_real" /etc/localtime
+  printf '%s\n' "$timezone" | as_root tee /etc/timezone >/dev/null
+fi
+
+omarchy-shell -q omarchy.clock refresh || true

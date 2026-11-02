@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# omarchy:summary=List IANA timezones one per line (timedatectl or zoneinfo)
+# omarchy:group=system
+# omarchy:name=timezone-list
+# omarchy:hidden=true
+
+set -euo pipefail
+
+if command -v timedatectl >/dev/null 2>&1; then
+  timedatectl list-timezones
+  exit 0
+fi
+
+find /usr/share/zoneinfo -type f ! -name '*.tab' ! -name '*.list' \
+  ! -name 'leapseconds' ! -name 'tzdata.zi' ! -name 'posixrules' \
+  | sed 's|^/usr/share/zoneinfo/||' \
+  | grep -Ev '^(posix|right)/' \
+  | sort

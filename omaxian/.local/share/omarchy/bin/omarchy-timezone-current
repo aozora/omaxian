@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# omarchy:summary=Print the machine's current IANA timezone
+# omarchy:group=system
+# omarchy:name=timezone-current
+# omarchy:hidden=true
+
+set -euo pipefail
+
+if command -v timedatectl >/dev/null 2>&1; then
+  tz=$(timedatectl show -p Timezone --value 2>/dev/null || true)
+  if [[ -n ${tz:-} ]]; then
+    printf '%s\n' "$tz"
+    exit 0
+  fi
+fi
+
+if [[ -L /etc/localtime ]]; then
+  tz=$(readlink -f /etc/localtime)
+  tz=${tz#/usr/share/zoneinfo/}
+  if [[ -n $tz && $tz != /* ]]; then
+    printf '%s\n' "$tz"
+    exit 0
+  fi
+fi
+
+if [[ -f /etc/timezone ]]; then
+  tz=$(tr -d '[:space:]' </etc/timezone)
+  if [[ -n $tz ]]; then
+    printf '%s\n' "$tz"
+    exit 0
+  fi
+fi
+
+printf 'UTC\n'

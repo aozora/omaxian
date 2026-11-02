@@ -33,12 +33,24 @@ function normalizeItem(id, raw) {
     action: value.action || "",
     provider: value.provider || "",
     aliases: aliases,
+    // Search-only terms: matched by nameSearchText, never by resolveRoute.
+    // Translations put the English label here so English search keeps
+    // working without making English words routable commands.
+    searchTerms: normalizeAliases(value.searchTerms),
     when: value.when || "",
-    checked: value.checked || ""
+    checked: value.checked || "",
+    disabled: value.disabled || ""
   }
 }
 
 function parseMenuJsonc(raw) {
+  return readMenuJsonc(raw) || []
+}
+
+// Like parseMenuJsonc, but null when the text is not a menu at all: what a
+// reader sees of a file caught mid-write by an update, a checkout or an
+// editor's save. A file of nothing but comments is still an empty menu.
+function readMenuJsonc(raw) {
   var stripped = stripJsonc(raw)
   if (!stripped.trim()) return []
 
@@ -46,9 +58,9 @@ function parseMenuJsonc(raw) {
   try {
     parsed = JSON.parse(stripped)
   } catch (e) {
-    return []
+    return null
   }
-  if (typeof parsed !== "object" || parsed === null) return []
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null
 
   var source = (parsed.items && typeof parsed.items === "object" && !Array.isArray(parsed.items))
     ? parsed.items
@@ -62,7 +74,22 @@ function parseMenuJsonc(raw) {
   return out
 }
 
-function mergeMenuSources(defaultItems, userItems) {
+// The rows a watched menu file leaves after a read. An update, a checkout or
+// an editor's save can be read mid-write, and that read must not replace good
+// rows with nothing, so it keeps the previous ones until a later read finds
+// the file whole. The shipped menu is never legitimately empty, so for it
+// (required) an empty read is mid-write too.
+function keepMenuRows(previous, raw, required) {
+  var items = readMenuJsonc(raw)
+  if (!items || (required && items.length === 0)) return previous
+  return items
+}
+
+// The root row has no JSONC entry, so the merge injects it when neither
+// source supplies one; only then does rootLabel (the catalog's translation
+// of "Go") apply. A root row from either source keeps its own label, so a
+// user-supplied heading is never overwritten by the catalog.
+function mergeMenuSources(defaultItems, userItems, rootLabel) {
   var nextItems = ({})
   var nextOrder = []
   var sources = [defaultItems || [], userItems || []]
@@ -83,7 +110,7 @@ function mergeMenuSources(defaultItems, userItems) {
   }
 
   if (!nextItems.root) {
-    nextItems.root = { id: "root", parent: "", kind: "menu", icon: "", iconFont: "", label: "Go", title: "", target: "", description: "", aliases: [], when: "", checked: "", action: "", provider: "" }
+    nextItems.root = { id: "root", parent: "", kind: "menu", icon: "", iconFont: "", label: (typeof rootLabel === "string" && rootLabel) ? rootLabel : "Go", title: "", target: "", description: "", aliases: [], searchTerms: [], when: "", checked: "", disabled: "", action: "", provider: "" }
     nextOrder.unshift("root")
   }
   for (var k3 = 0; k3 < nextOrder.length; k3++) nextItems[nextOrder[k3]].order = k3
@@ -270,10 +297,20 @@ function isVisible(items, itemOrder, whenResults, entry, depth) {
   return false
 }
 
-function labelFor(entry, checkedResults) {
+// A `disabled:` row stays listed but goes dim and unselectable. The
+// Install submenus use it so software already on the machine reads as
+// installed rather than disappearing from the list it was installed from.
+function isDisabled(disabledResults, entry) {
+  if (!entry || !entry.disabled) return false
+  return !!(disabledResults && disabledResults[entry.id])
+}
+
+// A disabled row is software you already have, which is the same thing the ✓
+// says everywhere else in the menu, so it earns the same marker.
+function labelFor(entry, checkedResults, disabledResults) {
   if (!entry) return ""
-  if (entry.checked && checkedResults && checkedResults[entry.id]) return entry.label + " ✓"
-  return entry.label
+  var marked = (entry.checked && checkedResults && checkedResults[entry.id]) || isDisabled(disabledResults, entry)
+  return marked ? entry.label + " ✓" : entry.label
 }
 
 function searchableToken(value) {
@@ -288,7 +325,7 @@ function leafIdFor(id) {
 function nameSearchText(entry) {
   if (!entry) return ""
   var aliases = []
-  var values = Array.isArray(entry.aliases) ? entry.aliases : []
+  var values = (Array.isArray(entry.aliases) ? entry.aliases : []).concat(Array.isArray(entry.searchTerms) ? entry.searchTerms : [])
   for (var i = 0; i < values.length; i++) aliases.push(searchableToken(values[i]))
   return [entry.label, searchableToken(leafIdFor(entry.id)), aliases.join(" ")].join(" ").toLowerCase()
 }
@@ -351,16 +388,17 @@ function searchScore(items, entry, query) {
   return score * 1000 + depthFor(items, entry.id) * 25 + entry.order
 }
 
-function displayRow(items, itemOrder, checkedResults, entry, detail, score, section) {
+function displayRow(items, itemOrder, checkedResults, disabledResults, entry, detail, score, section) {
   var target = entry.kind === "link" ? entry.target : entry.id
   return {
     itemId: entry.id,
+    disabled: isDisabled(disabledResults, entry),
     kind: entry.kind,
     icon: entry.icon,
     iconFont: entry.iconFont || "",
     appIcon: entry.appIcon || "",
     appId: entry.appId || "",
-    label: labelFor(entry, checkedResults),
+    label: labelFor(entry, checkedResults, disabledResults),
     target: target,
     detail: detail || "",
     path: pathFor(items, entry.id),
@@ -381,25 +419,40 @@ function displayRow(items, itemOrder, checkedResults, entry, detail, score, sect
 // cached while one expression runs lives in that subshell only, so a lazy
 // memo never survives to the expression after it.
 var GUARD_READERS = [
+  "omarchy-bar background",
+  "omarchy-bar get omarchy.power showPercentage",
+  "omarchy-bar get omarchy.clock format",
+  "omarchy-bar get omarchy.clock verticalFormat",
+  "omarchy-bar position",
   "omarchy-channel-current",
   "omarchy-default-agent",
   "omarchy-default-browser",
   "omarchy-default-editor",
   "omarchy-default-terminal",
-  "omarchy-dns"
+  "omarchy-default-dictation",
+  "omarchy-dns",
+  "omarchy-dock autohide",
+  "omarchy-dock position",
+  "omarchy-hyprland-corners",
+  "omarchy-hyprland-window-transparency",
+  "omarchy-hyprland-workspace-layout-default",
+  "omarchy-shell notifications isDnd",
+  "omarchy-toggle-nightlight --status"
 ]
 
 // Package and command presence account for most of what the guards ask, and
 // asked one at a time they are almost all fork. Answer them inside the guard
-// process instead. These shadow the real commands for the batch only.
+// process instead. These shadow the real commands for the batch only, so they
+// have to agree with them everywhere, including for no arguments at all
+// (present is true of nothing, missing is not).
 //
-// X11/Devuan: upstream shadows `omarchy-pkg-*` with a `pacman -Q` set (plus
-// Provides). Here the port JSONC does not ship Install/Remove rows, but a
-// leftover `when:` / user overlay might still call them — answer via
-// `dpkg-query -W` (package name only; Debian Provides are not expanded).
+// X11/Devuan: upstream builds this set from the Arch package database (with
+// Provides). Here the set is the names `dpkg-query -W` reports as installed
+// (state `ii`; Debian Provides are not expanded). The port's menu JSONC ships
+// no Install/Remove rows, but a `when:` in a user overlay may still ask.
 function guardHelpers() {
   return 'declare -A __omarchy_pkgs=()\n'
-    + 'mapfile -t __omarchy_pkg_names < <(dpkg-query -W -f \'${Package}\\n\' 2>/dev/null)\n'
+    + 'mapfile -t __omarchy_pkg_names < <(dpkg-query -W -f \'${db:Status-Abbrev} ${Package}\\n\' 2>/dev/null | awk \'$1 == "ii" { print $2 }\')\n'
     + 'for __omarchy_pkg in "${__omarchy_pkg_names[@]}"; do __omarchy_pkgs[$__omarchy_pkg]=1; done\n'
     + '__omarchy_pkg_has() { [[ -n ${__omarchy_pkgs[$1]-} ]]; }\n'
     + 'omarchy-pkg-present() { local p; for p in "$@"; do __omarchy_pkg_has "$p" || return 1; done; return 0; }\n'
@@ -414,19 +467,31 @@ function guardHelpers() {
 // same way unquoted -- while a function would also catch `command -v reader`,
 // `VAR=x reader`, and every other form, and answer those wrong. Anything but
 // the plain substitution is left alone to run the real command.
+//
+// The readers are separate programs with nothing to share, so they all start
+// at once, before the package set is built, each on a process substitution
+// of its own; the batch then reads each one's output in turn. Run one after
+// another they were a quarter of the batch. Reading to EOF and dropping the
+// trailing newlines is what `$(...)` does with the same output.
 function guardPrelude(guards) {
-  var prelude = guardHelpers()
+  var start = ""
+  var collect = ""
 
   for (var i = 0; i < GUARD_READERS.length; i++) {
     // The guards arrive already substituted, so what marks a reader as wanted
     // is the slot standing in for it, not the call it replaced.
     if (guards.indexOf(guardReaderSlot(i)) < 0) continue
-    // `|| :` so a reader that exits nonzero cannot take the batch down with
-    // it under a login shell that turned on errexit.
-    prelude += "__omarchy_read_" + i + "=$(" + GUARD_READERS[i] + " 2>/dev/null) || :\n"
+    var value = "__omarchy_read_" + i
+    var fd = "__omarchy_read_fd_" + i
+    start += "exec {" + fd + "}< <(" + GUARD_READERS[i] + " 2>/dev/null)\n"
+    // `|| :` because read reports the EOF it stops at, and a login shell may
+    // have turned on errexit.
+    collect += "IFS= read -r -d '' " + value + " <&$" + fd + " || :\n"
+      + "exec {" + fd + "}<&-\n"
+      + value + "=${" + value + "%\"${" + value + "##*[!$'\\n']}\"}\n"
   }
 
-  return prelude
+  return start + guardHelpers() + collect
 }
 
 function guardReaderSlot(index) {
@@ -445,32 +510,132 @@ function guardLine(id, tag, expression) {
     + id + ":" + tag + ":1; else echo " + id + ":" + tag + ":0; fi\n"
 }
 
-// One bash script for every `when:` and `checked:` in the menu, reporting
-// `<id>:<w|c>:<0|1>` per line. Speed is the whole point: the menu opens on
-// the last evaluation's answers, so however long this takes is how long a row
-// can contradict the state it describes.
+// How many subshells share the guards. Most of what is left of the batch is
+// a few dozen separate programs (hardware probes, systemctl, the screen
+// recorder's status), each waiting on its own process start rather than on
+// a core, so running them side by side is where the time comes back. Eight
+// took the shipped menu's batch from ~400ms to ~160ms on a 32-thread desktop
+// (~195ms to ~55ms once the package set was cached); more stopped paying.
+var GUARD_GROUPS = 8
+
+// One bash script for every `when:`, `checked:` and `disabled:` in the menu,
+// reporting `<id>:<w|c|d>:<0|1>` per line. Speed is the whole point: the menu
+// opens on the last evaluation's answers, so however long this takes is how
+// long a row can contradict the state it describes.
+//
+// Guards are dealt round-robin into GUARD_GROUPS background subshells, each
+// inheriting the package set, the shadowed helpers and the readers' answers,
+// and the batch exits once all of them have. Lines arrive in any order, which
+// the menu never relied on: each names its row, and each is one short write
+// to the pipe, which the kernel never interleaves.
+//
+// A group that dies part way (a guard tripping a login shell's `set -u`, say)
+// has left its remaining rows unanswered, and the menu keeps the last full
+// set only when the batch fails. So each group is waited for by pid, and the
+// batch's status is nonzero if any of them was.
 function guardScript(items) {
-  var guards = ""
+  var lines = []
   var ids = Object.keys(items || {})
 
   for (var i = 0; i < ids.length; i++) {
     var entry = items[ids[i]]
     if (!entry) continue
-    if (entry.when) guards += guardLine(ids[i], "w", entry.when)
-    if (entry.checked) guards += guardLine(ids[i], "c", entry.checked)
+    if (entry.when) lines.push(guardLine(ids[i], "w", entry.when))
+    if (entry.checked) lines.push(guardLine(ids[i], "c", entry.checked))
+    if (entry.disabled) lines.push(guardLine(ids[i], "d", entry.disabled))
+  }
+  if (lines.length === 0) return ""
+
+  var groups = []
+  for (var j = 0; j < lines.length; j++) {
+    var group = j % GUARD_GROUPS
+    groups[group] = (groups[group] || "") + lines[j]
   }
 
-  return guards ? guardPrelude(guards) + guards : ""
+  var script = guardPrelude(lines.join("")) + "__omarchy_groups=()\n"
+  for (var k = 0; k < groups.length; k++) script += "{\n" + groups[k] + "} &\n__omarchy_groups+=($!)\n"
+  return script + "__omarchy_failed=0\n"
+    + 'for __omarchy_group in "${__omarchy_groups[@]}"; do wait "$__omarchy_group" || __omarchy_failed=1; done\n'
+    + "((__omarchy_failed == 0))\n"
+}
+
+// An action that only asks this shell to summon one of its own plugins can be
+// run in-process, skipping the bash and qs ipc spawns. Anything more than the
+// bare call, such as a second command or a shell-expanded payload, is left to
+// bash.
+function summonAction(action) {
+  var match = /^omarchy-shell shell summon ([A-Za-z0-9._-]+)(?: '([^']*)')?$/.exec(String(action || ""))
+  if (!match) return null
+  return { id: match[1], payload: match[2] || "{}" }
+}
+
+
+// Multi-select requests return stable values, without icons, in option order.
+function dmenuValue(option) {
+  var parts = String(option || "").split("\t")
+  if (parts.length > 1) parts.shift()
+  return parts.join("\t")
+}
+
+function dmenuSelections(options, selected, preserveOrder) {
+  var available = options.map(dmenuValue)
+  return (preserveOrder ? selected : available).filter(function(value, index, values) {
+    return available.indexOf(value) !== -1 && selected.indexOf(value) !== -1 && values.indexOf(value) === index
+  })
+}
+
+function toggleDmenuSelection(selected, value) {
+  return selected.indexOf(value) === -1 ? selected.concat([value])
+    : selected.filter(function(item) { return item !== value })
+}
+
+// Returns a copy of items with label/title/description replaced from a
+// translation catalog ({id: {label, title, description}}), as shipped in
+// default/i18n/<code>/menu.json. The English label stays searchable by
+// moving it into searchTerms when the translation differs — searchTerms
+// feed search but never resolveRoute, so English words do not become
+// routable commands in other languages. Items without a
+// catalog entry pass through untouched, so an incomplete (or missing)
+// catalog degrades to English row by row. Applied to the default items
+// before the user extension merges, so user rows and retitles always win.
+function applyTranslations(items, catalog) {
+  var source = Array.isArray(items) ? items : []
+  var strings = (catalog && typeof catalog === "object") ? catalog : ({})
+  var out = []
+  for (var i = 0; i < source.length; i++) {
+    var entry = source[i]
+    var translated = entry && strings[entry.id]
+    if (!translated || typeof translated !== "object") {
+      out.push(entry)
+      continue
+    }
+    var next = {}
+    for (var k in entry) next[k] = entry[k]
+    if (translated.label) {
+      if (translated.label !== entry.label && entry.label) {
+        var terms = Array.isArray(entry.searchTerms) ? entry.searchTerms.slice() : []
+        if (terms.indexOf(entry.label) < 0) terms.push(entry.label)
+        next.searchTerms = terms
+      }
+      next.label = translated.label
+    }
+    if (translated.title) next.title = translated.title
+    if (translated.description) next.description = translated.description
+    out.push(next)
+  }
+  return out
 }
 
 if (typeof module !== "undefined") {
   module.exports = {
+    summonAction: summonAction,
     guardReaders: GUARD_READERS,
     guardScript: guardScript,
     stripJsonc: stripJsonc,
     normalizeAliases: normalizeAliases,
     normalizeItem: normalizeItem,
     parseMenuJsonc: parseMenuJsonc,
+    keepMenuRows: keepMenuRows,
     mergeMenuSources: mergeMenuSources,
     mergeAppRows: mergeAppRows,
     swapProviderRows: swapProviderRows,
@@ -483,6 +648,7 @@ if (typeof module !== "undefined") {
     isDescendantOf: isDescendantOf,
     childCount: childCount,
     isVisible: isVisible,
+    isDisabled: isDisabled,
     labelFor: labelFor,
     searchableToken: searchableToken,
     leafIdFor: leafIdFor,
@@ -491,6 +657,10 @@ if (typeof module !== "undefined") {
     descriptionTextMatches: descriptionTextMatches,
     matchesQuery: matchesQuery,
     searchScore: searchScore,
-    displayRow: displayRow
+    dmenuValue: dmenuValue,
+    dmenuSelections: dmenuSelections,
+    toggleDmenuSelection: toggleDmenuSelection,
+    displayRow: displayRow,
+    applyTranslations: applyTranslations
   }
 }

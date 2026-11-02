@@ -57,11 +57,11 @@ Panel {
   property bool holdDismiss: false
 
   readonly property var tabs: [
-    { value: "audio", label: "Audio", icon: "󰕾" },
-    { value: "bluetooth", label: "Bluetooth", icon: "󰂯" },
-    { value: "wallpaper", label: "Wallpaper", icon: "󰥶" },
-    { value: "theme", label: "Theme", icon: "󰸌" },
-    { value: "monitor", label: "Monitor", icon: "󰍹" }
+    { value: "audio", label: Commons.I18n.t("audio.title", "Audio"), icon: "󰕾" },
+    { value: "bluetooth", label: Commons.I18n.t("bluetooth.title", "Bluetooth"), icon: "󰂯" },
+    { value: "wallpaper", label: Commons.I18n.t("controlpanel.tab.wallpaper", "Wallpaper"), icon: "󰥶" },
+    { value: "theme", label: Commons.I18n.t("agents.theme", "Theme"), icon: "󰸌" },
+    { value: "monitor", label: Commons.I18n.t("monitor.display", "Display"), icon: "󰍹" }
   ]
 
   function livePopupWidth() {
@@ -168,7 +168,7 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: "󰒓"
-    tooltipText: "Control Panel"
+    tooltipText: Commons.I18n.t("controlpanel.title", "Control Panel")
     onPressed: function(b) { root.toggle() }
   }
 
@@ -263,7 +263,7 @@ Panel {
           Button {
             width: Style.space(160)
             leftAlign: true
-            text: "Settings"
+            text: Commons.I18n.t("controlpanel.settings", "Settings")
             iconText: ""
             bordered: true
             foreground: root.bar ? root.bar.foreground : Commons.Color.foreground
@@ -413,7 +413,9 @@ Panel {
             text: {
               var loader = contentArea.activeLoader
               // Qt 6 Loader exposes errorString as a string property, not a method.
-              return loader ? ("Tab failed to load:\n" + String(loader.errorString || "")) : ""
+              return loader
+                ? Commons.I18n.t("controlpanel.tabFailed", "Tab failed to load:\n%1").replace("%1", String(loader.errorString || ""))
+                : ""
             }
           }
         }
