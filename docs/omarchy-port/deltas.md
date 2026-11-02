@@ -149,13 +149,34 @@ note: [v4_0_4.md](v4_0_4.md).
 | `bin/omarchy-install-gaming-xbox-controllers` | small update | **not ported** (Arch gaming) | — | — | Sole `bin/` difference in the tag range. |
 | `install/hardware/*`, Limine, kernel migrations / tests | Arch ISO path | **not ported** | — | — | |
 
-## 4.5.0-rc2 (2026-10-28) — in progress
+## 4.5.0-rc3 (2026-11-02)
 
-Upstream tag **v4.5.0-rc2** (`OMARCHY_UPSTREAM_REF`, SHA `5978d93…`). Quirk:
+Upstream tag **v4.5.0-rc3** (`OMARCHY_UPSTREAM_REF`, SHA `8d19ad7…`). Quirk:
+`omarchy-quattro/version` still reads `4.0.0.alpha` — trust the git tag /
+`describe`. Small RC over rc2 (28 commits): DST-safe clock tick, PluginRegistry
+multi-kind enable fix, Arch update/sudo/sshd, Hyprland fullscreen bar mask.
+Impact note: [v4_5_0_rc3.md](v4_5_0_rc3.md). Branch: `port/omarchy-v4.5.0-rc3`.
+
+| File | Upstream | omaxian | Transform | Status | Notes |
+|---|---|---|---|---|---|
+| `plugins/panels/clock/WallClock.qml` + `BarWidget.qml` / `Panel.qml` / `Model.js` | epoch `Timer` replaces `SystemClock` (DST fold) | **remirrored** — kept `calendar` IPC alias + Settings schema | — | **keep** (alias/schema) | `msUntilNextTick` exported from Model.js. |
+| `services/PluginRegistry.qml` | multi-kind clone `plugins[]` filter; enable keyed on bar presence | **merged** — kept `deployFrozen` / deploy lock / pycache skip | `local` | **keep** | `restoreCloneSource` / `setEnabled` match upstream aside from freeze. |
+| `plugins/bar/widgets/Tray.qml` | `Math.round` tray icon x/y | **N/A** — port uses `anchors.centerIn` | — | — | Larger tray-section remirror still deferred. |
+| `plugins/bar/Bar.qml` + `BarModel.js` | Hyprland fullscreen input mask / `fullscreenOn` | **skipped** | — | — | X11 bar has no WlrLayershell strip mask. |
+| `bin/omarchy-locale-generate` | single-locale `localedef` + `cd /` | **merged** — `$OMARCHY_PATH` registry | `local` | **keep** | Avoids full `locale-gen` rebuild. |
+| `bin/omarchy-theme-set`, `omarchy-capture-screenrecording` | OWE stderr / Omacut i18n | **no change** | — | — | Port lacks those code paths. |
+| `bin/omarchy-bar`, channel/update/sudo/sshd/pacman/hyprland-* | Arch / Hyprland | **not ported** | — | — | |
+
+---
+
+## 4.5.0-rc2 (2026-10-28)
+
+Upstream tag **v4.5.0-rc2** (was pin; SHA `5978d93…`). Quirk:
 `omarchy-quattro/version` still reads `4.0.0.alpha` — trust the git tag /
 `describe`. Feature RC: i18n, OverlayWindow, notifications rewrite, dock,
 elsewhen, Appearance/intros, agents expansion. Impact note:
-[v4_5_0_rc2.md](v4_5_0_rc2.md). Branch: `port/omarchy-v4.5.0-rc2`.
+[v4_5_0_rc2.md](v4_5_0_rc2.md). Branch: `port/omarchy-v4.5.0-rc2`. Pin moved to
+**v4.5.0-rc3**; deferred plugins below remain deferred.
 
 | File | Upstream | omaxian | Transform | Status | Notes |
 |---|---|---|---|---|---|
