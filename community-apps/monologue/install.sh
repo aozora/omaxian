@@ -87,15 +87,42 @@ refuse_qt_downgrade() {
   fi
 }
 
+# A qmake built for the Qt already on this machine, kept out of apt so the
+# desktop libraries are not downgraded. Created by hand when apt's qmake6
+# candidate is a different major.minor than libqt6core.
+local_qmake="$HOME/.local/opt/omaxian-qt6-6.10/usr/bin/qmake6"
+
+use_local_qmake_if_present() {
+  [[ -x $local_qmake ]] || return 0
+  PATH="$(dirname "$local_qmake"):$PATH"
+  export PATH
+}
+
 install_apt() {
   (( SKIP_APT )) && return 0
   if ! command -v apt-get >/dev/null; then
     echo "apt-get not found; install deps yourself (see omaxian.deps.json)" >&2
     return 0
   fi
-  refuse_qt_downgrade
-  echo ">> apt packages: ${apt_runtime[*]} ${apt_build[*]}"
-  sudo apt-get install -y --no-install-recommends "${apt_runtime[@]}" "${apt_build[@]}"
+  local packages=("${apt_runtime[@]}" "${apt_build[@]}")
+  if [[ -x $local_qmake ]]; then
+    local kept=() pkg
+    for pkg in "${packages[@]}"; do
+      case "$pkg" in
+        qmake6|qt6-*|libqt6*|qml6-*) ;;
+        *) kept+=("$pkg") ;;
+      esac
+    done
+    packages=("${kept[@]}")
+    echo ">> matching qmake6 is $local_qmake; skipping apt Qt packages"
+  else
+    refuse_qt_downgrade
+  fi
+  if (( ${#packages[@]} == 0 )); then
+    return 0
+  fi
+  echo ">> apt packages: ${packages[*]}"
+  sudo apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
 qt_versions_match() {
@@ -122,7 +149,19 @@ qt_versions_match() {
 
 install_files() {
   mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR"
-  install -m 0755 "$ROOT/build/monologue" "$BIN_DIR/monologue"
+  local qml_extra="$HOME/.local/lib/qt6/qml"
+  if [[ -d $qml_extra/QtMultimedia && ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtMultimedia ]]; then
+    mkdir -p "$PREFIX/libexec"
+    install -m 0755 "$ROOT/build/monologue" "$PREFIX/libexec/monologue"
+    cat > "$BIN_DIR/monologue" <<EOF
+#!/bin/bash
+export QML_IMPORT_PATH="\${QML_IMPORT_PATH:+\$QML_IMPORT_PATH:}$qml_extra"
+exec "$PREFIX/libexec/monologue" "\$@"
+EOF
+    chmod 0755 "$BIN_DIR/monologue"
+  else
+    install -m 0755 "$ROOT/build/monologue" "$BIN_DIR/monologue"
+  fi
   install -m 0644 "$ROOT/pkgbuild/monologue.svg" "$ICON_DIR/monologue.svg"
   sed -e "s|^Exec=monologue|Exec=$BIN_DIR/monologue|" \
     "$ROOT/pkgbuild/monologue.desktop" > "$APP_DIR/monologue.desktop"
@@ -138,6 +177,7 @@ install_files() {
   fi
 }
 
+use_local_qmake_if_present
 install_apt
 qt_versions_match
 echo ">> bin/build"

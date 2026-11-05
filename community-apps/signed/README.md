@@ -20,6 +20,8 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | `noto-fonts`, `poppler-qt6`, `qpdf`, `nss` | `fonts-noto-core`, `libpoppler-qt6-3t64`, `libqpdf30`, `libnss3` |
 | File chooser via xdg-desktop-portal | Same, with `xdg-desktop-portal-gtk` |
 | Theme accent from `colors.toml` | Unchanged |
+| `CONFIG += c++17` | `c++20`. `Item::operator==` is defaulted, which GCC 14 rejects under `-std=gnu++17` |
+| Digital-seal errors via `PDFConverter::lastSigningResult()` | Used when Poppler is 25.06 or newer. Excalibur's 25.03 only has `sign()` returning bool, so a failed seal reports "signing failed" |
 
 Placed text is still measured in Noto Sans and embedded in the PDF. The
 desktop entry advertises `application/pdf` and is not set as the default viewer.

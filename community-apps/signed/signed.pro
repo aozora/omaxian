@@ -1,6 +1,9 @@
 QT += core gui qml quick quickcontrols2 dbus
 
-CONFIG += c++17 release link_pkgconfig
+# operator== = default in items.h is C++20. qmake's c++17 flag hides that
+# from GCC 14, which does not accept it as an extension.
+CONFIG += c++20 release link_pkgconfig
+unix: QMAKE_RPATHDIR += $$(HOME)/.local/lib
 PKGCONFIG += poppler-qt6 libqpdf
 TARGET = signed
 TEMPLATE = app

@@ -106,8 +106,14 @@ ensure_rustup() {
     echo "error: rustc is not rustup's ($rustc_path). Put ~/.cargo/bin first on PATH." >&2
     exit 1
   fi
-  echo ">> rustup target add musl helpers"
-  rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+  # Must run inside the tree. rust-toolchain.toml selects 1.97, and
+  # `rustup target add` from anywhere else installs the musl stdlib for the
+  # default toolchain only. cargo then cannot find `core` for that triple.
+  echo ">> rustup target add musl helpers for $(cd "$ROOT" && rustc --version)"
+  (
+    cd "$ROOT"
+    rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+  )
 }
 
 install_i3_rules() {

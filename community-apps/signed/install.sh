@@ -88,15 +88,46 @@ refuse_qt_downgrade() {
   fi
 }
 
+# A qmake built for the Qt already on this machine, kept out of apt so the
+# desktop libraries are not downgraded.
+local_qmake="$HOME/.local/opt/omaxian-qt6-6.10/usr/bin/qmake6"
+
+use_local_qmake_if_present() {
+  [[ -x $local_qmake ]] || return 0
+  PATH="$(dirname "$local_qmake"):$PATH"
+  export PATH
+  local pc_dir="$HOME/.local/opt/omaxian-qt6-6.10/pkgconfig"
+  if [[ -d $pc_dir ]]; then
+    PKG_CONFIG_PATH="$pc_dir${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    export PKG_CONFIG_PATH
+  fi
+}
+
 install_apt() {
   (( SKIP_APT )) && return 0
   if ! command -v apt-get >/dev/null; then
     echo "apt-get not found; install deps yourself (see omaxian.deps.json)" >&2
     return 0
   fi
-  refuse_qt_downgrade
-  echo ">> apt packages: ${apt_runtime[*]} ${apt_build[*]}"
-  sudo apt-get install -y --no-install-recommends "${apt_runtime[@]}" "${apt_build[@]}"
+  local packages=("${apt_runtime[@]}" "${apt_build[@]}")
+  if [[ -x $local_qmake ]]; then
+    local kept=() pkg
+    for pkg in "${packages[@]}"; do
+      case "$pkg" in
+        qmake6|qt6-*|libqt6*|qml6-*|libpoppler-qt6*|libqpdf-dev) ;;
+        *) kept+=("$pkg") ;;
+      esac
+    done
+    packages=("${kept[@]}")
+    echo ">> matching qmake6 is $local_qmake; skipping apt Qt and poppler-dev packages"
+  else
+    refuse_qt_downgrade
+  fi
+  if (( ${#packages[@]} == 0 )); then
+    return 0
+  fi
+  echo ">> apt packages: ${packages[*]}"
+  sudo apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
 qt_versions_match() {
@@ -138,6 +169,7 @@ install_files() {
   fi
 }
 
+use_local_qmake_if_present
 install_apt
 qt_versions_match
 echo ">> bin/build"

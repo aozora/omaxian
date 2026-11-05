@@ -33,8 +33,9 @@ Runtime (also in `omaxian.deps.json`):
 - `libwayland-client0` (GPUI links it even for the X11 window)
 
 Build: those `-dev` packages, plus rustup. `install.sh` installs toolchain 1.97
-and the `x86_64-unknown-linux-musl` / `aarch64-unknown-linux-musl` targets.
-No external C cross-compiler: the helpers link with rust-lld.
+and adds the `x86_64-unknown-linux-musl` / `aarch64-unknown-linux-musl` targets
+to that toolchain (the one named by `rust-toolchain.toml`, not the default
+`rustup` toolchain). No external C cross-compiler: the helpers link with rust-lld.
 
 ## Install
 

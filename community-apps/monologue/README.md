@@ -19,6 +19,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Corner radius from `hyprctl` | Unchanged; already gated on `HYPRLAND_INSTANCE_SIGNATURE` (square corners on i3) |
 | File chooser via xdg-desktop-portal | Same, with `xdg-desktop-portal-gtk` |
 | Theme accent from `colors.toml` | Unchanged (`~/.local/state/omarchy/current/theme/colors.toml`) |
+| Qt Multimedia from the system Qt | When `qml6-module-qtmultimedia` is not installed for the running Qt, `~/.local/bin/monologue` is a wrapper that adds `~/.local/lib/qt6/qml` to `QML_IMPORT_PATH`. The real binary is `~/.local/libexec/monologue` |
 
 Camera capture (Qt Multimedia / FFmpeg / V4L2) and the microphone (PulseAudio
 or pipewire-pulse) are unchanged.
@@ -48,7 +49,7 @@ a newer desktop Qt.
 
 | Path | Role |
 | ---- | ---- |
-| `~/.local/bin/monologue` | app |
+| `~/.local/bin/monologue` | app (wrapper when Qt Multimedia QML is under `~/.local/lib/qt6/qml`) |
 | `~/.local/share/applications/monologue.desktop` | launcher (`Exec` is the full path) |
 | `~/.local/share/icons/hicolor/scalable/apps/monologue.svg` | icon |
 
@@ -63,7 +64,7 @@ Open **Monologue** from the launcher.
 ## Uninstall
 
 ```bash
-rm -f ~/.local/bin/monologue
+rm -f ~/.local/bin/monologue ~/.local/libexec/monologue
 rm -f ~/.local/share/applications/monologue.desktop
 rm -f ~/.local/share/icons/hicolor/scalable/apps/monologue.svg
 ```

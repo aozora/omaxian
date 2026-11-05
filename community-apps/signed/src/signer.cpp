@@ -14,6 +14,7 @@
 
 #include <poppler-form.h>
 #include <poppler-qt6.h>
+#include <poppler-version.h>
 
 namespace Signer {
 
@@ -200,6 +201,9 @@ Result sign(const QString &path, const QString &certNickname) {
 
     if (!converter->sign(data)) {
         QFile::remove(tempName);
+        // lastSigningResult() arrived after Poppler 25.03. Excalibur's
+        // poppler-qt6 only reports that sign() failed.
+#if POPPLER_VERSION_MAJOR > 25 || (POPPLER_VERSION_MAJOR == 25 && POPPLER_VERSION_MINOR >= 6)
         using SR = Poppler::PDFConverter::SigningResult;
         switch (converter->lastSigningResult()) {
         case SR::UserCancelled:
@@ -217,6 +221,9 @@ Result sign(const QString &path, const QString &certNickname) {
             return {false, false, QStringLiteral("signing failed")};
         }
         }
+#else
+        return {false, false, QStringLiteral("signing failed")};
+#endif
     }
 
     // Swap the signed temp file into place in one step, so a crash leaves
