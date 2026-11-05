@@ -1,0 +1,31 @@
+{
+  "apt": [
+    "libvulkan1",
+    "libx11-6",
+    "libxcb1",
+    "libxkbcommon0",
+    "libxkbcommon-x11-0",
+    "libwayland-client0",
+    "libfontconfig1",
+    "libfreetype6"
+  ],
+  "apt_build": [
+    "build-essential",
+    "pkg-config",
+    "libvulkan-dev",
+    "libx11-dev",
+    "libxcb1-dev",
+    "libxkbcommon-dev",
+    "libxkbcommon-x11-dev",
+    "libwayland-dev",
+    "libfontconfig-dev",
+    "libfreetype-dev"
+  ],
+  "manual": [
+    "Rust via rustup (install.sh installs toolchain 1.97 from rust-toolchain.toml). Debian rustc 1.85 is older than upstream's rust-version.",
+    "install.sh also adds the x86_64 and aarch64 musl targets. make install embeds those static disktree-scan helpers for SSH scans.",
+    "A Vulkan GPU is required. GPUI opens an X11 window when WAYLAND_DISPLAY is unset.",
+    "Theme colours come from ~/.local/state/omarchy/current/theme/colors.toml via gpui-omarchy.",
+    "Optional float rule: install.sh copies omaxian/i3-disktree.conf to ~/.config/i3/config.d/ when that file is missing. Reload with i3-msg reload."
+  ]
+}

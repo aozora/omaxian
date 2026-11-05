@@ -1,0 +1,206 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Signature mockups</title>
+<style>
+:root{--accent:#ff9f0a;--accentFg:#1c1c1e;--win:#0e0e10;--panel:#1c1c1e;--btn:#2c2c2f;--fg:#f5f5f7;--muted:#8e8e93;--dim:#b8b8bc}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1440px;height:900px;background:var(--win);color:var(--fg);font:14px "Noto Sans",system-ui,sans-serif;overflow:hidden;position:relative}
+.top{height:52px;display:flex;align-items:center;gap:8px;padding:0 14px;background:var(--panel);border-bottom:1px solid #000}
+.file{font-weight:600;font-size:14px;margin-right:auto;display:flex;align-items:center;gap:8px}
+.file .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.btn{height:34px;padding:0 14px;border-radius:7px;background:var(--btn);display:flex;align-items:center;gap:8px;color:#fff;font-size:13px}
+.btn.on{outline:2px solid var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accentFg);font-weight:600}
+.btn .k{color:var(--muted);font:11px "JetBrainsMono NF",monospace;margin-left:2px}
+.btn svg{width:16px;height:16px}
+.sep{width:1px;height:22px;background:#3a3a3c;margin:0 6px}
+.main{position:absolute;top:52px;bottom:30px;left:0;right:0;display:flex}
+.thumbs{width:132px;background:#161618;border-right:1px solid #000;padding:16px 0;display:flex;flex-direction:column;align-items:center;gap:30px}
+.th{width:76px;height:98px;background:#fff;border-radius:2px;position:relative;opacity:.9;padding:9px 8px}
+.th.cur{outline:3px solid var(--accent);outline-offset:3px;opacity:1}
+.th i{display:block;height:2px;background:#c8c8c8;margin:4px 0}
+.th b{position:absolute;bottom:-20px;left:0;right:0;text-align:center;color:var(--muted);font-weight:400;font-size:11px}
+.view{flex:1;overflow:hidden;display:flex;justify-content:center;padding-top:28px;position:relative}
+.page{width:640px;height:828px;background:#fff;color:#1a1a1a;box-shadow:0 8px 30px #0008;padding:64px 70px;position:relative;font-family:"Times New Roman",serif;font-size:12.5px;line-height:1.55}
+.page h1{font-size:19px;text-align:center;margin-bottom:18px;letter-spacing:.5px}
+.page p{margin-bottom:10px;text-align:justify}
+.line{display:flex;gap:40px;margin-top:22px}
+.line div{flex:1;border-top:1px solid #333;padding-top:4px;font-size:11px;color:#444}
+.item{position:absolute}
+.item.sel{outline:1.5px solid var(--accent);outline-offset:3px}
+.handle{position:absolute;right:-9px;bottom:-9px;width:12px;height:12px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 3px #0006}
+.txt{font-family:"Noto Sans",sans-serif;color:#000;white-space:pre}
+.caret{display:inline-block;width:1.5px;height:15px;background:#000;vertical-align:-2px;animation:none}
+.status{position:absolute;bottom:0;left:0;right:0;height:30px;background:var(--panel);border-top:1px solid #000;display:flex;align-items:center;padding:0 14px;color:var(--dim);font-size:12px;gap:14px}
+.status .r{margin-left:auto;display:flex;gap:14px;align-items:center}
+.status .acc{color:var(--accent)}
+.help{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#7a7a80;border:1px solid #3a3a3c}
+.pop{position:absolute;background:var(--panel);border:1px solid #3a3a3c;border-radius:12px;box-shadow:0 18px 50px #000a;padding:8px}
+.row{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:8px}
+.row.hl{background:var(--btn)}
+.row .sig{width:150px;height:46px;background:#fff;border-radius:5px;display:flex;align-items:center;justify-content:center}
+.row .nm{flex:1;font-size:13px}
+.row .x{color:var(--muted);font-size:16px}
+.row .kk{color:var(--muted);font:11px "JetBrainsMono NF",monospace}
+.divider{height:1px;background:#3a3a3c;margin:6px 4px}
+.add{color:var(--accent);font-weight:600;font-size:13px;padding:10px}
+.scrim{position:absolute;inset:0;background:#000000b0}
+.dlg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:620px;background:var(--panel);border-radius:14px;padding:24px;box-shadow:0 20px 60px #000c}
+.dlg h2{font-size:17px;margin-bottom:4px}
+.dlg .sub{color:var(--dim);font-size:12.5px;margin-bottom:18px}
+.compare{display:flex;gap:14px;align-items:center;margin-bottom:18px}
+.box{flex:1;height:170px;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.box.photo{background:linear-gradient(135deg,#ece6da,#d9d2c4 60%,#c9c1b2)}
+.box.clean{background-color:#fff;background-image:linear-gradient(45deg,#eee 25%,transparent 25%),linear-gradient(-45deg,#eee 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#eee 75%),linear-gradient(-45deg,transparent 75%,#eee 75%);background-size:16px 16px;background-position:0 0,0 8px,8px -8px,-8px 0}
+.box .lbl{position:absolute;top:8px;left:10px;font-size:11px;color:#666}
+.field{margin-bottom:14px}
+.field label{display:block;color:var(--dim);font-size:12px;margin-bottom:6px}
+.input{height:36px;border-radius:7px;background:#111113;border:1.5px solid var(--accent);padding:0 12px;display:flex;align-items:center;font-size:14px}
+.slider{display:flex;align-items:center;gap:12px}
+.track{flex:1;height:4px;border-radius:2px;background:#3a3a3c;position:relative}
+.track .fill{position:absolute;left:0;top:0;bottom:0;width:62%;background:var(--accent);border-radius:2px}
+.track .knob{position:absolute;left:62%;top:50%;width:18px;height:18px;border-radius:50%;background:var(--accent);transform:translate(-50%,-50%)}
+.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--dim)}
+.empty .icon{width:120px;height:150px;border:2px dashed #3a3a3c;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
+.empty h3{color:var(--fg);font-size:20px;font-weight:600}
+.keys{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:9px 16px;font-size:13px;color:#d6d6da}
+.keys .kc{color:var(--accent);font:12px "JetBrainsMono NF",monospace;text-align:right}
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+ <defs>
+  <!-- A hand-drawn-looking signature, reused at different sizes. -->
+  <symbol id="sig" viewBox="0 0 300 90">
+   <path fill="none" stroke="#111" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"
+    d="M18 62 C 30 20, 44 10, 46 30 C 48 50, 30 74, 24 70 C 18 66, 40 40, 62 44 C 76 46, 70 66, 62 66 C 56 66, 66 48, 80 50 C 88 52, 84 64, 90 62 C 98 60, 100 30, 108 22 C 112 18, 108 60, 112 66 C 116 70, 122 50, 132 48 C 142 46, 136 66, 146 64 C 156 62, 160 40, 170 44 C 178 48, 168 64, 178 62 C 190 58, 194 34, 204 36 C 214 38, 200 62, 214 60 C 226 58, 236 42, 250 46 C 262 50, 270 58, 286 40"/>
+   <path fill="none" stroke="#111" stroke-width="2.6" stroke-linecap="round" d="M30 78 C 110 70, 190 74, 270 66"/>
+  </symbol>
+  <symbol id="ini" viewBox="0 0 120 90">
+   <path fill="none" stroke="#111" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"
+    d="M14 66 C 24 24, 40 12, 42 32 C 44 54, 24 76, 20 70 C 16 64, 40 40, 58 46 C 70 50, 62 68, 72 64 C 82 60, 84 26, 92 20 C 96 18, 92 60, 98 66 C 102 70, 108 56, 112 52"/>
+  </symbol>
+ </defs>
+</svg>
+
+<div id="app"></div>
+
+<script>
+const ico = {
+ sig:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 17c3-6 5-9 6-8s-2 7 0 7 3-5 5-5-1 4 1 4 3-2 6-3"/><path d="M3 21h18"/></svg>',
+ txt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5h14M12 5v14M9 19h6"/></svg>',
+ date:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
+ caret:'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>',
+ pdf:'<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#5a5a60" stroke-width="1.5"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 16c2-3 3-5 4-4s-1 4 1 4 2-2 3-2"/></svg>'
+};
+const view = location.hash.slice(1) || 'main';
+
+function topBar(opts={}) {
+ return `<div class="top">
+  <div class="file">${opts.file ?? 'Apartment Lease — 14 Harbor St.pdf'}${opts.dirty ? '<span class="dot" title="unsaved"></span>' : ''}</div>
+  ${opts.file === '' ? '' : `
+  <div class="btn ${opts.menu ? 'on' : ''}">${ico.sig} Signature ${ico.caret}<span class="k">S</span></div>
+  <div class="btn">${ico.txt} Text<span class="k">T</span></div>
+  <div class="btn">${ico.date} Date<span class="k">D</span></div>
+  <div class="sep"></div>
+  <div class="btn primary">Save signed copy…</div>`}
+ </div>`;
+}
+
+function thumbs(cur) {
+ let h = '<div class="thumbs">';
+ for (let i = 1; i <= 4; i++) {
+  h += `<div class="th ${i === cur ? 'cur' : ''}">${'<i></i>'.repeat(9)}${i === 4 ? '<svg width="40" height="14" style="position:absolute;left:10px;bottom:16px"><use href="#sig"/></svg>' : ''}<b>${i}</b></div>`;
+ }
+ return h + '</div>';
+}
+
+function page(items) {
+ return `<div class="page">
+  <h1>RESIDENTIAL LEASE AGREEMENT</h1>
+  <p><b>12. Entire Agreement.</b> This Lease constitutes the entire agreement between Landlord and Tenant concerning the Premises and supersedes all prior negotiations, representations, or agreements, whether written or oral. This Lease may be amended only in a writing signed by both parties.</p>
+  <p><b>13. Notices.</b> Any notice required or permitted under this Lease shall be in writing and delivered personally or by certified mail to the addresses set forth below, or to such other address as either party may designate by written notice.</p>
+  <p><b>14. Governing Law.</b> This Lease shall be governed by and construed in accordance with the laws of the state in which the Premises are located, without regard to its conflict of law principles.</p>
+  <p>IN WITNESS WHEREOF, the parties have executed this Lease as of the date written below.</p>
+  <div style="height:56px"></div>
+  <div class="line"><div>Tenant signature</div><div style="flex:.55">Date</div></div>
+  <div style="height:44px"></div>
+  <div class="line"><div>Tenant printed name</div><div style="flex:.55">Unit</div></div>
+  <div style="height:52px"></div>
+  <div class="line"><div>Tenant mailing address</div></div>
+  <div style="height:48px"></div>
+  <div class="line"><div>Landlord signature</div><div style="flex:.55">Date</div></div>
+  ${items}
+ </div>`;
+}
+
+const placed = (selSig, editAddr) => `
+  <div class="item ${selSig ? 'sel' : ''}" style="left:80px;top:338px;width:230px;height:66px"><svg width="230" height="66"><use href="#sig"/></svg>${selSig ? '<div class="handle"></div>' : ''}</div>
+  <div class="item txt" style="left:384px;top:378px;font-size:15px">October 11, 2026</div>
+  <div class="item txt" style="left:80px;top:466px;font-size:15px">David Heinemeier Hansson</div>
+  <div class="item txt" style="left:384px;top:466px;font-size:15px">4B</div>
+  <div class="item txt ${editAddr ? 'sel' : ''}" style="left:80px;top:546px;font-size:14px;line-height:1.35">${editAddr ? '14 Harbor Street, Apt 4B\nCopenhagen<span class="caret"></span>' : ''}${editAddr ? '<div class="handle"></div>' : ''}</div>`;
+
+function status(left, right) {
+ return `<div class="status">${left}<div class="r">${right}<div class="help">?</div></div></div>`;
+}
+
+const sigMenu = `<div class="pop" style="left:auto;right:258px;top:58px;width:330px">
+  <div class="row hl"><div class="sig"><svg width="130" height="40"><use href="#sig"/></svg></div><div class="nm">David</div><div class="x">×</div></div>
+  <div class="row"><div class="sig"><svg width="56" height="40"><use href="#ini"/></svg></div><div class="nm">Initials</div></div>
+  <div class="divider"></div>
+  <div class="add">+ Add signature…</div>
+ </div>`;
+
+let html = '';
+if (view === 'main') {
+ html = topBar({dirty:true}) + `<div class="main">${thumbs(4)}<div class="view">${page(placed(true,false))}</div></div>`
+  + status('Page 4 of 4 · 5 items · <span class="acc">unsaved</span>', 'Signature “David” · drag the corner to scale');
+} else if (view === 'text') {
+ html = topBar({dirty:true}) + `<div class="main">${thumbs(4)}<div class="view">${page(placed(false,true))}</div></div>`
+  + status('Page 4 of 4 · 6 items · <span class="acc">unsaved</span>', 'Editing text · 14 pt · <span style="color:#7a7a80">Shift+Enter new line · Esc done</span>');
+} else if (view === 'menu') {
+ html = topBar({dirty:true, menu:true}) + `<div class="main">${thumbs(4)}<div class="view">${page(placed(false,false).split('<div class="item txt" style="left:384px;top:378px')[0])}</div></div>`
+  + status('Page 4 of 4 · 1 item · <span class="acc">unsaved</span>', '') + sigMenu;
+} else if (view === 'add') {
+ html = topBar({dirty:true, menu:true}) + `<div class="main">${thumbs(4)}<div class="view">${page('')}</div></div>`
+  + status('Page 4 of 4', '') + `<div class="scrim"></div>
+  <div class="dlg">
+   <h2>Add signature</h2>
+   <div class="sub">Use a scan or a well-lit photo of your signature on white paper.</div>
+   <div class="compare">
+    <div class="box photo"><span class="lbl">signature.jpg</span><svg width="250" height="76" style="transform:rotate(-2deg);opacity:.85"><use href="#sig"/></svg></div>
+    <div style="color:var(--muted);font-size:20px">→</div>
+    <div class="box clean"><span class="lbl">Background removed</span><svg width="250" height="76"><use href="#sig"/></svg></div>
+   </div>
+   <div class="field"><label>Paper threshold</label><div class="slider"><span style="color:var(--muted);font-size:12px">Less</span><div class="track"><div class="fill"></div><div class="knob"></div></div><span style="color:var(--muted);font-size:12px">More</span></div></div>
+   <div class="field"><label>Name</label><div class="input">David<span class="caret" style="background:#fff;margin-left:1px"></span></div></div>
+   <div class="actions"><div class="btn">Choose another image…</div><div style="flex:1"></div><div class="btn">Cancel</div><div class="btn primary">Save signature</div></div>
+  </div>`;
+} else if (view === 'empty') {
+ html = topBar({file:''}) + `<div class="main"><div class="empty">
+   <div class="icon">${ico.pdf}</div>
+   <h3>Open a PDF to sign</h3>
+   <div>or drop one on the window</div>
+   <div class="btn primary" style="margin-top:8px">Open PDF…<span class="k" style="color:#00000080">Ctrl+O</span></div>
+  </div></div>` + status('', '');
+} else if (view === 'keys') {
+ html = topBar({dirty:true}) + `<div class="main">${thumbs(4)}<div class="view">${page(placed(true,false))}</div></div>`
+  + status('Page 4 of 4 · 5 items', '') + `<div class="scrim"></div>
+  <div class="dlg" style="width:720px">
+   <h2 style="margin-bottom:18px">Hotkeys</h2>
+   <div class="keys">
+    <div class="kc">S</div><div>Place last signature</div><div class="kc">Ctrl+O</div><div>Open a PDF</div>
+    <div class="kc">Shift+S</div><div>Signature menu</div><div class="kc">Ctrl+S</div><div>Save signed copy</div>
+    <div class="kc">T</div><div>Place text</div><div class="kc">PgUp / PgDn</div><div>Previous / next page</div>
+    <div class="kc">D</div><div>Place today's date</div><div class="kc">Ctrl+= / − / 0</div><div>Zoom in / out / fit</div>
+    <div class="kc">Enter</div><div>Edit selected text</div><div class="kc">Ctrl+Z</div><div>Undo</div>
+    <div class="kc">Arrows</div><div>Nudge 1 pt (Shift: 10 pt)</div><div class="kc">Ctrl+Shift+Z</div><div>Redo</div>
+    <div class="kc">[ / ]</div><div>Smaller / larger</div><div class="kc">Esc</div><div>Deselect / stop editing</div>
+    <div class="kc">Ctrl+D</div><div>Duplicate</div><div class="kc">Q</div><div>Quit</div>
+    <div class="kc">Delete</div><div>Remove item</div><div class="kc">?</div><div>This list</div>
+   </div>
+  </div>`;
+}
+document.getElementById('app').innerHTML = html;
+</script>
+</body></html>
