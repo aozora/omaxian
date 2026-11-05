@@ -19,7 +19,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Corner radius from `hyprctl` | Unchanged; already gated on `HYPRLAND_INSTANCE_SIGNATURE` (square corners on i3) |
 | File chooser via xdg-desktop-portal | Same, with `xdg-desktop-portal-gtk` |
 | Theme accent from `colors.toml` | Unchanged (`~/.local/state/omarchy/current/theme/colors.toml`) |
-| Qt Multimedia from the system Qt | When `qml6-module-qtmultimedia` is not installed for the running Qt, `~/.local/bin/monologue` is a wrapper that adds `~/.local/lib/qt6/qml` to `QML_IMPORT_PATH`. The real binary is `~/.local/libexec/monologue` |
+| Qt Multimedia from the system Qt | When `qml6-module-qtmultimedia` is not installed for the running Qt, `~/.local/bin/monologue` is a wrapper. It adds `~/.local/lib` to `LD_LIBRARY_PATH`, `~/.local/lib/qt6/qml` to `QML_IMPORT_PATH`, and `~/.local/lib/qt6/plugins` to `QT_PLUGIN_PATH`. The real binary is `~/.local/libexec/monologue` |
 
 Camera capture (Qt Multimedia / FFmpeg / V4L2) and the microphone (PulseAudio
 or pipewire-pulse) are unchanged.

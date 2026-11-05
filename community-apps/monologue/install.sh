@@ -153,9 +153,13 @@ install_files() {
   if [[ -d $qml_extra/QtMultimedia && ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtMultimedia ]]; then
     mkdir -p "$PREFIX/libexec"
     install -m 0755 "$ROOT/build/monologue" "$PREFIX/libexec/monologue"
+    local lib_extra="$HOME/.local/lib"
+    local plugin_extra="$lib_extra/qt6/plugins"
     cat > "$BIN_DIR/monologue" <<EOF
 #!/bin/bash
+export LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}$lib_extra"
 export QML_IMPORT_PATH="\${QML_IMPORT_PATH:+\$QML_IMPORT_PATH:}$qml_extra"
+export QT_PLUGIN_PATH="\${QT_PLUGIN_PATH:+\$QT_PLUGIN_PATH:}$plugin_extra"
 exec "$PREFIX/libexec/monologue" "\$@"
 EOF
     chmod 0755 "$BIN_DIR/monologue"
