@@ -2,6 +2,7 @@
 
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -68,11 +69,35 @@ pub struct Core {
     open_fingerprint: Fingerprint,
     locked: Option<LockedDb>,
     busy: bool,
+    /// Bumped by every lock. An unlock captures it when it starts and its result is installed
+    /// only if it is unchanged, so a lock, close or suspend during an unlock always wins.
+    epoch: u64,
+    /// The epoch of the last lock that wiped quick unlock. A quick unlock that started before
+    /// it must not put its PIN key back.
+    wiped_at: u64,
     lock_reason: Option<LockReason>,
     last_activity: Instant,
     store: Store,
     searcher: Searcher,
     watcher: Option<watch::Watcher>,
+}
+
+/// A key derivation that runs longer than this is abandoned (its thread finishes on its own and
+/// the result is dropped). Legitimate derivations take a second or two; the header check in
+/// `vault` already refuses absurd parameters, so this is the backstop.
+const KDF_TIMEOUT: Duration = Duration::from_secs(120);
+const TOOK_TOO_LONG: &str = "Opening the database took too long and was abandoned";
+
+const MAX_QUERY_BYTES: usize = 256;
+const MAX_QUERY_ATOMS: usize = 16;
+
+/// Test hook: with `OMAKEEPICK_TEST_HOLD` set to a FIFO, an unlock blocks there until the test
+/// writes to it, so a lock can be sent while the unlock is in flight. Debug builds only.
+fn test_hold() {
+    #[cfg(debug_assertions)]
+    if let Some(fifo) = std::env::var_os("OMAKEEPICK_TEST_HOLD") {
+        let _ = std::fs::read(fifo);
+    }
 }
 
 fn unix_now() -> i64 {
@@ -135,19 +160,30 @@ impl Core {
         })
     }
 
-    /// Returns whether anything changed.
+    /// Returns whether anything changed. Cancelling an unlock that is still running counts: its
+    /// result would otherwise reopen the database after this lock.
     fn lock(&mut self, reason: LockReason) -> bool {
         self.watcher = None;
-        if let Some(open) = self.open.take() {
+        self.epoch += 1;
+        if reason.wipes_quick_unlock() {
+            self.wiped_at = self.epoch;
+        }
+        let interrupted = self.busy;
+        let changed = if let Some(open) = self.open.take() {
             let OpenDb { path, keyfile, quick, .. } = open;
             let quick = if reason.wipes_quick_unlock() { None } else { quick };
             self.locked = Some(LockedDb { path, keyfile, quick });
+            true
         } else if let Some(locked) = &mut self.locked {
-            if !reason.wipes_quick_unlock() || locked.quick.is_none() {
-                return false;
+            let wiped = reason.wipes_quick_unlock() && locked.quick.is_some();
+            if wiped {
+                locked.quick = None;
             }
-            locked.quick = None;
+            wiped
         } else {
+            false
+        };
+        if !changed && !interrupted {
             return false;
         }
         self.lock_reason = Some(reason);
@@ -156,6 +192,21 @@ impl Core {
 
     fn touch(&mut self) {
         self.last_activity = Instant::now();
+    }
+
+    /// Puts the PIN key a quick unlock took back, unless a lock since `epoch` wiped quick
+    /// unlock (suspend, close) or there is no locked database left to hold it.
+    fn restore_quick(&mut self, blob: QuickBlob, epoch: u64) -> bool {
+        if self.wiped_at > epoch {
+            return false;
+        }
+        match self.locked.as_mut() {
+            Some(locked) => {
+                locked.quick = Some(blob);
+                true
+            }
+            None => false,
+        }
     }
 }
 
@@ -240,6 +291,28 @@ pub struct Daemon {
     quit: Notify,
     clipboard: Clipboard,
     reload_tx: mpsc::UnboundedSender<()>,
+    /// Requests that hold secrets outside `core`: unlocks deriving a key, reloads, copies and
+    /// auto-type. `settle` waits for them, so suspend is not allowed while they run.
+    inflight: AtomicUsize,
+    settled: Notify,
+}
+
+/// Counts one request in `Daemon::inflight` while it exists.
+struct Inflight<'a>(&'a Daemon);
+
+impl<'a> Inflight<'a> {
+    fn new(daemon: &'a Daemon) -> Self {
+        daemon.inflight.fetch_add(1, Ordering::SeqCst);
+        Inflight(daemon)
+    }
+}
+
+impl Drop for Inflight<'_> {
+    fn drop(&mut self) {
+        if self.0.inflight.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.0.settled.notify_waiters();
+        }
+    }
 }
 
 impl Daemon {
@@ -253,6 +326,8 @@ impl Daemon {
                 open_fingerprint: None,
                 locked: None,
                 busy: false,
+                epoch: 0,
+                wiped_at: 0,
                 lock_reason: None,
                 last_activity: Instant::now(),
                 store: Store::load(state_dir),
@@ -264,6 +339,8 @@ impl Daemon {
             quit: Notify::new(),
             clipboard: Clipboard::default(),
             reload_tx,
+            inflight: AtomicUsize::new(0),
+            settled: Notify::new(),
         };
         (Arc::new(daemon), reload_rx)
     }
@@ -308,13 +385,46 @@ impl Daemon {
         self.quit.notified().await
     }
 
-    pub fn lock(self: &Arc<Self>, reason: LockReason) {
+    /// Locks right away. The clipboard clear runs in the background; `lock_and_settle` waits
+    /// for it.
+    pub fn lock(self: &Arc<Self>, reason: LockReason) -> Option<tokio::task::JoinHandle<()>> {
         let changed = self.core().lock(reason);
-        if changed {
-            eprintln!("omakeepickd: locked ({})", reason.as_str());
-            self.emit_state();
-            let daemon = self.clone();
-            tokio::spawn(async move { daemon.clipboard.clear_now().await });
+        if !changed {
+            return None;
+        }
+        eprintln!("omakeepickd: locked ({})", reason.as_str());
+        self.emit_state();
+        let daemon = self.clone();
+        Some(tokio::spawn(async move { daemon.clipboard.clear_now().await }))
+    }
+
+    /// Locks, then waits (at most `limit`) until the clipboard is cleared and no request still
+    /// holds secrets outside `core`. Used before suspend and on exit, where "locked" has to mean
+    /// that nothing decrypted is left in RAM or on the clipboard.
+    pub async fn lock_and_settle(self: &Arc<Self>, reason: LockReason, limit: Duration) {
+        let deadline = Instant::now() + limit;
+        let clear = self.lock(reason);
+        let settle = async {
+            if let Some(clear) = clear {
+                let _ = clear.await;
+            }
+            loop {
+                let waiting = self.settled.notified();
+                if self.inflight.load(Ordering::SeqCst) == 0 {
+                    return;
+                }
+                waiting.await;
+            }
+        };
+        if tokio::time::timeout_at(deadline.into(), settle).await.is_err() {
+            // Nothing more can be done: a key derivation cannot be interrupted, and logind
+            // sleeps once its delay limit is up. The request's result is still discarded.
+            eprintln!(
+                "omakeepickd: {} request(s) still held secrets {:.1}s after locking (raise \
+                 InhibitDelayMaxSec in logind.conf if your key derivation is slow)",
+                self.inflight.load(Ordering::SeqCst),
+                limit.as_secs_f64()
+            );
         }
     }
 
@@ -385,6 +495,11 @@ impl Daemon {
     }
 
     fn search(&self, a: SearchArgs) -> Reply {
+        // Scoring is linear in atoms × entries and runs on the one runtime thread.
+        if a.query.len() > MAX_QUERY_BYTES {
+            return Err(ApiError::bad_request("The query is too long"));
+        }
+        let query: String = a.query.split_whitespace().take(MAX_QUERY_ATOMS).collect::<Vec<_>>().join(" ");
         let mut guard = self.core();
         let core = &mut *guard;
         let Some(open) = &core.open else { return Err(ApiError::locked()) };
@@ -392,7 +507,7 @@ impl Daemon {
         let empty = Default::default();
         let usage = core.store.usage(&open.path).unwrap_or(&empty);
         let (hits, total) =
-            core.searcher.search(&open.index, &a.query, usage, limit, core.settings.recent_count, unix_now());
+            core.searcher.search(&open.index, &query, usage, limit, core.settings.recent_count, unix_now());
         let entries: Vec<Value> = hits
             .into_iter()
             .map(|i| {
@@ -416,20 +531,31 @@ impl Daemon {
         ok_with(json!({"entries": entries, "total": total}))
     }
 
-    fn begin_busy(&self) -> Result<(), ApiError> {
+    /// Marks an unlock as running and returns the epoch its result must be installed under.
+    fn begin_busy(&self) -> Result<u64, ApiError> {
         let mut core = self.core();
         if core.busy {
             return Err(ApiError::new("busy", "Already unlocking"));
         }
         core.busy = true;
+        let epoch = core.epoch;
         drop(core);
         self.emit_state();
-        Ok(())
+        Ok(epoch)
     }
 
-    /// Installs a freshly opened database.
-    fn install(self: &Arc<Self>, open: OpenDb) {
+    fn cancelled() -> ApiError {
+        ApiError::new("cancelled", "Locked before the unlock finished")
+    }
+
+    /// Installs a freshly opened database. If a lock arrived while it was being opened, the
+    /// database is handed back (rejected) instead and the state stays as the lock left it.
+    fn install(self: &Arc<Self>, open: OpenDb, epoch: u64) -> Option<OpenDb> {
         let mut core = self.core();
+        if core.epoch != epoch {
+            core.busy = false;
+            return Some(open);
+        }
         let path = open.path.clone();
         core.store.remember(&path, open.keyfile.as_deref());
         let live: std::collections::HashSet<String> = open.index.iter().map(|e| e.uuid.clone()).collect();
@@ -443,6 +569,7 @@ impl Daemon {
         core.lock_reason = None;
         core.busy = false;
         core.touch();
+        None
     }
 
     async fn unlock(self: &Arc<Self>, a: UnlockArgs) -> Reply {
@@ -455,10 +582,12 @@ impl Daemon {
         if let Some(pin) = &pin {
             quickunlock::validate_pin(pin).map_err(ApiError::bad_request)?;
         }
-        self.begin_busy()?;
+        let epoch = self.begin_busy()?;
+        let _inflight = Inflight::new(self);
         let password = a.password;
         let (p, k) = (path.clone(), keyfile.clone());
-        let result = tokio::task::spawn_blocking(move || -> Result<OpenDb, VaultError> {
+        let worker = tokio::task::spawn_blocking(move || -> Result<OpenDb, VaultError> {
+            test_hold();
             let keyfile_bytes = k.as_deref().map(vault::read_keyfile).transpose()?;
             let key = KeyMaterial::new(password, keyfile_bytes)?;
             let db = vault::open_database(&p, &key)?;
@@ -467,14 +596,21 @@ impl Daemon {
                 .transpose()
                 .map_err(VaultError::Io)?;
             Ok(OpenDb::new(p, k, key, quick, db))
-        })
-        .await
-        .unwrap_or_else(|e| Err(VaultError::Io(format!("Unlock task failed: {e}"))));
+        });
+        let result = match tokio::time::timeout(KDF_TIMEOUT, worker).await {
+            Ok(joined) => joined.unwrap_or_else(|e| Err(VaultError::Io(format!("Unlock task failed: {e}")))),
+            // The worker keeps running on its thread, but its result is never installed.
+            Err(_) => Err(VaultError::Io(TOOK_TOO_LONG.into())),
+        };
         match result {
             Ok(open) => {
-                eprintln!("omakeepickd: unlocked {} ({} entries)", path.display(), open.index.len());
-                self.install(open);
+                let count = open.index.len();
+                let rejected = self.install(open, epoch);
                 self.emit_state();
+                if rejected.is_some() {
+                    return Err(Self::cancelled());
+                }
+                eprintln!("omakeepickd: unlocked {} ({count} entries)", path.display());
                 ok()
             }
             Err(err) => {
@@ -486,7 +622,7 @@ impl Daemon {
     }
 
     async fn quick_unlock(self: &Arc<Self>, a: PinArgs) -> Reply {
-        let (path, keyfile, mut blob) = {
+        let (path, keyfile, mut blob, epoch) = {
             let mut core = self.core();
             if core.busy {
                 return Err(ApiError::new("busy", "Already unlocking"));
@@ -497,18 +633,27 @@ impl Daemon {
             let Some(blob) = locked.quick.take() else {
                 return Err(ApiError::new("no_quick_unlock", "Quick unlock is not available"));
             };
-            let taken = (locked.path.clone(), locked.keyfile.clone(), blob);
+            let taken = (locked.path.clone(), locked.keyfile.clone(), blob, core.epoch);
             core.busy = true;
             taken
         };
+        let _inflight = Inflight::new(self);
         self.emit_state();
         let p = path.clone();
-        let outcome = tokio::task::spawn_blocking(move || {
+        let worker = tokio::task::spawn_blocking(move || {
+            test_hold();
+            // Read first, check the PIN second: a read error is reported only for a right PIN,
+            // and a wrong one costs a try either way.
+            let data = vault::read_database(&p);
             let key = blob.open(&a.pin, p.as_os_str().as_bytes());
-            let opened = key.map(|key| vault::open_database(&p, &key).map(|db| (key, db)));
+            let opened =
+                key.map(|key| data.and_then(|data| vault::parse_database(&data, &key)).map(|db| (key, db)));
             (blob, opened)
-        })
-        .await;
+        });
+        let outcome = match tokio::time::timeout(KDF_TIMEOUT, worker).await {
+            Ok(joined) => joined.map_err(|e| e.to_string()),
+            Err(_) => Err(TOOK_TOO_LONG.into()),
+        };
         let (blob, opened) = match outcome {
             Ok(v) => v,
             Err(e) => {
@@ -520,14 +665,29 @@ impl Daemon {
         };
         match opened {
             Some(Ok((key, db))) => {
-                self.install(OpenDb::new(path, keyfile, key, Some(blob), db));
+                if let Some(rejected) = self.install(OpenDb::new(path, keyfile, key, Some(blob), db), epoch) {
+                    // A lock that keeps quick unlock (screen, idle, manual) gets the PIN key
+                    // back; sleep and close have wiped it.
+                    let OpenDb { quick, .. } = rejected;
+                    let mut core = self.core();
+                    if let Some(blob) = quick {
+                        core.restore_quick(blob, epoch);
+                    }
+                    drop(core);
+                    self.emit_state();
+                    return Err(Self::cancelled());
+                }
                 self.emit_state();
                 ok()
             }
             Some(Err(err)) => {
-                // Right PIN, but the file no longer opens with the stored key.
                 let mut core = self.core();
                 core.busy = false;
+                // A file that could not be read (mid-save, unmounted) keeps the PIN key, a file
+                // that no longer opens with the stored key does not.
+                if matches!(err, VaultError::Io(_) | VaultError::NotFound(_)) {
+                    core.restore_quick(blob, epoch);
+                }
                 drop(core);
                 self.emit_state();
                 Err(err.into())
@@ -536,12 +696,13 @@ impl Daemon {
                 let left = blob.attempts_left();
                 let mut core = self.core();
                 core.busy = false;
-                if left > 0 {
-                    if let Some(locked) = core.locked.as_mut() {
-                        locked.quick = Some(blob);
-                    }
-                } else {
+                if left == 0 {
                     core.lock_reason = Some(LockReason::Pin);
+                } else if !core.restore_quick(blob, epoch) {
+                    // Suspended or closed while the PIN was being checked: the key is gone.
+                    drop(core);
+                    self.emit_state();
+                    return Err(ApiError::new("no_quick_unlock", "Quick unlock is no longer available"));
                 }
                 drop(core);
                 self.emit_state();
@@ -558,7 +719,8 @@ impl Daemon {
         }
     }
 
-    fn prepare(&self, a: &ActArgs) -> Result<Prepared, ApiError> {
+    /// Resolves an action's secrets. Returns the epoch too: the caller stops if it changes.
+    fn prepare(&self, a: &ActArgs) -> Result<(Prepared, u64), ApiError> {
         let mut guard = self.core();
         let core = &mut *guard;
         let Some(open) = &core.open else { return Err(ApiError::locked()) };
@@ -600,11 +762,17 @@ impl Daemon {
         let path = open.path.clone();
         core.store.record_use(&path, &a.entry, unix_now());
         core.touch();
-        Ok(prepared)
+        Ok((prepared, core.epoch))
+    }
+
+    /// Whether no lock happened since `epoch`.
+    fn still(&self, epoch: u64) -> bool {
+        self.core().epoch == epoch
     }
 
     async fn act(self: &Arc<Self>, a: ActArgs) -> Reply {
-        let prepared = self.prepare(&a)?;
+        let (prepared, epoch) = self.prepare(&a)?;
+        let _inflight = Inflight::new(self);
         self.emit_state();
         let (settings, ttl) = {
             let core = self.core();
@@ -612,11 +780,17 @@ impl Daemon {
         };
         let tool_error = |e: String| match e.strip_prefix("tool_missing:") {
             Some(msg) => ApiError::new("tool_missing", msg),
+            None if e == autotype::CANCELLED => Self::cancelled(),
             None => ApiError::new("failed", e),
         };
         match prepared {
             Prepared::Copy { value, what } => {
                 let ticket = self.clipboard.copy(value.as_bytes()).await.map_err(tool_error)?;
+                if !self.still(epoch) {
+                    // Locked while the clipboard tool ran: the lock's own clear may have missed this value.
+                    self.clipboard.clear_if_unchanged(ticket, Duration::ZERO).await;
+                    return Err(Self::cancelled());
+                }
                 if ttl > 0 {
                     let daemon = self.clone();
                     tokio::spawn(async move {
@@ -628,8 +802,10 @@ impl Daemon {
             Prepared::Type { tokens } => {
                 tokio::time::sleep(Duration::from_millis(u64::from(settings.autotype_start_delay_ms))).await;
                 let delay = u64::from(settings.type_delay_ms);
-                // Pure X11: always type with xdotool (no Hyprland / XWayland branch).
-                autotype::run(&tokens, &mut Xdotool, delay).await.map_err(tool_error)?;
+                // Pure X11: always type with xdotool. A lock during the delay or
+                // mid-sequence stops the typing before the next field.
+                let keep_going = || self.still(epoch);
+                autotype::run(&tokens, &mut Xdotool, delay, keep_going).await.map_err(tool_error)?;
                 ok()
             }
         }
@@ -671,11 +847,12 @@ impl Daemon {
 
     /// Re-reads the database after it changed on disk (e.g. a Syncthing update).
     pub async fn reload(self: &Arc<Self>) {
-        let (path, key, previous) = {
+        let (path, key, previous, epoch) = {
             let core = self.core();
             let Some(open) = &core.open else { return };
-            (open.path.clone(), open.key.clone(), core.open_fingerprint)
+            (open.path.clone(), open.key.clone(), core.open_fingerprint, core.epoch)
         };
+        let _inflight = Inflight::new(self);
         let current = fingerprint(&path);
         if current.is_none() || current == previous {
             return;
@@ -687,12 +864,18 @@ impl Daemon {
                 tokio::time::sleep(Duration::from_millis(1500)).await;
             }
             let (p, k) = (path.clone(), key.clone());
-            let result = tokio::task::spawn_blocking(move || vault::open_database(&p, &k))
-                .await
-                .unwrap_or_else(|e| Err(VaultError::Io(e.to_string())));
+            let worker = tokio::task::spawn_blocking(move || vault::open_database(&p, &k));
+            let result = match tokio::time::timeout(KDF_TIMEOUT, worker).await {
+                Ok(joined) => joined.unwrap_or_else(|e| Err(VaultError::Io(e.to_string()))),
+                Err(_) => Err(VaultError::Io(TOOK_TOO_LONG.into())),
+            };
             match result {
                 Ok(db) => {
                     let mut core = self.core();
+                    // Locked meanwhile: this copy is stale even if the same file was unlocked again.
+                    if core.epoch != epoch {
+                        return;
+                    }
                     let Some(open) = core.open.as_mut().filter(|o| o.path == path) else { return };
                     open.replace_database(db);
                     let count = open.index.len();
@@ -707,8 +890,12 @@ impl Daemon {
         }
         if let Some(e) = last_error {
             eprintln!("omakeepickd: reload failed: {e}");
+            if !self.still(epoch) {
+                return;
+            }
             self.core().open_fingerprint = current;
-            self.notice("warning", &format!("The database changed on disk but could not be reloaded: {e}"));
+            // The parser's message can quote text from a malformed file; keep it to the log.
+            self.notice("warning", "The database changed on disk but could not be reloaded");
         }
     }
 }

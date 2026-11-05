@@ -81,12 +81,16 @@ if ! build; then
 fi
 
 got="$("$work/omakeepickd" --version | cut -d' ' -f2)"
-[[ $got == "$version" ]] || say "warning: installed omakeepickd $got for plugin version $version"
-
-# Stop a running daemon so the new X11 binary is picked up on next attach
-# (same version string as the Wayland prebuild would otherwise leave it running).
-if [[ -x $target ]]; then
-  "$target" ctl quit >/dev/null 2>&1 || true
+if [[ $got != "$version" ]]; then
+  # The plugin would see a version mismatch and run this installer again on every start.
+  say "built omakeepickd reports version $got, but the plugin is $version; not installing it"
+  exit 1
 fi
-mv -f "$work/omakeepickd" "$target"
+
+# Into place first, atomically, then stop any daemon still running the previous
+# binary. Same-version rebuilds must quit too: this port never swaps in the
+# upstream Wayland prebuild, so a matching version string can still be old code.
+install -m 0755 "$work/omakeepickd" "$target.new"
+mv -f "$target.new" "$target"
+"$target" ctl quit >/dev/null 2>&1 || true
 say "installed omakeepickd $got (built)"

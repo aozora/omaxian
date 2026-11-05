@@ -11,8 +11,8 @@ use std::fs::File;
 use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 use gtk::glib;
@@ -26,7 +26,7 @@ use crate::audio::{CHANNELS, RATE};
 pub const WHISPER_RATE: usize = 16_000;
 
 /// (code, label) in the order of the dropdown. "auto" lets whisper detect it.
-pub const LANGUAGES: [(&str, &str); 8] = [
+const BUILT_IN_LANGUAGES: [(&str, &str); 8] = [
     ("auto", "Auto-detect"),
     ("en", "English"),
     ("nl", "Dutch"),
@@ -36,6 +36,73 @@ pub const LANGUAGES: [(&str, &str); 8] = [
     ("it", "Italian"),
     ("pt", "Portuguese"),
 ];
+
+/// The dropdown's languages: the built-in ones, then the ones added with
+/// `languages = ["th", "ja"]` in config.toml. Read once, when the app starts.
+pub static LANGUAGES: LazyLock<Vec<(&'static str, String)>> = LazyLock::new(|| {
+    let text = std::fs::read_to_string(crate::models::config_file()).unwrap_or_default();
+    with_configured_languages(&text)
+});
+
+fn with_configured_languages(config: &str) -> Vec<(&'static str, String)> {
+    let mut languages: Vec<(&'static str, String)> = BUILT_IN_LANGUAGES
+        .iter()
+        .map(|(code, label)| (*code, (*label).to_owned()))
+        .collect();
+    for name in configured_languages(config) {
+        // whisper knows a language by its code or its English name; the code
+        // is what is stored, so "Thai" and "th" end up the same.
+        let Some(code) =
+            whisper_rs::get_lang_id(&name.to_lowercase()).and_then(whisper_rs::get_lang_str)
+        else {
+            eprintln!("{APP_NAME}: unknown language {name:?} in config.toml, skipped");
+            continue;
+        };
+        if !languages.iter().any(|(c, _)| *c == code) {
+            languages.push((code, whisper_label(code).unwrap_or_else(|| code.to_owned())));
+        }
+    }
+    languages
+}
+
+/// The `languages` array of a config file, on one line or spread over
+/// several. A line format like the rest of config.toml, not a TOML parser.
+fn configured_languages(config: &str) -> Vec<String> {
+    let mut lines = config.lines();
+    let Some(mut value) = lines.find_map(|line| {
+        let (key, value) = line.split_once('=')?;
+        (key.trim() == "languages").then(|| uncomment(value).to_owned())
+    }) else {
+        return Vec::new();
+    };
+    if value.trim_start().starts_with('[') {
+        for line in lines {
+            if value.contains(']') {
+                break;
+            }
+            value.push(',');
+            value.push_str(uncomment(line));
+        }
+    }
+    value
+        .split(['[', ']', ','])
+        .map(|name| name.trim().trim_matches(|c| c == '"' || c == '\'').trim())
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn uncomment(line: &str) -> &str {
+    line.split('#').next().unwrap_or("")
+}
+
+/// whisper's English name of a language, capitalized: "th" is "Thai".
+fn whisper_label(code: &str) -> Option<String> {
+    let full = whisper_rs::get_lang_id(code).and_then(whisper_rs::get_lang_str_full)?;
+    let mut chars = full.chars();
+    let first = chars.next()?;
+    Some(first.to_uppercase().collect::<String>() + chars.as_str())
+}
 
 /// What the transcription reports while it runs.
 #[derive(Debug, Clone)]
@@ -494,12 +561,13 @@ pub fn models_dir() -> PathBuf {
 }
 
 /// Downloads `url` to `target` through a `.part` file, reporting progress as
-/// "`label` 42%". Refuses a result smaller than `min_bytes`.
+/// "`label` 42%". The file is a model that native code is about to parse, so
+/// it only takes the place of `target` when its SHA-256 is `sha256`.
 pub fn download(
     url: &str,
     target: &Path,
     label: &str,
-    min_bytes: u64,
+    sha256: &str,
     events: &Events,
     abort: &Abort,
 ) -> Result<(), String> {
@@ -517,6 +585,7 @@ pub fn download(
     let mut reader = response.into_body().into_reader();
     let mut file = BufWriter::new(File::create(&part).map_err(|e| e.to_string())?);
     let mut buf = vec![0u8; 1 << 16];
+    let mut hash = ring::digest::Context::new(&ring::digest::SHA256);
     let (mut done, mut last_pct) = (0u64, u64::MAX);
     loop {
         if abort.load(Ordering::Relaxed) {
@@ -531,6 +600,7 @@ pub fn download(
             break;
         }
         file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        hash.update(&buf[..n]);
         done += n as u64;
         if let Some(total) = total.filter(|t| *t > 0) {
             let pct = done * 100 / total;
@@ -543,11 +613,21 @@ pub fn download(
     }
     file.flush().map_err(|e| e.to_string())?;
     drop(file);
-    if total.is_some_and(|t| t != done) || done < min_bytes {
+    if total.is_some_and(|t| t != done) {
         let _ = std::fs::remove_file(&part);
         return Err(format!("the download of {url} was incomplete"));
     }
+    if hex(hash.finish().as_ref()) != sha256 {
+        let _ = std::fs::remove_file(&part);
+        return Err(format!(
+            "the download of {url} is not the file the app expects (its SHA-256 differs)"
+        ));
+    }
     std::fs::rename(&part, target).map_err(|e| e.to_string())
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -1353,18 +1433,8 @@ fn language_name(code: &str) -> String {
     LANGUAGES
         .iter()
         .find(|(c, _)| *c == code)
-        .map(|(_, label)| (*label).to_owned())
-        .or_else(|| {
-            whisper_rs::get_lang_id(code)
-                .and_then(whisper_rs::get_lang_str_full)
-                .map(|full| {
-                    let mut chars = full.chars();
-                    chars
-                        .next()
-                        .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
-                        .unwrap_or_default()
-                })
-        })
+        .map(|(_, label)| label.clone())
+        .or_else(|| whisper_label(code))
         .unwrap_or_else(|| code.to_owned())
 }
 
@@ -1535,6 +1605,32 @@ mod tests {
             .iter()
             .flat_map(|level| (0..FRAME).map(move |i| if i % 2 == 0 { *level } else { -*level }))
             .collect()
+    }
+
+    #[test]
+    fn languages_from_the_config_file_follow_the_built_in_ones() {
+        let config =
+            "model = \"small\"\nlanguages = [\"th\", \"Japanese\", \"en\", \"xx\"] # more\n";
+        let languages = with_configured_languages(config);
+        let added: Vec<(&str, &str)> = languages[BUILT_IN_LANGUAGES.len()..]
+            .iter()
+            .map(|(code, label)| (*code, label.as_str()))
+            .collect();
+        assert_eq!(added, [("th", "Thai"), ("ja", "Japanese")]);
+    }
+
+    #[test]
+    fn a_languages_array_can_span_lines() {
+        let config = "languages = [\n  \"th\",  # Thai\n  'ko',\n]\n\n[[action]]\nname = \"x\"\n";
+        assert_eq!(configured_languages(config), ["th", "ko"]);
+    }
+
+    #[test]
+    fn no_languages_in_the_config_file_is_the_built_in_list() {
+        assert_eq!(
+            with_configured_languages("").len(),
+            BUILT_IN_LANGUAGES.len()
+        );
     }
 
     #[test]
