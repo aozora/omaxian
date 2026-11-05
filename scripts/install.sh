@@ -44,7 +44,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Upstream Omarchy is not vendored — it is cloned into omarchy-quattro/ (pinned).
 # Override either with an env var: OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=…
 UPSTREAM_URL="${OMARCHY_UPSTREAM_URL:-https://github.com/omacom/omarchy.git}"
-UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.5.0-rc3}"
+UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.5.0}"
 
 omaxian_banner
 omaxian_msg "install  $(id -un)  $TARGET_HOME"

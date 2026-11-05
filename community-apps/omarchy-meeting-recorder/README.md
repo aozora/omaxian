@@ -5,7 +5,7 @@ and computer audio as two tracks, transcribes locally with whisper.cpp, and
 optionally shows a live waveform on the bar.
 
 Port of [jankeesvw/omarchy-meeting-recorder](https://github.com/jankeesvw/omarchy-meeting-recorder)
-(upstream `v1.8.0`, commit pinned in `.omaxian-upstream-commit`). Full upstream
+(upstream `v1.8.0` plus later `main` commits; commit pinned in `.omaxian-upstream-commit`). Full upstream
 docs: [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell community plugin. It lives under

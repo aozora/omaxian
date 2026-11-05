@@ -42,7 +42,7 @@ async fn field_values_reach_xdotool_on_stdin_only() {
     assert!(autotype::parse("{USERNAME}{TAB}+{PASSWORD}", &entry).is_err());
 
     let tokens = autotype::parse("^a{USERNAME}{TAB}{PASSWORD}{TAB}{TOTP}{ENTER}", &entry).unwrap();
-    autotype::run(&tokens, &mut Xdotool, 0).await.unwrap();
+    autotype::run(&tokens, &mut Xdotool, 0, || true).await.unwrap();
 
     // Only flags, key names, delays/repeats, and the chord's own literal `a`.
     let args = fs::read_to_string(log.join("args")).unwrap();

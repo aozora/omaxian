@@ -70,6 +70,7 @@
   "setup.settings": {"icon": "", "label": "Settings", "aliases": ["preferences", "config"], "action": "omarchy-shell shell toggle omaxian.settings"},
   "setup.monitors": {"icon": "󰍹", "label": "Monitors", "action": "omarchy-shell shell toggle omaxian.monitor"},
   "setup.keybindings": {"icon": "", "label": "Keybindings", "when": "[[ -f ~/.config/i3/config.d/02_keybindings.conf ]]", "action": "omarchy-launch-config-editor \"$HOME/.config/i3/config.d/02_keybindings.conf\""},
+  "setup.language": {"icon": "", "label": "Language", "provider": "languages"},
   "setup.network": {"icon": "󰛳", "label": "Network", "aliases": ["network"]},
   "setup.network.dns": {"icon": "󰇖", "label": "DNS", "aliases": ["dns"]},
   "setup.network.dns.dhcp": {"icon": "󰩟", "label": "DHCP", "checked": "[[ \"$(omarchy-dns)\" == \"DHCP\" ]]", "action": "omarchy-dns DHCP"},

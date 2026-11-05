@@ -179,7 +179,17 @@ The command-line `transcribe` and `transcribe-file` take `--model` instead. When
 
 <p align="center"><img src="screenshots/model-banner.webp" alt="The banner: The speech model (tiny, 75 MB) is needed to transcribe, with Download" width="600"></p>
 
-The app looks for `ggml-<model>.bin`, for instance `ggml-large-v3-turbo.bin`, in `~/.local/share/omarchy-meeting-recorder/models/`. If you use [voxtype](https://voxtype.io) and it already downloaded that model to `~/.local/share/voxtype/models/`, that copy is used. Otherwise it is downloaded (about 1.6 GB for `large-v3-turbo`) from [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp). Finding speakers downloads the speaker model on first use (about 120 MB) to `nemotron-3-diarization/` in the same directory: the int8 ONNX export of Nemotron 3 Diarization from the [Hugging Face ONNX community](https://huggingface.co/onnx-community/Nemotron-3-Diarization-ONNX), pinned to one revision. The model is NVIDIA's, under the [OpenMDW license](https://huggingface.co/nvidia/Nemotron-3-Diarization). ONNX Runtime is compiled into the binary, so nothing else is needed at runtime.
+The app looks for `ggml-<model>.bin`, for instance `ggml-large-v3-turbo.bin`, in `~/.local/share/omarchy-meeting-recorder/models/`. If you use [voxtype](https://voxtype.io) and it already downloaded that model to `~/.local/share/voxtype/models/`, that copy is used. Otherwise it is downloaded (about 1.6 GB for `large-v3-turbo`) from [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp), pinned to one revision. Finding speakers downloads the speaker model on first use (about 120 MB) to `nemotron-3-diarization/` in the same directory: the int8 ONNX export of Nemotron 3 Diarization from the [Hugging Face ONNX community](https://huggingface.co/onnx-community/Nemotron-3-Diarization-ONNX), pinned to one revision. The model is NVIDIA's, under the [OpenMDW license](https://huggingface.co/nvidia/Nemotron-3-Diarization). Both downloads are only kept when their SHA-256 matches the one the app ships with. ONNX Runtime is compiled into the binary, so nothing else is needed at runtime.
+
+### Languages
+
+The Language dropdowns offer Auto-detect, English, Dutch, German, French, Spanish, Italian and Portuguese. Whisper knows many more; add the ones you need in `~/.config/omarchy-meeting-recorder/config.toml`, by code or by English name:
+
+```toml
+languages = ["th", "ja", "Korean"]
+```
+
+They are added after the built-in ones, named the way whisper names them (Thai, Japanese, Korean), and picked up the next time the app starts. A name whisper does not know is skipped. The `.en` models only transcribe English, so use a multilingual model, like the default `large-v3-turbo`, for other languages.
 
 ## Actions
 
@@ -291,7 +301,7 @@ omarchy-meeting-recorder transcribe mic.ogg computer.ogg --language en > transcr
 omarchy-meeting-recorder transcribe-file interview.mp3 --speakers 2 > transcript.md
 ```
 
-Any format ffmpeg can read works. `--language` takes `auto` (the default), `en`, `nl`, `de`, `fr`, `es`, `it` or `pt`.
+Any format ffmpeg can read works. `--language` takes `auto` (the default) or any language code whisper knows, such as `en`, `nl` or `th`.
 
 ## The screenshots
 

@@ -87,18 +87,29 @@ A `state` event is sent right after a client connects and after every state chan
 |---|---|---|---|
 | `status` | — | `{"state": {…}}` | — |
 | `configure` | `settings: {…}` (see below, all optional) | `{}` | `bad_request` |
-| `unlock` | `db` (path), `keyfile` (path or null), `password` (string, may be empty if a key file is given), `pin` (string or null) | `{}` | `busy`, `not_found`, `bad_credentials`, `keyfile_error`, `format_error`, `bad_request` |
-| `quickUnlock` | `pin` | `{}` | `no_quick_unlock`, `bad_pin` (+ `attemptsLeft`), `busy` |
+| `unlock` | `db` (path), `keyfile` (path or null), `password` (string, may be empty if a key file is given), `pin` (string or null) | `{}` | `busy`, `not_found`, `bad_credentials`, `keyfile_error`, `format_error`, `bad_request`, `cancelled` |
+| `quickUnlock` | `pin` | `{}` | `no_quick_unlock`, `bad_pin` (+ `attemptsLeft`), `busy`, `cancelled` |
 | `lock` | `reason` (optional, `manual` default; `screen` from the lock-screen watcher) | `{}` | — |
 | `close` | — | `{}` | — |
-| `search` | `query` (string), `limit` (int, default 50) | `{"entries": [Entry…], "total": n}` | `locked` |
-| `act` | `entry` (entry id), `action` (see below) | `{}`; copy actions: `{"clearsIn": seconds, "copied": "password"}` | `locked`, `not_found`, `no_field`, `autotype_disabled`, `tool_missing`, `failed` |
+| `search` | `query` (string, at most 256 bytes; only the first 16 words count), `limit` (int, default 50, at most 500) | `{"entries": [Entry…], "total": n}` | `locked`, `bad_request` |
+| `act` | `entry` (entry id), `action` (see below) | `{}`; copy actions: `{"clearsIn": seconds, "copied": "password"}` | `locked`, `not_found`, `no_field`, `autotype_disabled`, `tool_missing`, `failed`, `cancelled` |
 | `pickFile` | `kind`: `db` or `keyfile` | `{"path": "/abs/path", "keyfile": "/abs/path" \| null}` (for `db`: the key file last used with that database) | `cancelled`, `failed` |
 | `touch` | — | `{}` | — |
 | `quit` | — | `{}` (the daemon locks, wipes and exits) | — |
 
 `search` with an empty query returns the most recently / frequently used entries
 (at most `recentCount` of them, possibly none).
+
+A lock always wins over an unlock that is still running. If `lock`, `close` or an automatic
+lock (idle, screen lock, suspend) arrives while an `unlock` or `quickUnlock` is in progress, the
+unlock's result is discarded when it completes and the request fails with `cancelled`; the
+state stays as the lock left it. A quick unlock cancelled by a lock that keeps the PIN (manual,
+idle, screen) keeps it; one cancelled by suspend or `close` loses it, whether the PIN was right
+(`cancelled`) or wrong (`no_quick_unlock`). The same holds for `act`: auto-type stops before
+the next token once a lock happened, and a copy that lands on the clipboard after a lock is
+cleared again; both fail with `cancelled`. A reload that was reading the file is discarded.
+Before suspend the daemon waits for such requests to end before letting the system sleep, for as
+long as logind's `InhibitDelayMaxSec` allows; on exit, for up to 2 s.
 
 ### Entry (search result)
 

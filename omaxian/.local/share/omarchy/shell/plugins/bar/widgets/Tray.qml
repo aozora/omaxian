@@ -792,12 +792,19 @@ BarWidget {
       layer.enabled: trayIconRoot.symbolic
     }
 
-    MultiEffect {
+    // Paint the foreground through the icon's alpha. MultiEffect's colorization
+    // keeps the source's lightness, so a dark fill stayed dark on a dark bar.
+    Rectangle {
       anchors.fill: trayIconImage
-      source: trayIconImage
+      color: root.foreground
       visible: trayIconRoot.symbolic
-      colorization: 1.0
-      colorizationColor: root.foreground
+      layer.enabled: trayIconRoot.symbolic
+      layer.effect: MultiEffect {
+        maskEnabled: true
+        maskSource: trayIconImage
+        maskThresholdMin: 0.5
+        maskSpreadAtMin: 1.0
+      }
     }
   }
 

@@ -4,6 +4,7 @@
 //! "delay" inhibitor, so nothing decrypted is left in RAM (or in the hibernation image).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::StreamExt;
 use zbus::{Connection, OwnedFd, OwnedObjectPath, proxy};
@@ -38,6 +39,23 @@ trait Manager {
     fn get_session(&self, session_id: &str) -> zbus::Result<OwnedObjectPath>;
     #[zbus(signal)]
     fn prepare_for_sleep(&self, start: bool) -> zbus::Result<()>;
+    /// How long logind lets "delay" inhibitors hold up a sleep (`InhibitDelayMaxSec`).
+    #[zbus(property, name = "InhibitDelayMaxUSec")]
+    fn inhibit_delay_max_usec(&self) -> zbus::Result<u64>;
+}
+
+/// How long to wait for in-flight work before releasing the inhibitor: all the time logind
+/// gives us, minus a margin for the release itself. logind sleeps anyway once that is up.
+async fn settle_limit(manager: &ManagerProxy<'_>) -> Duration {
+    match manager.inhibit_delay_max_usec().await {
+        Ok(usec) => Duration::from_micros(usec)
+            .saturating_sub(Duration::from_millis(500))
+            .clamp(Duration::from_secs(1), Duration::from_secs(60)),
+        Err(e) => {
+            eprintln!("omakeepickd: cannot read InhibitDelayMaxUSec, assuming 5s: {e}");
+            Duration::from_millis(4500)
+        }
+    }
 }
 
 #[proxy(interface = "org.freedesktop.login1.Session", default_service = "org.freedesktop.login1")]
@@ -92,7 +110,11 @@ async fn watch_logind(daemon: Arc<Daemon>) -> zbus::Result<()> {
     while let Some(signal) = sleeps.next().await {
         let Ok(args) = signal.args() else { continue };
         if args.start {
-            daemon.lock(LockReason::Sleep);
+            // The database is wiped at once; then wait for the clipboard clear and for any
+            // unlock, reload or action still holding secrets, so they finish (and are
+            // discarded) before the inhibitor is released. A key derivation cannot be
+            // interrupted, so this uses all the time logind allows.
+            daemon.lock_and_settle(LockReason::Sleep, settle_limit(&manager).await).await;
             // Releasing the inhibitor lets the system go to sleep.
             inhibitor = None;
         } else if inhibitor.is_none() {

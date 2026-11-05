@@ -24,7 +24,7 @@ source "$SCRIPT_DIR/lib/ui.sh"
 # Upstream Omarchy is cloned into omarchy-quattro/ (pinned), not vendored.
 # Override with: OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=…
 UPSTREAM_URL="${OMARCHY_UPSTREAM_URL:-https://github.com/omacom/omarchy.git}"
-UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.5.0-rc3}"
+UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.5.0}"
 
 WITH_RECOMMENDED=1
 WITH_OPTIONAL=0

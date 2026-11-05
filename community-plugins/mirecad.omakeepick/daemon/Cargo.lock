@@ -54,6 +54,7 @@ dependencies = [
  "blake2",
  "cpufeatures 0.3.1",
  "password-hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -207,6 +208,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures 0.3.1",
+ "zeroize",
 ]
 
 [[package]]
@@ -219,6 +221,7 @@ dependencies = [
  "chacha20",
  "cipher",
  "poly1305",
+ "zeroize",
 ]
 
 [[package]]
@@ -757,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "omakeepickd"
-version = "0.1.2"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "argon2",
