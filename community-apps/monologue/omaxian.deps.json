@@ -1,0 +1,30 @@
+{
+  "apt": [
+    "ffmpeg",
+    "libpulse0",
+    "libqt6multimedia6",
+    "qml6-module-qtmultimedia",
+    "qml6-module-qtquick",
+    "qml6-module-qtquick-controls",
+    "qml6-module-qtquick-layouts",
+    "qml6-module-qtquick-shapes",
+    "qt6-qpa-plugins",
+    "xdg-desktop-portal",
+    "xdg-desktop-portal-gtk"
+  ],
+  "apt_build": [
+    "build-essential",
+    "pkg-config",
+    "qmake6",
+    "qt6-base-dev",
+    "qt6-declarative-dev",
+    "qt6-multimedia-dev",
+    "libpulse-dev"
+  ],
+  "manual": [
+    "Build with community-apps/monologue/install.sh. Stock Devuan Excalibur Qt 6.8 satisfies upstream's Qt ≥ 6.8 requirement.",
+    "Camera capture uses Qt Multimedia's FFmpeg backend against V4L2 (/dev/video*). A PulseAudio-compatible server (PulseAudio or pipewire-pulse) supplies the microphone.",
+    "The save dialog needs the GTK xdg-desktop-portal backend, which install.sh pulls in.",
+    "Hyprland corner rounding is skipped when HYPRLAND_INSTANCE_SIGNATURE is unset, so corners stay square on i3."
+  ]
+}

@@ -1,0 +1,13 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="PageView.qml">PageView.qml</file>
+        <file alias="PlacedItem.qml">PlacedItem.qml</file>
+        <file alias="SignatureMenu.qml">SignatureMenu.qml</file>
+        <file alias="AddSignature.qml">AddSignature.qml</file>
+        <file alias="BarButton.qml">BarButton.qml</file>
+        <file alias="Confirm.qml">Confirm.qml</file>
+        <file alias="skill.md">skill.md</file>
+        <file alias="items.md">items.md</file>
+    </qresource>
+</RCC>

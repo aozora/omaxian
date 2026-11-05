@@ -452,6 +452,9 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | App | What it does |
 | --- | ------------ |
 | [Meeting Recorder](community-apps/omarchy-meeting-recorder/) | Mic + computer audio as two tracks, local whisper transcription, optional bar waveform |
+| [Monologue](community-apps/monologue/) | Webcam recorder: one key to record, then trim and save |
+| [Signed](community-apps/signed/) | Sign a PDF and place text or dates on a copy |
+| [disktree](community-apps/disktree/) | Disk treemap: see what fills a volume, then remove it |
 
 Details: [`community-apps/README.md`](community-apps/README.md).
 
