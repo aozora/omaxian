@@ -149,13 +149,40 @@ note: [v4_0_4.md](v4_0_4.md).
 | `bin/omarchy-install-gaming-xbox-controllers` | small update | **not ported** (Arch gaming) | — | — | Sole `bin/` difference in the tag range. |
 | `install/hardware/*`, Limine, kernel migrations / tests | Arch ISO path | **not ported** | — | — | |
 
+## 4.5.0 (2026-11-05)
+
+Upstream tag **v4.5.0** (`OMARCHY_UPSTREAM_REF`, SHA `ac2690c…`). Quirk:
+`omarchy-quattro/version` still reads `4.0.0.alpha` — trust the git tag /
+`describe`. Stable 4.5 over rc3: 102 commits. GitHub compare lists only 300
+files, so the shell diff is from a local rc3 snapshot. Impact note:
+[v4_5_0.md](v4_5_0.md). Branch: `port/omarchy-v4.5.0`.
+
+| File | Upstream | omaxian | Transform | Status | Notes |
+|---|---|---|---|---|---|
+| `Ui/{Button,Dropdown,MultiSelect,OpticalGlyph,PanelSlider,SearchableDropdown}.qml` | slider end, dropdown second-click, button measure, glyph centering | **remirrored** (were byte-identical to rc3) | — | **converged** | |
+| `plugins/agents/collectors.py` | Codex `.jsonl.zst` rollouts | **remirrored** | — | **converged** | Uses `compression.zstd` when the interpreter has it. |
+| `plugins/bar/Bar.qml` | tooltip hidden until surface scale matches the bar | **merged** onto T1/T3 bar | `T1`/`T3` | **keep** | |
+| `plugins/bar/widgets/Tray.qml` | symbolic icons painted through alpha, not MultiEffect colorization | **merged** | — | **keep** | Port still uses `anchors.centerIn` for icon placement. |
+| `plugins/emojis/Emojis.qml` | no-match column width + elide | **merged** | `T1` | **keep** | |
+| `services/PluginRegistry.qml` | skip `__pycache__` reload loops | **already kept** — port skips any path containing `__pycache__` | `local` | **keep** | Deploy freeze unchanged. |
+| `plugins/services/nightlight/Service.qml` + `bin/omarchy-toggle-nightlight` | hyprsunset identity matrix when off | **skipped** | `local` | **keep** | Port already resets with `redshift -x` at day temperature. |
+| `bin/omarchy-agent-account-{add,rename,state}` | refuse bare `--reauth`; rename hint includes provider; dangling shared symlink | **remirrored** (were identical to rc3) | — | **converged** | |
+| `bin/omarchy-battery-status` | ignore unreadable sysfs rate | **merged** `read_sysfs_number` | `local` | **keep** | Port still uses BAT-only UPower match and English status lines. Upstream “100% on AC while discharging” line has no counterpart here. |
+| `bin/omarchy-system-stats` | `LC_ALL=C top`, comma → space | **remirrored** | — | **converged** | |
+| `bin/omarchy-notification-send` | `--transient` hint | **merged** onto dunst sender (no `--action` buttons) | `local` | **keep** | |
+| `bin/omarchy-capture-screenrecording` | stay quiet when stop finds no file | **already quiet** | `local` | **keep** | X11 Flatpak recorder rewrite. |
+| background, clipboard, lock, notifications, dropbox, media, keyboard-layout model | quattro backports | **not ported** | — | — | Same deferrals as rc2. |
+| i18n `cli.json` / `menu.json`, themes, `default/` | translations + templates | **install.sh** | — | — | Port menu/agents overlays still win. |
+
+---
+
 ## 4.5.0-rc3 (2026-11-02)
 
-Upstream tag **v4.5.0-rc3** (`OMARCHY_UPSTREAM_REF`, SHA `8d19ad7…`). Quirk:
+Upstream tag **v4.5.0-rc3** (was pin; SHA `8d19ad7…`). Quirk:
 `omarchy-quattro/version` still reads `4.0.0.alpha` — trust the git tag /
 `describe`. Small RC over rc2 (28 commits): DST-safe clock tick, PluginRegistry
 multi-kind enable fix, Arch update/sudo/sshd, Hyprland fullscreen bar mask.
-Impact note: [v4_5_0_rc3.md](v4_5_0_rc3.md). Branch: `port/omarchy-v4.5.0-rc3`.
+Impact note: [v4_5_0_rc3.md](v4_5_0_rc3.md). Branch: `port/omarchy-v4.5.0-rc3`. Pin moved to **v4.5.0**.
 
 | File | Upstream | omaxian | Transform | Status | Notes |
 |---|---|---|---|---|---|

@@ -5,7 +5,7 @@ import "Toml.js" as Toml
 
 // ~/.config/omastorm/config.toml (docs/protocol.md, configuration):
 // deliberate preferences — an explicit map centre, a locked radar, the
-// treatment, the weak-return floor, focus mode, `[metar]` (show, pick, count,
+// treatment, the weak-return floor, focus mode, the popover scale, `[metar]` (show, pick, count,
 // always_on_when_in_view, mark), and the `[keys]` table. Watched like
 // the theme files, so an edit applies to the running window. OMASTORM_CONFIG
 // names another file for checks and captures; a missing file is no config.
@@ -34,6 +34,8 @@ QtObject {
     readonly property var weakFloor: values.weak_floor
     // The raw value; the window judges it: true, false, or unset.
     readonly property var focusMode: values.focus_mode
+    // The raw value; PluginSession judges it with Keys.popoverScale.
+    readonly property var popoverScale: values.popover_scale
     // The `[keys]` table as action id -> value, for Keys.resolve.
     readonly property var keys: {
         var table = {};
@@ -43,6 +45,40 @@ QtObject {
     // { name, lat, lon } from weather.json, or null when the file is
     // missing, unreadable, or has no coordinates.
     property var location: null
+    // The live fix from gpsd while `gpsd = true` and a receiver has one
+    // (DESIGN.md, gpsd follow as built), or null. gpspipe -w relays gpsd's
+    // JSON stream; a TPV with a 2D-or-better fix is a position, mode 1 is
+    // a receiver with none. The relay exits when gpsd is not answering or
+    // gpspipe is not installed, and comes back every five seconds until it
+    // is, or until the key is off. The shell wrapper turns a missing
+    // gpspipe into exit 127, so a later install is picked up without a
+    // relaunch and the log names it once instead of on every retry.
+    readonly property bool gpsd: values.gpsd === true
+    property var fix: null
+    property bool gpspipeMissing: false
+    property Process gps: Process {
+        command: ["sh", "-c", "command -v gpspipe >/dev/null 2>&1 || exit 127; exec gpspipe -w"]
+        stdout: SplitParser {
+            onRead: line => {
+                try {
+                    var msg = JSON.parse(line);
+                    if (msg.class !== "TPV") return;
+                    var lat = Number(msg.lat), lon = Number(msg.lon);
+                    if (msg.mode >= 2 && isFinite(lat) && isFinite(lon)) root.fix = { lat: lat, lon: lon };
+                    else if (msg.mode !== undefined && msg.mode < 2) root.fix = null;
+                } catch (e) {}
+            }
+        }
+        running: root.gpsd
+        onExited: code => {
+            root.fix = null;
+            if (code === 127 && !root.gpspipeMissing) console.warn("gpsd = true, but gpspipe is not installed (gpsd package); retrying every 5 s");
+            root.gpspipeMissing = code === 127;
+            if (root.gpsd) gpsRetry.restart();
+        }
+    }
+    property Timer gpsRetry: Timer { interval: 5000; onTriggered: if (root.gpsd && !root.gps.running) root.gps.running = true }
+    onGpsdChanged: { gps.running = gpsd; if (!gpsd) fix = null; }
     property FileView file: FileView {
         path: root.path
         watchChanges: true

@@ -1,6 +1,6 @@
 [package]
 name = "omakeepickd"
-version = "0.1.2"
+version = "0.1.6"
 edition = "2024"
 rust-version = "1.89"
 description = "Helper daemon for the OmaKeePick shell plugin (Omaxian/X11 port): opens a KeePass KDBX database and serves search, copy and auto-type requests"
@@ -11,8 +11,8 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-argon2 = "0.6"
-chacha20poly1305 = "0.11"
+argon2 = { version = "0.6", features = ["zeroize"] }
+chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
 base64 = "0.22"
 chrono = "0.4"
 futures-util = { version = "0.3", default-features = false }

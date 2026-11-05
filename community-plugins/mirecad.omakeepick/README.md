@@ -6,7 +6,7 @@ auto-type username, Tab and password into the window you were in. A padlock in
 the bar shows whether the database is unlocked.
 
 Port of [mirecad/omakeepick](https://github.com/mirecad/omakeepick) (upstream
-commit `7a44a8f`, version 0.1.2).
+commit `7ca5b0f`, version 0.1.6).
 
 Plugin id: `mirecad.omakeepick` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md) for the catalog install

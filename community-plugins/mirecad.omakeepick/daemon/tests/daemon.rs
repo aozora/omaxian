@@ -103,12 +103,25 @@ impl Conn {
     }
 
     fn request(&mut self, cmd: &str, args: Value) -> Value {
+        let id = self.send(cmd, args);
+        self.reply(id)
+    }
+
+    /// Sends a request without waiting; `reply` collects its answer later.
+    fn send(&mut self, cmd: &str, args: Value) -> i64 {
         let id = self.next_id;
         self.next_id += 1;
         let mut req = args.as_object().cloned().unwrap_or_default();
         req.insert("id".into(), json!(id));
         req.insert("cmd".into(), json!(cmd));
         writeln!(self.writer, "{}", Value::Object(req)).unwrap();
+        id
+    }
+
+    fn reply(&mut self, id: i64) -> Value {
+        if let Some(i) = self.events.iter().position(|m| m.get("id") == Some(&json!(id))) {
+            return self.events.remove(i);
+        }
         loop {
             let msg = self.read();
             if msg.get("id") == Some(&json!(id)) {
@@ -241,6 +254,100 @@ fn lifecycle_search_and_quick_unlock() {
         "bad_request"
     );
     assert_eq!(conn.request("frobnicate", json!({}))["error"], "unknown_command");
+}
+
+/// A lock, close or suspend that arrives while an unlock is still running must win: the
+/// unlock's result is dropped instead of reopening the database afterwards.
+#[test]
+fn a_lock_during_an_unlock_wins() {
+    // The hold hook exists in debug builds only; the binary under test has the same profile
+    // as this test, so in a release run (release.yml) nothing would ever read the FIFO.
+    if !cfg!(debug_assertions) {
+        eprintln!("skipped: needs a debug build of omakeepickd");
+        return;
+    }
+    let env = Env::new();
+    // With OMAKEEPICK_TEST_HOLD (debug builds), every unlock first blocks reading this FIFO
+    // until the test feeds it, so a lock can be sent while the unlock is in flight.
+    let fifo = env.dir.path().join("hold");
+    assert!(Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let mut serve = env.command(&["serve"]);
+    serve.env("OMAKEEPICK_TEST_HOLD", &fifo);
+    let _daemon = env.serve_with(serve);
+    let mut conn = env.connect();
+    let db = env.db_copy();
+    let feed = || std::fs::write(&fifo, b"go").unwrap();
+    // For unlocks that are meant to succeed: feed from a thread while the request runs.
+    let unlock_fed = |conn: &mut Conn, pin: Option<&str>| {
+        let fifo = fifo.clone();
+        let feeder = std::thread::spawn(move || std::fs::write(&fifo, b"go").unwrap());
+        let reply = unlock(conn, &db, pin);
+        feeder.join().unwrap();
+        reply
+    };
+    // Sends an unlock and returns once the daemon reports it as running. Older state events
+    // are dropped first, so a `busy` left over from an earlier step cannot satisfy the wait.
+    let start = |conn: &mut Conn, cmd: &str, args: Value| {
+        conn.events.clear();
+        let id = conn.send(cmd, args);
+        conn.wait_event("busy", |m| m["event"] == "state" && m["busy"] == true);
+        id
+    };
+
+    // Full unlock, cancelled by a screen lock.
+    let id = start(&mut conn, "unlock", json!({"db": db, "password": PASSWORD, "pin": "2468"}));
+    assert_eq!(conn.request("lock", json!({"reason": "screen"}))["ok"], true);
+    feed();
+    assert_eq!(conn.reply(id)["error"], "cancelled");
+    let state = conn.state();
+    assert_eq!((state["phase"].clone(), state["busy"].clone()), (json!("closed"), json!(false)));
+    assert_eq!(state["quickUnlock"], false);
+    assert_eq!(conn.request("search", json!({"query": "git"}))["error"], "locked");
+
+    // A quick unlock, right PIN or wrong, cancelled by a screen lock keeps the PIN key;
+    // cancelled by suspend, it loses it.
+    // A wrong PIN still costs a try, and a right one still resets them.
+    for (reason, pin, expect, keeps_pin, attempts) in [
+        ("screen", "0000", "bad_pin", true, 2),
+        ("screen", "2468", "cancelled", true, 3),
+        ("sleep", "0000", "no_quick_unlock", false, 0),
+        ("sleep", "2468", "cancelled", false, 0),
+    ] {
+        let what = format!("{reason} with PIN {pin}");
+        if conn.state()["quickUnlock"] != true {
+            assert_eq!(unlock_fed(&mut conn, Some("2468"))["ok"], true, "{what}");
+            assert_eq!(conn.request("lock", json!({}))["ok"], true, "{what}");
+        }
+        let id = start(&mut conn, "quickUnlock", json!({"pin": pin}));
+        assert_eq!(conn.request("lock", json!({"reason": reason}))["ok"], true, "{what}");
+        feed();
+        assert_eq!(conn.reply(id)["error"], expect, "{what}");
+        let state = conn.state();
+        assert_eq!(state["phase"], "locked", "{what}");
+        assert_eq!(state["busy"], false, "{what}");
+        assert_eq!(state["quickUnlock"], keeps_pin, "{what}");
+        assert_eq!(state["pinAttemptsLeft"], attempts, "{what}");
+        assert_eq!(state["lockReason"], reason, "{what}");
+        if !keeps_pin {
+            assert_eq!(
+                conn.request("quickUnlock", json!({"pin": "2468"}))["error"],
+                "no_quick_unlock",
+                "{what}"
+            );
+        }
+    }
+
+    // Close during a full unlock: nothing is left to reopen.
+    let id = start(&mut conn, "unlock", json!({"db": db, "password": PASSWORD, "pin": "2468"}));
+    assert_eq!(conn.request("close", json!({}))["ok"], true);
+    feed();
+    assert_eq!(conn.reply(id)["error"], "cancelled");
+    let state = conn.state();
+    assert_eq!((state["phase"].clone(), state["quickUnlock"].clone()), (json!("closed"), json!(false)));
+
+    // Without an interruption the same path unlocks.
+    assert_eq!(unlock_fed(&mut conn, None)["ok"], true);
+    assert_eq!(conn.state()["entryCount"], 7);
 }
 
 #[test]
