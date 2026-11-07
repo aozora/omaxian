@@ -66,7 +66,8 @@ omarchy-plugin-check "$PLUGIN"
 omarchy-plugin-validate "$PLUGIN"
 
 mkdir -p ~/.config/omarchy/plugins
-rsync -a --delete -- "$PLUGIN/" "$HOME/.config/omarchy/plugins/$ID/"
+# Preserve a previously built helper across --delete (bin/omakeepickd is gitignored).
+rsync -a --delete --exclude 'bin/omakeepickd' -- "$PLUGIN/" "$HOME/.config/omarchy/plugins/$ID/"
 
 omarchy-shell shell rescanPlugins
 omarchy-plugin-enable "$ID"
@@ -76,7 +77,9 @@ Or via the helper / TUI (`./scripts/install-community-plugins.sh mirecad.omakeep
 
 On first open the plugin builds `omakeepickd` from `daemon/` with cargo
 (upstream GitHub release binaries still call `wl-copy` / `wtype` and are not
-used). To build the helper yourself:
+used). Prefer the helper / `omarchy-plugin-update --from` path above: both keep
+`bin/omakeepickd` across reinstalls and rebuild it when missing. To build the
+helper yourself:
 
 ```bash
 ~/.config/omarchy/plugins/mirecad.omakeepick/bin/install

@@ -198,9 +198,23 @@ for dir in "${SELECTED_DIRS[@]}"; do
 
 	dest="$PLUGINS_DST/$id"
 	mkdir -p "$dest"
-	rsync -a --delete --exclude '.git' --exclude '.update.tmp.*' -- "$dir/" "$dest/"
+	# Keep built helpers (e.g. omakeepickd) across --delete; they are
+	# gitignored in the port tree and would otherwise vanish after every
+	# reinstall, leaving "daemon not running" until a manual bin/install.
+	rsync -a --delete \
+		--exclude '.git' \
+		--exclude '.update.tmp.*' \
+		--exclude 'bin/omakeepickd' \
+		-- "$dir/" "$dest/"
 	echo "   copied → $dest"
 	INSTALLED_IDS+=("$id")
+
+	if [[ $id == "mirecad.omakeepick" && -x $dest/bin/install && ! -x $dest/bin/omakeepickd ]]; then
+		echo "   building omakeepickd (cargo)…"
+		if ! "$dest/bin/install"; then
+			MANUAL_NOTES+=("mirecad.omakeepick: run $dest/bin/install (needs cargo)")
+		fi
+	fi
 
 	if (( SHELL_UP )); then
 		omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true

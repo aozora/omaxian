@@ -226,7 +226,13 @@ test("reconnect backoff doubles and caps at 30s", () => {
   assert.equal(Model.backoffDelay(50), 30000)
 })
 
-test("daemon candidates prefer an override, then bin/, then cargo builds", () => {
+test("daemon candidates prefer an override, then bin/, cache, then cargo builds", () => {
+  assert.deepEqual(Model.daemonCandidates("/p/plugin/", "", "/home/me/.cache"), [
+    "/p/plugin/bin/omakeepickd",
+    "/home/me/.cache/omakeepick/target/release/omakeepickd",
+    "/p/plugin/daemon/target/release/omakeepickd",
+    "/p/plugin/daemon/target/debug/omakeepickd"
+  ])
   assert.deepEqual(Model.daemonCandidates("/p/plugin/", ""), [
     "/p/plugin/bin/omakeepickd",
     "/p/plugin/daemon/target/release/omakeepickd",

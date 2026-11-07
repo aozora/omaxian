@@ -322,7 +322,12 @@ Item {
 
   function start() {
     if (_stopping || attach.running || resolver.running) return
-    var candidates = Model.daemonCandidates(pluginDirectory, Quickshell.env("OMAKEEPICKD"))
+    var cacheHome = Quickshell.env("XDG_CACHE_HOME")
+    if (!cacheHome) {
+      var home = Quickshell.env("HOME")
+      cacheHome = home ? home + "/.cache" : ""
+    }
+    var candidates = Model.daemonCandidates(pluginDirectory, Quickshell.env("OMAKEEPICKD"), cacheHome)
     resolver.command = ["bash", "-c",
       "for candidate in \"$@\"; do [[ -f $candidate && -x $candidate ]] && { printf '%s\\n' \"$candidate\"; exit 0; }; done; exit 1",
       "omakeepick"].concat(candidates)
@@ -390,7 +395,13 @@ Item {
     } else {
       _installError = _installLastLine || "bin/install failed"
       notify("OmaKeePick", "Could not install the KeePass helper: " + _installError, "normal")
-      if (!_connected) daemonNotFound()
+      // Login often races cargo/network: clear the once-per-reason gate so a
+      // later reconnect can rebuild, instead of staying "daemon not running".
+      delete _installTried[reason]
+      _daemonMissing = true
+      _daemonPath = ""
+      reconnect.interval = 60000
+      reconnect.restart()
     }
   }
 

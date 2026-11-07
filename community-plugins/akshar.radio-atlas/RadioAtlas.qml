@@ -2048,7 +2048,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: root.edgeInset
                 anchors.verticalCenter: parent.verticalCenter
-                iconText: root.isFavorite(stationRow.modelData.uuid) ? "\uf005" : "\uf006"
+                iconText: root.isFavorite(stationRow.modelData.uuid) ? "󰓎" : "󰓒"
                 tooltipText: root.isFavorite(stationRow.modelData.uuid) ? "Remove favorite" : "Add favorite"
                 foreground: root.isFavorite(stationRow.modelData.uuid)
                   ? root.favoriteColor : root.foreground
@@ -2234,7 +2234,7 @@ Item {
               anchors.top: parent.top
               anchors.topMargin: root.edgeInset * 2
               visible: root.playerRunning && root.playingStationUuid !== ""
-              iconText: root.isFavorite(root.playingStationUuid) ? "\uf005" : "\uf006"
+              iconText: root.isFavorite(root.playingStationUuid) ? "󰓎" : "󰓒"
               tooltipText: root.isFavorite(root.playingStationUuid)
                 ? "Remove playing station from favorites"
                 : "Add playing station to favorites"

@@ -89,7 +89,12 @@ update_from_dir() {
     fail "failed to stage current '$id' for rollback"
   fi
 
-  if ! rsync -a --delete --exclude '.git' --exclude '.update.tmp.*' -- "$src/" "$dir/"; then
+  # Preserve built helpers that are not in the source tree (gitignored).
+  if ! rsync -a --delete \
+    --exclude '.git' \
+    --exclude '.update.tmp.*' \
+    --exclude 'bin/omakeepickd' \
+    -- "$src/" "$dir/"; then
     rsync -a --delete -- "$stage/" "$dir/" >/dev/null 2>&1 || true
     rm -rf "$stage"
     fail "rsync failed while updating '$id'; previous tree restored if possible"
@@ -100,6 +105,15 @@ update_from_dir() {
     rm -rf "$stage"
     echo "omarchy-plugin-update: update of '$id' failed validation; rolled back" >&2
     return 1
+  fi
+
+  if [[ $id == "mirecad.omakeepick" && -x $dir/bin/install ]]; then
+    # Fresh install or version bump: ensure bin/omakeepickd matches the plugin.
+    if [[ ! -x $dir/bin/omakeepickd ]] \
+      || [[ $("$dir/bin/omakeepickd" --version 2>/dev/null | awk '{print $2}') != "$new_ver" ]]; then
+      echo "Building omakeepickd for $id…"
+      "$dir/bin/install" || echo "omarchy-plugin-update: bin/install failed for $id; run it manually" >&2
+    fi
   fi
 
   rm -rf "$stage"

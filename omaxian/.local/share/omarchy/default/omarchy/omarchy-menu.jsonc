@@ -85,7 +85,7 @@
   "setup.plugin.update": {"icon": "󰚰", "label": "Update Plugins", "when": "compgen -G \"$HOME/.config/omarchy/plugins/*/manifest.json\"", "action": "omarchy-launch-floating-terminal-with-presentation 'omarchy-plugin-update'"},
   "setup.plugin.clone": {"icon": "󰆏", "label": "Clone Plugin", "action": "omarchy-menu-plugin clone"},
   "setup.plugin.remove": {"icon": "󰭌", "label": "Remove Plugin", "when": "compgen -G \"$HOME/.config/omarchy/plugins/*/manifest.json\"", "action": "omarchy-menu-plugin remove"},
-  "setup.default": {"icon": "", "label": "Defaults", "aliases": ["default", "defaults"]},
+  "setup.default": {"icon": "󰓎", "label": "Defaults", "aliases": ["default", "defaults"]},
   "setup.default.agent": {"icon": "󰚩", "label": "Agent", "title": "Default Agent"},
   "setup.default.agent.amp": {"icon": "󰚩", "label": "Amp", "checked": "[[ \"$(omarchy-default-agent)\" == \"amp\" ]]", "action": "omarchy-default-agent amp"},
   "setup.default.agent.agy": {"icon": "󰚩", "label": "Antigravity", "checked": "[[ \"$(omarchy-default-agent)\" == \"agy\" ]]", "action": "omarchy-default-agent agy"},

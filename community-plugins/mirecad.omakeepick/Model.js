@@ -97,14 +97,21 @@ function fileUrlPath(url) {
 }
 
 // Where omakeepickd may live, in the order it is looked for: an explicit
-// override, the installed binary, then a local cargo build for development.
-function daemonCandidates(pluginDir, override) {
+// override, the installed binary, the Omaxian cargo cache from bin/install,
+// then a local cargo build for development.
+function daemonCandidates(pluginDir, override, cacheHome) {
   var dir = String(pluginDir || "").replace(/\/+$/, "")
   var out = []
   var explicit = String(override || "").trim()
   if (explicit) out.push(explicit)
   if (dir) {
     out.push(dir + "/bin/omakeepickd")
+  }
+  // bin/install builds into $XDG_CACHE_HOME/omakeepick/target so a plugin
+  // rsync that wiped bin/omakeepickd can still attach after reboot.
+  var cache = String(cacheHome || "").replace(/\/+$/, "")
+  if (cache) out.push(cache + "/omakeepick/target/release/omakeepickd")
+  if (dir) {
     out.push(dir + "/daemon/target/release/omakeepickd")
     out.push(dir + "/daemon/target/debug/omakeepickd")
   }
