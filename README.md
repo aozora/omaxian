@@ -185,12 +185,13 @@ When to re-run which script:
 | Super+Ctrl+C / Super+Ctrl+L | screenshot (region) / lock                                              |
 
 Themes (default on first login: **nebula-ridge**; Omaxian also ships
-**transiberian**):
+**transiberian** and **osaka-jade**):
 
 ```sh
 omarchy-theme-list
 omarchy-theme-set nebula-ridge
 omarchy-theme-set transiberian
+omarchy-theme-set osaka-jade
 omarchy-theme-next
 ```
 

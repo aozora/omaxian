@@ -5,7 +5,7 @@
 # is deploy.sh.
 #
 # Layout (do not confuse these):
-#   ~/.local/share/omarchy/themes/   ← upstream themes + Omaxian overlays (nebula-ridge, transiberian, …)
+#   ~/.local/share/omarchy/themes/   ← upstream themes + Omaxian overlays (nebula-ridge, transiberian, osaka-jade, …)
 #   ~/.local/share/omarchy/default/  ← upstream themed/*.tpl templates
 #   ~/.local/share/omarchy/bin/      ← omaxian-ported omarchy-* commands
 #   ~/.config/omarchy/themes/        ← user overrides only (empty by design)
@@ -99,9 +99,10 @@ rm -rf "$OMARCHY_SHARE"/{themes,default,bin}
 cp -r "$UPSTREAM_DIR/themes" "$OMARCHY_SHARE/themes"
 INSTALLED=$(find "$OMARCHY_SHARE/themes" -mindepth 1 -maxdepth 1 -type d | wc -l)
 
-# Omaxian-only themes (nebula-ridge default, transiberian, …) live under the
-# port tree and are not in upstream. Overlay every directory here so install
-# alone (before deploy) still has them.
+# Omaxian-only / restored themes (nebula-ridge default, transiberian,
+# osaka-jade kept after upstream renamed it to jade-horse, …) live under the
+# port tree. Overlay every directory here so install alone (before deploy)
+# still has them.
 PORT_THEMES="$REPO_DIR/omaxian/.local/share/omarchy/themes"
 if [ -d "$PORT_THEMES" ]; then
 	PORT_THEME_COUNT=0

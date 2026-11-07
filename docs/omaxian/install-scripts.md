@@ -150,7 +150,7 @@ OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=… ./scripts/install.sh
 | --- | --- |
 | Privilege | Must be the login user. If invoked via `sudo`, re-execs as `$SUDO_USER`. |
 | Upstream | Clones `omarchy-quattro/` when missing; leaves an existing checkout alone. |
-| Writes | Always replaces `~/.local/share/omarchy/{themes,default,bin}`. Themes + `default/` from upstream; Omaxian-only themes (`nebula-ridge`, `transiberian`, …) overlaid from `omaxian/.local/share/omarchy/themes/`; `bin/` and menu/agents overlays from the port. |
+| Writes | Always replaces `~/.local/share/omarchy/{themes,default,bin}`. Themes + `default/` from upstream; Omaxian-only themes (`nebula-ridge`, `transiberian`, `osaka-jade`, …) overlaid from `omaxian/.local/share/omarchy/themes/`; `bin/` and menu/agents overlays from the port. |
 | Leaves alone | `~/.config/omarchy/themes` (user overlays only — left empty on purpose). Dock settings file written only when missing. |
 | Does not | Deploy i3 / Quickshell / `.xsessionrc` — that is `deploy.sh`. |
 

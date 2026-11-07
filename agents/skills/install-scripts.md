@@ -20,8 +20,8 @@ Omaxian has no ISO and no `install/` leaf tree. Layout:
   and `~/.config/omarchy/{themes,themed}`. Themes and `default/` come from
   `omarchy-quattro/`; Omaxian-only themes under
   `omaxian/.local/share/omarchy/themes/` are overlaid afterward
-  (`nebula-ridge` default, `transiberian`, …). `bin/` and the menu/agents
-  overlays come from `omaxian/`.
+  (`nebula-ridge` default, `transiberian`, `osaka-jade`, …). `bin/` and the
+  menu/agents overlays come from `omaxian/`.
 - `scripts/deploy.sh` (login user) — copy `omaxian/.config/*`, `omaxian/.local/share/*`,
   `omaxian/.xsessionrc`, and `omaxian/.icons` into `$HOME`. Seeds
   `~/.config/omarchy/shell.json` from `$OMARCHY_PATH/shell.json` only when
