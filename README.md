@@ -184,11 +184,13 @@ When to re-run which script:
 | Super+Ctrl+D                | display settings                                                        |
 | Super+Ctrl+C / Super+Ctrl+L | screenshot (region) / lock                                              |
 
-Themes (default on first login: **nebula-ridge**):
+Themes (default on first login: **nebula-ridge**; Omaxian also ships
+**transiberian**):
 
 ```sh
 omarchy-theme-list
 omarchy-theme-set nebula-ridge
+omarchy-theme-set transiberian
 omarchy-theme-next
 ```
 
@@ -245,8 +247,9 @@ work differently or are missing:
 - **No Omarchy clipboard history, image carousel, agents, or built-in
   notification daemon.** Notifications stay on **dunst**. Theme picking is a
   thumbnail grid, not the vips carousel. The Omarchy menu (`Super+Space`) skips
-  Arch Install/Remove trees and Hyprland-only actions. Emoji picker, OCR/QR
-  capture, LocalSend share, and screen recording are ported (see below).
+  Arch package/AUR trees and Hyprland-only actions, but keeps Install/Remove →
+  Web App. Emoji picker, OCR/QR capture, LocalSend share, and screen recording
+  are ported (see below).
 - **Screen recording** uses Flatpak `com.dec05eba.gpu_screen_recorder` (or
   `gpu-screen-recorder` on `PATH`) with an X11 region picker (`slop`). Install
   with `flatpak install flathub com.dec05eba.gpu_screen_recorder`. Webcam

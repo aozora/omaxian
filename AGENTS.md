@@ -12,7 +12,7 @@ This checkout has these trees:
 
 First-time install: `./omaxian-install.sh` or `curl …/bootstrap.sh | bash`. See `README.md` for install, keybinds, and the list of things that are not 1:1 with Omarchy. Porting notes live in `docs/omarchy-port/`.
 
-**Recommended packages:** `upower`, `light`, `pactl` (pulseaudio-utils or pipewire-pulse), `playerctl`, `bluez`, `python3-gi` + NetworkManager, `papirus-icon-theme`, `fonts-jetbrains-mono`, `maim`, `xclip`, `dunst`, `gpick` (color picker; replaces Arch `xcolor`), `imagemagick` (compose for shipped `i3lock-omaxian`), `i3lock-fancy` (fallback locker), `mate-polkit` or `xfce-polkit`.
+**Recommended packages:** `upower`, `light`, `pactl` (pulseaudio-utils or pipewire-pulse), `playerctl`, `bluez`, `python3-gi` + NetworkManager, `papirus-icon-theme`, `fonts-jetbrains-mono`, `maim`, `xclip`, `dunst`, `gpick` (color picker; replaces Arch `xcolor`), `imagemagick` (compose for shipped `i3lock-omaxian`), `i3lock-fancy` (fallback locker), `mate-polkit` or `xfce-polkit`, `gum` (Install → Web App prompts; plain `read` fallback).
 
 **Lock / idle (from `scripts/setup.sh`):** `i3lock` and `xss-lock` are required. Shipped `i3lock-omaxian` needs `i3lock` + `imagemagick` (`maim` preferred for screenshots; `convert`/`import` also work). Without `i3lock`, preview still works; locking falls through to `i3lock-fancy` / `slock` / notify. Idle auto-lock (Settings → Lock screen) uses `xss-lock` + `xset` via `omarchy-idle-lock-apply`.
 
@@ -90,6 +90,7 @@ Use these instead of raw shell commands where they exist:
 - `omarchy-plugin-check` - static X11/Debian compatibility check for a community plugin
 - `omarchy-plugin-update` - update git-managed plugins, or refresh a local port with `--from`
 - `omarchy-idle-lock-apply` - apply Settings → Lock screen idle auto-lock (`xss-lock` + `xset`)
+- `omarchy-webapp-install` / `omarchy-webapp-remove` - Install/Remove → Web App (Chromium `--app=` `.desktop` launchers)
 - `i3lock-omaxian` - lock screen compositor (screenshot / image / random; `--preview`)
 - `omarchy-session-is-i3` - exit 0 only in a live i3 session
 
@@ -100,7 +101,8 @@ Commands that `scripts/setup.sh` installs as required are runtime invariants on 
 # Menu
 
 - The menu definition lives in `omaxian/.local/share/omarchy/default/omarchy/omarchy-menu.jsonc` (overlaid onto `$OMARCHY_PATH/default/omarchy/` at install).
-- Do not add Arch Install/Remove trees, AUR, or Hyprland-only actions.
+- Do not add Arch package/AUR trees or Hyprland-only actions. Install/Remove →
+  Web App is intentional; keep that thin.
 - Do not add `aliases` to new menu entries. Aliases are reserved for established alternate names users already type.
 
 # Config Structure

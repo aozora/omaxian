@@ -1,13 +1,54 @@
 #!/bin/bash
 
-# omarchy:summary=Launch a URL in the default browser
-# omarchy:args=<url>
+# omarchy:summary=Launch a URL as a web app in a Chromium-based browser
+# omarchy:args=<url> [browser-flags...]
+
+# Upstream uses uwsm-app + Chromium singleton handoff. Omaxian starts the
+# browser with --app= directly under X11 (setsid so the menu/terminal can exit).
 
 set -euo pipefail
 
 if (( $# < 1 )); then
-  echo "Usage: omarchy-launch-webapp <url>" >&2
+  echo "Usage: omarchy-launch-webapp <url> [browser-flags...]" >&2
   exit 1
 fi
 
-exec xdg-open "$1"
+browser=$(omarchy-cmd-default-browser 2>/dev/null || true)
+
+case $browser in
+google-chrome* | brave* | microsoft-edge* | opera* | vivaldi* | helium* | chromium*) ;;
+*) browser="chromium.desktop" ;;
+esac
+
+# Read Exec= from the same data dirs omarchy-cmd-default-browser searched.
+IFS=: read -ra data_dirs <<<"${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+browser_exec=""
+for data_dir in "${data_dirs[@]}"; do
+  entry="$data_dir/applications/$browser"
+  [[ -f $entry ]] || continue
+  browser_exec=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$entry" | head -1)
+  break
+done
+
+# Debian package names often differ from the desktop-id stem (brave-browser,
+# google-chrome-stable). Fall back to common binaries when the .desktop lookup
+# failed or points at a missing command.
+if [[ -z $browser_exec ]] || ! command -v "$browser_exec" >/dev/null 2>&1; then
+  for candidate in chromium google-chrome-stable google-chrome brave-browser brave \
+    microsoft-edge-stable microsoft-edge vivaldi-stable opera helium; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      browser_exec=$candidate
+      break
+    fi
+  done
+fi
+
+if [[ -z $browser_exec ]]; then
+  echo "omarchy-launch-webapp: web apps need a Chromium-based browser; install with: sudo apt install chromium" >&2
+  omarchy-notification-send -u critical -g 󰖟 \
+    "$(omarchy-i18n browser.webappNeedsChromium)" \
+    "Install with: sudo apt install chromium"
+  exit 1
+fi
+
+exec setsid "$browser_exec" --app="$1" "${@:2}"

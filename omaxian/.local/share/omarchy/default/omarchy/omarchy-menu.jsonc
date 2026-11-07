@@ -1,7 +1,8 @@
 {
   // Omaxian port of Omarchy v4.0.3 omarchy-menu.jsonc.
-  // Install/Remove trees and Hyprland/Arch/unported-plugin leaves are omitted
-  // (empty submenus hide themselves). Actions are rewired to i3/elogind/X11.
+  // Arch package/AUR/Hyprland leaves are omitted (empty submenus hide
+  // themselves). Install/Remove keep Web App only. Actions are rewired to
+  // i3/elogind/X11.
 
   // Root
   "apps": {"icon": "󰀻", "label": "Apps", "aliases": ["app", "applications"], "provider": "apps"},
@@ -9,6 +10,8 @@
   "trigger": {"icon": "󱓞", "label": "Trigger"},
   "style": {"icon": "", "label": "Style"},
   "setup": {"icon": "", "label": "Setup", "aliases": ["settings"]},
+  "install": {"icon": "󰉉", "label": "Install"},
+  "remove": {"icon": "󰭌", "label": "Remove", "aliases": ["uninstall"]},
   "update": {"icon": "󰑐", "label": "Update", "aliases": ["restart", "refresh"]},
   "about": {"icon": "", "label": "About", "action": "omarchy-launch-webapp 'https://omaxian.org'"},
   "system": {"icon": "󰐥", "label": "System", "aliases": ["power-menu"]},
@@ -138,6 +141,10 @@
   "setup.config.picom": {"icon": "󰨇", "label": "Picom", "action": "omarchy-launch-config-editor \"$HOME/.config/i3/picom.conf\""},
   "setup.config.dunst": {"icon": "󰂚", "label": "Dunst", "action": "omarchy-launch-config-editor \"$HOME/.config/dunst/dunstrc\""},
   "setup.config.xcompose": {"icon": "󰞅", "label": "XCompose", "action": "omarchy-launch-config-editor ~/.XCompose"},
+
+  // Install / Remove — web apps only (no Arch package / AUR trees).
+  "install.webapp": {"icon": "", "label": "Web App", "action": "omarchy-launch-floating-terminal-with-presentation omarchy-webapp-install"},
+  "remove.webapp": {"icon": "", "label": "Web App", "when": "grep -qE '^Exec=.*(omarchy-launch-webapp|omarchy-webapp-handler)' $HOME/.local/share/applications/*.desktop 2>/dev/null", "action": "omarchy-webapp-remove"},
 
   // Update — restart-shell self-detaches before killing QS (see bin/).
   "update.process": {"icon": "", "label": "Process", "title": "Restart"},

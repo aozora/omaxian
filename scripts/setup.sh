@@ -145,6 +145,8 @@ RECOMMENDED=(
 	xdg-terminal-exec
 	# default editor for Setup → Config / omarchy-launch-editor (falls back to nvim)
 	neovim
+	# Install → Web App interactive prompts (falls back to plain read)
+	gum
 )
 
 # Optional: hardware- or host-specific; nothing breaks without them.
