@@ -6,7 +6,7 @@ signal to play it, or click a country to browse its stations. Playback runs in
 pause, previous, and next controls.
 
 Port of [AksharP5/omarchy-radio-atlas](https://github.com/AksharP5/omarchy-radio-atlas)
-(upstream commit `cb604f7`, version 0.1.9). Upstream won the
+(upstream commit `d90f259`, version 0.1.9). Upstream won the
 [first Omarchy plugin competition](https://omarchy.org/news/2026/08/the-first-plugin-competition-winners/).
 
 Plugin id: `akshar.radio-atlas` (unchanged). Optional — not installed by
