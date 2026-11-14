@@ -459,6 +459,7 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | [Omacalc](community-apps/omacalc/) | Simple calculator that follows the Omarchy theme |
 | [Omacut](community-apps/omacut/) | Video trimmer/editor (ffmpeg export) |
 | [Omawrite](community-apps/omawrite/) | Markdown writing app with auto-save and Omarchy theme |
+| [Folio](community-apps/folio/) | File manager: grid/list/columns, Space previews, Omarchy theme |
 
 Details: [`community-apps/README.md`](community-apps/README.md).
 

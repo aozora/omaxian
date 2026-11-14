@@ -85,8 +85,8 @@ if command -v gio >/dev/null 2>&1; then
   exec gio open "$target"
 fi
 
-# 4. Last-resort known file managers (no preferred order beyond commonality).
-for fm in nautilus thunar pcmanfm nemo dolphin caja; do
+# 4. Last-resort known file managers. Prefer Folio (Omarchy's FM) when installed.
+for fm in folio nautilus thunar pcmanfm nemo dolphin caja; do
   if command -v "$fm" >/dev/null 2>&1; then
     exec "$fm" "$target"
   fi
