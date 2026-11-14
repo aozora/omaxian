@@ -1,0 +1,52 @@
+#!/bin/bash
+# Build Omacut. Prefer upstream CMake; fall back to omacut.pro (Omaxian) when
+# the Qt tree has qmake but incomplete cmake tool binaries (no qtpaths).
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$root/build"
+
+if command -v nproc >/dev/null 2>&1; then
+  JOBS="$(nproc)"
+else
+  JOBS=1
+fi
+
+cmake_ok=0
+if command -v cmake >/dev/null 2>&1; then
+  # Probe: a broken CMAKE_PREFIX_PATH (missing qtpaths) must not leave a
+  # half-configured tree that the qmake path then fights with.
+  probe="$BUILD_DIR/.cmake-probe"
+  rm -rf "$probe"
+  if cmake -S "$root" -B "$probe" -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1; then
+    cmake_ok=1
+  fi
+  rm -rf "$probe"
+fi
+
+if (( cmake_ok )); then
+  cmake -S "$root" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release >/dev/null
+  cmake --build "$BUILD_DIR" -j"$JOBS"
+  echo "Built $BUILD_DIR/omacut (cmake)"
+  exit 0
+fi
+
+if command -v qmake6 >/dev/null 2>&1; then
+  QMAKE=qmake6
+elif command -v qmake >/dev/null 2>&1; then
+  QMAKE=qmake
+else
+  echo "cmake could not find a working Qt6, and qmake6/qmake is missing." >&2
+  echo "Install qt6-base-dev + qt6-declarative-dev, or a matching qmake under PATH." >&2
+  exit 1
+fi
+
+mkdir -p "$BUILD_DIR"
+# Drop a previous cmake cache so qmake owns this directory.
+rm -f "$BUILD_DIR/CMakeCache.txt"
+(
+  cd "$BUILD_DIR"
+  "$QMAKE" "$root/omacut.pro"
+  make -j"$JOBS"
+)
+echo "Built $BUILD_DIR/omacut (qmake)"

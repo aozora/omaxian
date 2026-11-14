@@ -1,0 +1,30 @@
+{
+  "apt": [
+    "libqt6printsupport6",
+    "qml6-module-qtquick",
+    "qml6-module-qtquick-controls",
+    "qml6-module-qtquick-layouts",
+    "qml6-module-qtquick-templates",
+    "qml6-module-qtqml",
+    "qml6-module-qtqml-workerscript",
+    "qt6-qpa-plugins",
+    "xdg-desktop-portal",
+    "xdg-desktop-portal-gtk",
+    "qml6-module-qtquick-dialogs",
+    "qml6-module-qt-labs-folderlistmodel"
+  ],
+  "apt_build": [
+    "build-essential",
+    "cmake",
+    "pkg-config",
+    "qmake6",
+    "qt6-base-dev",
+    "qt6-declarative-dev"
+  ],
+  "manual": [
+    "Build with community-apps/omawrite/install.sh. Prefers CMake; falls back to omawrite.pro + qmake6.",
+    "Uses QApplication + PrintSupport for system print; Quick Dialogs for file choosers.",
+    "If apt cannot match libqt6core for qml6-module-qtquick-dialogs, place QtQuick/Dialogs under ~/.local/lib/qt6/qml/ \u2014 install.sh wraps the binary.",
+    "Theme accent from ~/.local/state/omarchy/current/theme/colors.toml."
+  ]
+}

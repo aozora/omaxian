@@ -221,17 +221,19 @@ install_files() {
   mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR"
   if needs_qml_wrapper; then
     mkdir -p "$PREFIX/libexec"
-    install -m 0755 "$ROOT/build/plain" "$PREFIX/libexec/plain"
+    install -m 0755 "$ROOT/build/$NAME" "$PREFIX/libexec/$NAME"
     local lib_extra="$HOME/.local/lib"
     local qml_extra="$lib_extra/qt6/qml"
-    cat > "$BIN_DIR/plain" <<EOF
+    local plugin_extra="$lib_extra/qt6/plugins"
+    cat > "$BIN_DIR/$NAME" <<EOF
 #!/bin/bash
 export LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}$lib_extra"
 export QML_IMPORT_PATH="\${QML_IMPORT_PATH:+\$QML_IMPORT_PATH:}$qml_extra"
-exec "$PREFIX/libexec/plain" "\$@"
+export QT_PLUGIN_PATH="\${QT_PLUGIN_PATH:+\$QT_PLUGIN_PATH:}$plugin_extra"
+exec "$PREFIX/libexec/$NAME" "\$@"
 EOF
-    chmod 0755 "$BIN_DIR/plain"
-    echo ">> wrapper $BIN_DIR/plain (QML from $qml_extra)"
+    chmod 0755 "$BIN_DIR/$NAME"
+    echo ">> wrapper $BIN_DIR/$NAME (QML from $qml_extra)"
   else
     install -m 0755 "$ROOT/build/plain" "$BIN_DIR/plain"
     if [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtCore ]]; then

@@ -456,6 +456,9 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | [Signed](community-apps/signed/) | Sign a PDF and place text or dates on a copy |
 | [disktree](community-apps/disktree/) | Disk treemap: see what fills a volume, then remove it |
 | [Plain](community-apps/plain/) | Config/text editor: one file, Omarchy theme, careful saves |
+| [Omacalc](community-apps/omacalc/) | Simple calculator that follows the Omarchy theme |
+| [Omacut](community-apps/omacut/) | Video trimmer/editor (ffmpeg export) |
+| [Omawrite](community-apps/omawrite/) | Markdown writing app with auto-save and Omarchy theme |
 
 Details: [`community-apps/README.md`](community-apps/README.md).
 
