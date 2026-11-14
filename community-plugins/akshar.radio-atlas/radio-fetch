@@ -118,7 +118,7 @@ request() {
   for base in "${bases[@]}"; do
     if setpriv --pdeathsig TERM curl --fail --silent --show-error \
       --connect-timeout 4 --max-time "$max_time" \
-      --retry 1 --retry-delay 0 --retry-max-time "$max_time" \
+      --retry 3 --retry-all-errors --retry-delay 0 --retry-max-time "$max_time" \
       --max-filesize "$max_response_bytes" --proto '=https' \
       --user-agent "$user_agent" --get "$base$path" "$@" \
       --output "$response_file" 2>"$error_file" \
@@ -216,13 +216,8 @@ refresh_world_cache() {
 }
 
 refresh_world_cache_in_background() {
-  (
-    exec 9>"$cache_dir/world.lock"
-    flock -n 9 || exit 0
-    request_dir=$(mktemp -d "$runtime_dir/fetch.XXXXXX")
-    trap 'rm -rf -- "$request_dir"' EXIT
-    refresh_world_cache
-  ) </dev/null >/dev/null 2>&1 &
+  setsid python3 "$script_dir/radio-run" 90 --independent "$script_dir/radio-fetch" refresh-world \
+    </dev/null >/dev/null 2>&1 &
 }
 
 refresh_country_cache() {
@@ -246,14 +241,8 @@ refresh_country_cache() {
 
 refresh_country_cache_in_background() {
   local code=$1
-  local target=$2
-  (
-    exec 9>"$country_cache_dir/$code.lock"
-    flock -n 9 || exit 0
-    request_dir=$(mktemp -d "$runtime_dir/fetch.XXXXXX")
-    trap 'rm -rf -- "$request_dir"' EXIT
-    refresh_country_cache "$code" "$target"
-  ) </dev/null >/dev/null 2>&1 &
+  setsid python3 "$script_dir/radio-run" 90 --independent "$script_dir/radio-fetch" refresh-country "$code" \
+    </dev/null >/dev/null 2>&1 &
 }
 
 publish_country_cache() {
@@ -422,6 +411,18 @@ resolve_stations() {
 
 action=${1:-world}
 case "$action" in
+  refresh-world)
+    exec 9>"$cache_dir/world.lock"
+    flock -n 9 || exit 0
+    refresh_world_cache
+    ;;
+  refresh-country)
+    code=${2:-}
+    [[ $code =~ ^[A-Z]{2}$ ]] || exit 2
+    exec 9>"$country_cache_dir/$code.lock"
+    flock -n 9 || exit 0
+    refresh_country_cache "$code" "$country_cache_dir/$code.json"
+    ;;
   world)
     fetch_world
     ;;

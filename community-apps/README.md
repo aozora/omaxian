@@ -40,8 +40,8 @@ human) should install. Extra keys used by apps:
 | Directory | App | Upstream | Status |
 | --------- | --- | -------- | ------ |
 | [`omarchy-meeting-recorder`](omarchy-meeting-recorder/) | Meeting Recorder (GTK4) | [jankeesvw/omarchy-meeting-recorder](https://github.com/jankeesvw/omarchy-meeting-recorder) `v1.8.0` | Ported |
-| [`monologue`](monologue/) | Monologue (Qt Quick webcam recorder) | [omacom/monologue](https://github.com/omacom/monologue) `0.3.1` | Ported |
-| [`signed`](signed/) | Signed (Qt Quick PDF signer) | [omacom/signed](https://github.com/omacom/signed) `0.3.1` | Ported |
+| [`monologue`](monologue/) | Monologue (Qt Quick webcam recorder) | [omacom/monologue](https://github.com/omacom/monologue) `0.4.0` | Ported |
+| [`signed`](signed/) | Signed (Qt Quick PDF signer) | [omacom/signed](https://github.com/omacom/signed) `0.3.2` | Ported |
 | [`disktree`](disktree/) | disktree (GPUI disk treemap) | [tobi/disktree](https://github.com/tobi/disktree) `0.11.0` | Ported |
 | [`plain`](plain/) | Plain (Qt Quick config/text editor) | [omacom/plain](https://github.com/omacom/plain) `0.3.3` | Ported |
 | [`omacalc`](omacalc/) | Omacalc (Qt Quick calculator) | [omacom/omacalc](https://github.com/omacom/omacalc) `0.4.2` | Ported |

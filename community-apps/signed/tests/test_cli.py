@@ -8,7 +8,7 @@ import tempfile
 import unittest
 import zlib
 
-APP = Path(__file__).resolve().parents[1] / 'build/signed'
+APP = Path(os.environ.get('SIGNED', Path(__file__).resolve().parents[1] / 'build/signed'))
 
 
 def write_pdf(path, pages=2):
@@ -114,6 +114,15 @@ class CliTests(unittest.TestCase):
         self.signed('remove-signature', 'Alex Morgan')
         self.add_signature()
         self.assertEqual(width(), 108)
+
+    def test_removing_a_signature_forgets_its_certificate(self):
+        # A signature added again under the same name must not seal with the old one's certificate.
+        self.add_signature()
+        settings = self.root / 'config/signed/signed.conf'
+        settings.parent.mkdir(parents=True)
+        settings.write_text('[signatureKey]\nAlex%20Morgan=some-certificate\n')
+        self.signed('remove-signature', 'Alex Morgan')
+        self.assertNotIn('some-certificate', settings.read_text())
 
     def test_render_never_writes_over_the_pdf(self):
         original = self.pdf.read_bytes()

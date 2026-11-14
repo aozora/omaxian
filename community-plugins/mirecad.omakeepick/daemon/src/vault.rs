@@ -23,11 +23,27 @@ pub struct KeyMaterial {
 
 impl KeyMaterial {
     pub fn new(password: Zeroizing<String>, keyfile: Option<Zeroizing<Vec<u8>>>) -> Result<Self, VaultError> {
-        let password = (!password.is_empty()).then_some(password);
-        if password.is_none() && keyfile.is_none() {
-            return Err(VaultError::BadRequest("Enter the master password or choose a key file".into()));
+        let key = KeyMaterial { keyfile, ..KeyMaterial::from_password(password) };
+        if key.is_empty() {
+            return Err(VaultError::no_credentials());
         }
-        Ok(KeyMaterial { password, keyfile })
+        Ok(key)
+    }
+
+    /// The password alone, as the daemon holds it while the helper is still reading the key
+    /// file. Empty-handed if the password is empty and the key file is all there is.
+    pub fn from_password(password: Zeroizing<String>) -> Self {
+        KeyMaterial { password: (!password.is_empty()).then_some(password), keyfile: None }
+    }
+
+    /// Adds the contents of the key file.
+    pub fn with_keyfile(self, keyfile: Zeroizing<Vec<u8>>) -> Self {
+        KeyMaterial { keyfile: Some(keyfile), ..self }
+    }
+
+    /// Neither a password nor a key file.
+    pub fn is_empty(&self) -> bool {
+        self.password.is_none() && self.keyfile.is_none()
     }
 
     fn database_key(&self) -> Result<DatabaseKey, VaultError> {
@@ -87,6 +103,10 @@ pub enum VaultError {
 }
 
 impl VaultError {
+    pub fn no_credentials() -> Self {
+        VaultError::BadRequest("Enter the master password or choose a key file".into())
+    }
+
     pub fn code(&self) -> &'static str {
         match self {
             VaultError::BadRequest(_) => "bad_request",
@@ -119,9 +139,7 @@ fn map_open_error(err: DatabaseOpenError) -> VaultError {
         DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey) | DatabaseOpenError::Cryptography(_) => {
             VaultError::BadCredentials
         }
-        DatabaseOpenError::Key(DatabaseKeyError::EmptyKey) => {
-            VaultError::BadRequest("Enter the master password or choose a key file".into())
-        }
+        DatabaseOpenError::Key(DatabaseKeyError::EmptyKey) => VaultError::no_credentials(),
         DatabaseOpenError::Key(e) => VaultError::Keyfile(e.to_string()),
         DatabaseOpenError::Io(e) => VaultError::Io(e.to_string()),
         other => VaultError::Format(other.to_string()),
@@ -133,9 +151,46 @@ fn map_open_error(err: DatabaseOpenError) -> VaultError {
 const MAX_DATABASE_BYTES: u64 = 256 << 20;
 const MAX_KEYFILE_BYTES: u64 = 16 << 20;
 
+/// When the database file was last written and how big it is, as of the moment it was read.
+/// Tells a real change from a spurious file event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stamp {
+    modified: (i64, i64),
+    len: u64,
+}
+
+impl Stamp {
+    pub const BYTES: usize = 24;
+
+    fn of(meta: &std::fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt;
+        Stamp { modified: (meta.mtime(), meta.mtime_nsec()), len: meta.len() }
+    }
+
+    pub fn to_bytes(self) -> [u8; Self::BYTES] {
+        let mut out = [0u8; Self::BYTES];
+        out[..8].copy_from_slice(&self.modified.0.to_le_bytes());
+        out[8..16].copy_from_slice(&self.modified.1.to_le_bytes());
+        out[16..].copy_from_slice(&self.len.to_le_bytes());
+        out
+    }
+
+    pub fn from_bytes(bytes: &[u8; Self::BYTES]) -> Self {
+        let field = |at: usize| -> [u8; 8] { bytes[at..at + 8].try_into().expect("8 bytes") };
+        Stamp {
+            modified: (i64::from_le_bytes(field(0)), i64::from_le_bytes(field(8))),
+            len: u64::from_le_bytes(field(16)),
+        }
+    }
+}
+
 /// Reads a regular file of at most `limit` bytes. Anything else (a FIFO, which would block the
 /// open forever; a device; a huge file) is refused.
-fn read_file(path: &Path, limit: u64) -> Result<Zeroizing<Vec<u8>>, std::io::Error> {
+///
+/// This can still hang for as long as the file system likes (a network mount that stopped
+/// answering), so it must only run where no secret is held: in the `opener` helper, before it
+/// is given the credentials.
+fn read_file(path: &Path, limit: u64) -> Result<(Zeroizing<Vec<u8>>, Stamp), std::io::Error> {
     use std::io::Read;
     use std::os::unix::fs::OpenOptionsExt;
     let too_large = || std::io::Error::other("the file is too large");
@@ -154,28 +209,61 @@ fn read_file(path: &Path, limit: u64) -> Result<Zeroizing<Vec<u8>>, std::io::Err
     if data.len() as u64 > limit {
         return Err(too_large());
     }
-    Ok(data)
+    Ok((data, Stamp::of(&meta)))
 }
 
 pub fn read_keyfile(path: &Path) -> Result<Zeroizing<Vec<u8>>, VaultError> {
-    read_file(path, MAX_KEYFILE_BYTES).map_err(|e| match e.kind() {
+    read_file(path, MAX_KEYFILE_BYTES).map(|(data, _)| data).map_err(|e| match e.kind() {
         ErrorKind::NotFound => VaultError::NotFound(path.to_path_buf()),
         _ => VaultError::Keyfile(e.to_string()),
     })
 }
 
-/// Decrypts the database at `path`. Runs the KDF, so call it from a blocking thread.
+/// Decrypts the database at `path` in this process. The daemon does not: it goes through
+/// `opener`. Runs the KDF, so call it from a blocking thread.
 pub fn open_database(path: &Path, key: &KeyMaterial) -> Result<Database, VaultError> {
-    parse_database(&read_database(path)?, key)
+    parse_database(&read_database(path)?.0, key)
 }
 
-/// The raw database file; `parse_database` decrypts it. Messages never include the path: they
-/// can end up in a notification.
-pub fn read_database(path: &Path) -> Result<Zeroizing<Vec<u8>>, VaultError> {
+/// The raw database file and its stamp; `parse_database` decrypts it. Messages never include
+/// the path: they can end up in a notification.
+pub fn read_database(path: &Path) -> Result<(Zeroizing<Vec<u8>>, Stamp), VaultError> {
     read_file(path, MAX_DATABASE_BYTES).map_err(|e| match e.kind() {
         ErrorKind::NotFound => VaultError::NotFound(path.to_path_buf()),
         _ => VaultError::Io(format!("Cannot read the database file: {e}")),
     })
+}
+
+/// The header check alone (see `header`). Needs no key, so a file with absurd derivation
+/// settings can be refused before anyone is given the credentials.
+pub fn check_header(data: &[u8]) -> Result<(), VaultError> {
+    header::check(data)
+}
+
+/// Takes out of `db` what the daemon has no use for: attachments (the files and their names),
+/// the earlier versions of entries (old passwords among them), custom icons and the list of
+/// deleted objects. The helper does this before it hands a database over, so none of it ever
+/// reaches the daemon.
+pub fn strip(db: &mut Database) {
+    // The order matters. The database keeps track of which version of which entry uses an
+    // icon, and taking an icon out follows those tracks into the histories: so the icons go
+    // while the histories are still there.
+    db.foreach_custom_icon_mut(|icon| icon.remove());
+    let named: Vec<(EntryId, Vec<String>)> = db
+        .iter_all_entries()
+        .map(|entry| (entry.id(), entry.attachments_named().map(|(name, _)| name.to_string()).collect()))
+        .collect();
+    for (id, names) in named {
+        let Some(mut entry) = db.entry_mut(id) else { continue };
+        for name in names {
+            entry.remove_attachment_by_name(&name);
+        }
+    }
+    db.foreach_entry_mut(|mut entry| entry.history = None);
+    // Whatever only an earlier version had attached. This goes by what the entries say now,
+    // not by the tracks, which the line above has left pointing at versions that are gone.
+    db.remove_unused_attachments();
+    db.deleted_objects.clear();
 }
 
 /// Runs the KDF, so call it from a blocking thread.
@@ -276,7 +364,15 @@ mod header {
         Other,
     }
 
+    fn repeated_key() -> VaultError {
+        VaultError::Format("the header repeats a key derivation parameter".into())
+    }
+
     /// Parses a KDBX 4 variant dictionary, checking that fixed-size values have their size.
+    ///
+    /// A repeated key is refused outright. KeePassXC never writes one, and parsers disagree on
+    /// which copy counts (the `keepass` crate keeps the last), so a file could otherwise pass
+    /// this check with one value and be derived with another.
     fn variant_dictionary(buf: &[u8]) -> Result<Vec<(String, Value)>, VaultError> {
         if u16::from_le_bytes(buf.get(..2).ok_or_else(damaged)?.try_into().expect("2 bytes")) != 0x0100 {
             return Ok(Vec::new()); // the crate rejects the version itself
@@ -299,7 +395,11 @@ mod header {
                 0x42 => Value::Bytes(value.to_vec()),
                 _ => Value::Other,
             };
-            out.push((String::from_utf8_lossy(key).into_owned(), value));
+            let key = String::from_utf8_lossy(key).into_owned();
+            if out.iter().any(|(k, _)| *k == key) {
+                return Err(repeated_key());
+            }
+            out.push((key, value));
         }
         Ok(out)
     }
@@ -447,6 +547,45 @@ mod header {
             let at = short.windows(1).rposition(|w| w == b"R").unwrap() + 1;
             short[at - 6] = 0x05; // retag the bool as u64 while leaving its 1-byte value
             assert_eq!(check(&short), Err(damaged()));
+        }
+
+        /// The `keepass` crate reads a variant dictionary into a `HashMap`, so of two copies of
+        /// a key the last one wins there. A check that looked at the first copy could be
+        /// passed with a cheap "R" followed by the real, absurd one.
+        #[test]
+        fn refuses_repeated_kdf_parameters() {
+            let uuid = || ("$UUID", Value::Bytes(AES_KDF.to_vec()));
+            let salt = || ("S", Value::Bytes(vec![0; 32]));
+            let twice = kdbx4(&[uuid(), salt(), ("R", Value::U64(1)), ("R", Value::U64(u64::MAX))]);
+            assert_eq!(check(&twice), Err(repeated_key()));
+            // The same for the algorithm itself: AES first, Argon2 with huge memory last.
+            let two_kdfs = kdbx4(&[
+                uuid(),
+                salt(),
+                ("R", Value::U64(1)),
+                ("$UUID", Value::Bytes(ARGON2ID.to_vec())),
+                ("M", Value::U64(1 << 40)),
+                ("I", Value::U64(1)),
+                ("P", Value::U32(1)),
+                ("V", Value::U32(0x13)),
+            ]);
+            assert_eq!(check(&two_kdfs), Err(repeated_key()));
+            // Even a harmless repetition is refused: no real writer produces one.
+            let same = kdbx4(&[uuid(), salt(), ("R", Value::U64(1)), ("R", Value::U64(1))]);
+            assert_eq!(check(&same), Err(repeated_key()));
+            // Public custom data is a variant dictionary too.
+            let mut data = kdbx4(&[uuid(), salt(), ("R", Value::U64(1))]);
+            let end = data.len() - 9; // before the end field (kind 0, len 4, "\r\n\r\n")
+            let mut vd = vec![0x00, 0x01];
+            for _ in 0..2 {
+                vd.extend([0x04, 1, 0, 0, 0, b'k', 4, 0, 0, 0, 1, 0, 0, 0]);
+            }
+            vd.push(0);
+            let mut field = vec![12];
+            field.extend((vd.len() as u32).to_le_bytes());
+            field.extend(vd);
+            data.splice(end..end, field);
+            assert_eq!(check(&data), Err(repeated_key()));
         }
     }
 }
@@ -610,6 +749,31 @@ mod tests {
         let back = KeyMaterial::from_bytes(&only_file.to_bytes()).unwrap();
         assert!(back.password.is_none());
         assert!(KeyMaterial::from_bytes(&[3, 1, 0]).is_none());
+    }
+
+    #[test]
+    fn key_material_in_two_steps() {
+        let password = KeyMaterial::from_password(Zeroizing::new("pw".into()));
+        assert!(!password.is_empty());
+        let whole =
+            KeyMaterial::from_bytes(&password.to_bytes()).unwrap().with_keyfile(Zeroizing::new(vec![5]));
+        let at_once = KeyMaterial::new(Zeroizing::new("pw".into()), Some(Zeroizing::new(vec![5]))).unwrap();
+        assert_eq!(whole.to_bytes(), at_once.to_bytes());
+
+        // A key-file-only database: nothing to send until the key file is read.
+        let nothing = KeyMaterial::from_password(Zeroizing::new(String::new()));
+        assert!(nothing.is_empty());
+        let back = KeyMaterial::from_bytes(&nothing.to_bytes()).unwrap();
+        assert!(back.is_empty());
+        assert!(!back.with_keyfile(Zeroizing::new(vec![1])).is_empty());
+    }
+
+    #[test]
+    fn stamp_roundtrip() {
+        let stamp = Stamp { modified: (1_762_000_000, 999_999_999), len: 1 << 40 };
+        assert_eq!(Stamp::from_bytes(&stamp.to_bytes()), stamp);
+        let before = Stamp { modified: (-1, 0), len: 0 };
+        assert_eq!(Stamp::from_bytes(&before.to_bytes()), before);
     }
 
     #[test]

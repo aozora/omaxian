@@ -14,6 +14,8 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import sandbox  # noqa: E402,F401  (keeps every test off this machine's calibrator)
 sys.dont_write_bytecode = True
 
 import calibration_share as share  # noqa: E402
@@ -54,8 +56,12 @@ class ClientTestCase(unittest.TestCase):
             patch = mock.patch.object(speaker_calibrate, name, value)
             patch.start()
             self.addCleanup(patch.stop)
+        self.installed = []
+        def fake_install_now(profile):
+            self.installed.append(profile)
+            return {**profile, "activation": "live", "installed": True}
         for name, value in (("hardware_id", lambda: dict(OURS)), ("pactl_json", lambda kind: [SINK]),
-                            ("plugin_version", lambda: "1.2.0")):
+                            ("plugin_version", lambda: "1.2.0"), ("install_now", fake_install_now)):
             patch = mock.patch.object(speaker_calibrate, name, value)
             patch.start()
             self.addCleanup(patch.stop)
@@ -103,7 +109,8 @@ class ConsentTests(ClientTestCase):
         speaker_calibrate.REGISTRY_STATE.chmod(0o600)
         self.assertEqual(speaker_calibrate.registry_state(), {
             "lookup": None, "share_explained": False,
-            "uploads": {"2026-09-20-builtin-aaaaaaaaaa": f"https://github.com/{share.REGISTRY_REPOSITORY}/issues/12"}})
+            "uploads": {"2026-09-20-builtin-aaaaaaaaaa": f"https://github.com/{share.REGISTRY_REPOSITORY}/issues/12"},
+            "upload_sources": {}})
 
 
 class IndexTests(ClientTestCase):
@@ -344,11 +351,13 @@ class LoadTests(ClientTestCase):
         with mock.patch.object(speaker_calibrate, "registry_fetch", return_value=json.dumps(public)) as fetched:
             result = speaker_calibrate.registry_load(GOOD_ID)
         fetched.assert_called_once_with(f"profiles/slimbook/executive-14-uc2/{GOOD_ID}.json")
-        proposal = result["proposal"]
+        proposal = result["profile"]
         self.assertEqual(proposal["speaker"]["name"], SINK["name"])              # this machine's, from its own list
         self.assertEqual(proposal["imported"]["registry"], GOOD_ID)
         self.assertTrue(result["matches"]["machine"])
-        self.assertTrue(speaker_calibrate.PROPOSAL.exists())
+        # Played and listed, and the last measurement left to this machine's own recording.
+        self.assertEqual([item["imported"]["registry"] for item in self.installed], [GOOD_ID])
+        self.assertFalse(speaker_calibrate.PROPOSAL.exists())
 
     def test_what_is_not_a_calibration_is_refused_whoever_served_it(self):
         self.allow()
@@ -408,6 +417,26 @@ class ShareTests(ClientTestCase):
         self.assertEqual(result["url"], f"https://github.com/{share.REGISTRY_REPOSITORY}/issues/12")
         self.assertEqual(again["url"], result["url"])
         self.assertEqual(speaker_calibrate.registry_state()["uploads"], {result["id"]: result["url"]})
+
+    def test_an_upload_is_offered_back_once_its_calibration_has_left_the_list(self):
+        profile = shared()["profile"]
+        profile["created_at"] = "2026-09-20T11:27:27.253765+00:00"
+        speaker_calibrate.library_add(profile)
+        speaker_calibrate.PROFILE.write_text(json.dumps(profile))
+        speaker_calibrate.PROFILE.chmod(0o600)
+        created = (0, f"https://github.com/{share.REGISTRY_REPOSITORY}/issues/12\n", "")
+        with mock.patch.object(speaker_calibrate, "gh_signed_in", return_value=True), \
+             mock.patch.object(speaker_calibrate, "run_bounded", return_value=created):
+            result = speaker_calibrate.share_upload()
+        state = speaker_calibrate.registry_state()
+        self.assertEqual(state["upload_sources"], {result["id"]: profile["library_id"]})
+        self.assertEqual(speaker_calibrate.uploads_listed(state), [result["id"]])     # still listed: not offered
+        self.assertEqual(speaker_calibrate.registry_cached()["uploads_listed"], [result["id"]])
+        speaker_calibrate._write_index([])                                          # the list let it go
+        self.assertEqual(speaker_calibrate.uploads_listed(state), [])               # so the registry's copy is offered
+        # An upload recorded before its source was kept stays hidden, as every upload was before.
+        speaker_calibrate.write_registry_state(upload_sources={})
+        self.assertEqual(speaker_calibrate.uploads_listed(speaker_calibrate.registry_state()), [result["id"]])
 
     def test_an_answer_that_is_not_the_registry_s_issue_is_not_recorded(self):
         self.install()
@@ -485,10 +514,16 @@ class ShareTests(ClientTestCase):
         panel, service = (root / "Panel.qml").read_text(), (root / "Service.qml").read_text()
         self.assertNotIn("share-status-json", service)
         self.assertNotIn("shareStatusCheck", panel + service)
-        self.assertEqual(panel.count("service.share("), 1)                       # only the button's own click
-        button = panel.index("Share this calibration with everyone")
-        self.assertLess(button, panel.index('label: "Advanced"'))                # in the main panel, above the switch
-        self.assertGreater(button, panel.index('"Calibrate again"'))
+        # Only a press shares: the step row's and the fold's own clicks.
+        calls = [index for index in range(len(panel)) if panel.startswith("service.share(", index)]
+        self.assertEqual(len(calls), 2)
+        for call in calls:
+            handler = panel[panel.rindex("onClicked: {", 0, call):call]
+            self.assertNotIn("function", handler)
+            self.assertGreater(handler.count("{"), handler.count("}"))          # still inside that click
+        fold = panel.index('label: "Save and share"')
+        self.assertGreater(panel.index('"Share with everyone"', fold), fold)    # in its fold, with the other ways out
+        self.assertLess(panel.index('"Share with everyone"', fold), panel.index('label: "Measurement details"'))
 
     def test_the_status_says_what_would_be_sent_without_sending_it(self):
         self.install()

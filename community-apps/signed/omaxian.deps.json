@@ -15,18 +15,19 @@
   ],
   "apt_build": [
     "build-essential",
+    "cmake",
     "pkg-config",
-    "qmake6",
     "qt6-base-dev",
     "qt6-declarative-dev",
     "libpoppler-qt6-dev",
     "libqpdf-dev"
   ],
   "manual": [
-    "Build with community-apps/signed/install.sh. qmake6 from Devuan Excalibur (Qt 6.8) is enough; the Arch qt6-wayland package is not used.",
+    "Build with community-apps/signed/install.sh (CMake). qt6-base-dev from Devuan Excalibur (Qt 6.8) is enough; the Arch qt6-wayland package is not used.",
     "Placed text is measured in Noto Sans (fonts-noto-core) and embedded in the PDF.",
     "Digital seals use Poppler's NSS backend (libnss3). Certificates stay in ~/.local/share/signed/certificates/.",
     "The file dialog needs the GTK xdg-desktop-portal backend. Signed is registered for PDFs but is not made the default viewer.",
-    "Hyprland corner rounding is skipped when HYPRLAND_INSTANCE_SIGNATURE is unset, so corners stay square on i3."
+    "Hyprland corner rounding is skipped when HYPRLAND_INSTANCE_SIGNATURE is unset, so corners stay square on i3.",
+    "Poppler 25.03 on Excalibur lacks lastSigningResult(); seal failures may report only \"signing failed\"."
   ]
 }

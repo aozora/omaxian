@@ -1,11 +1,11 @@
 # Signed (Omaxian port)
 
 Qt Quick PDF signer. Open a PDF, place a signature, text, or a date, and save
-a copy. An optional self-signed seal shows later edits.
+a copy. An optional self-signed seal shows later edits. Upstream 0.3.2 adds
+broad i18n (`src/i18n/*.json`); see [`README.upstream.md`](README.upstream.md).
 
-Port of [omacom/signed](https://github.com/omacom/signed) 0.3.1
-(upstream commit `7d6a7cf`, pinned in `.omaxian-upstream-commit`). Full upstream
-docs: [`README.upstream.md`](README.upstream.md).
+Port of [omacom/signed](https://github.com/omacom/signed) **0.3.2**
+(upstream commit `9ee3e2e`, full SHA in `.omaxian-upstream-commit`).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
 `community-apps/` so `./scripts/deploy.sh` never copies it into `$HOME`.
@@ -15,12 +15,12 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Upstream (Omarchy / Hyprland) | This port |
 | ----------------------------- | --------- |
 | `omarchy pkg add` / `makepkg` (`bin/install`) | Debian `install.sh` → `~/.local`. Arch script kept as `bin/install.arch` |
+| CMake build (`./bin/build`) | Same; upstream dropped qmake/`.pro` (C++20 is set in `CMakeLists.txt`) |
 | Runtime dep `qt6-wayland` | Not installed. The binary is a `QGuiApplication` and uses XCB |
 | Corner radius from `hyprctl` | Unchanged; already gated on `HYPRLAND_INSTANCE_SIGNATURE` (square corners on i3) |
 | `noto-fonts`, `poppler-qt6`, `qpdf`, `nss` | `fonts-noto-core`, `libpoppler-qt6-3t64`, `libqpdf30`, `libnss3` |
 | File chooser via xdg-desktop-portal | Same, with `xdg-desktop-portal-gtk` |
 | Theme accent from `colors.toml` | Unchanged |
-| `CONFIG += c++17` | `c++20`. `Item::operator==` is defaulted, which GCC 14 rejects under `-std=gnu++17` |
 | Digital-seal errors via `PDFConverter::lastSigningResult()` | Used when Poppler is 25.06 or newer. Excalibur's 25.03 only has `sign()` returning bool, so a failed seal reports "signing failed" |
 
 Placed text is still measured in Noto Sans and embedded in the PDF. The
@@ -35,7 +35,7 @@ Runtime (also in `omaxian.deps.json`):
 - `fonts-noto-core` (the "Noto Sans" family the stamper measures)
 - `xdg-desktop-portal` and `xdg-desktop-portal-gtk`
 
-Build: `qmake6`, `qt6-base-dev`, `qt6-declarative-dev`, `libpoppler-qt6-dev`,
+Build: `cmake`, `qt6-base-dev`, `qt6-declarative-dev`, `libpoppler-qt6-dev`,
 `libqpdf-dev`.
 
 ## Install
@@ -44,8 +44,8 @@ Build: `qmake6`, `qt6-base-dev`, `qt6-declarative-dev`, `libpoppler-qt6-dev`,
 community-apps/signed/install.sh
 ```
 
-`install.sh` refuses to apt-install Qt when the `qmake6` candidate's major.minor
-does not match the already-installed `libqt6core6t64`.
+`install.sh` refuses to apt-install Qt when `qt6-base-dev`'s candidate
+major.minor does not match the already-installed `libqt6core6t64`.
 
 | Path | Role |
 | ---- | ---- |

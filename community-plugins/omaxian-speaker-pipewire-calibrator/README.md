@@ -5,7 +5,7 @@ PipeWire filter-chain for the Omaxian bar.
 
 Port of
 [thefreshoffice/omarchy-speaker-calibrator](https://github.com/thefreshoffice/omarchy-speaker-calibrator)
-(upstream commit `b142b02`).
+(upstream commit `0ce90c6`, v1.3.0).
 
 Plugin id: `omaxian-speaker-pipewire-calibrator`. **PipeWire only** (needs
 `pipewire` + `pipewire-pulse` + `wireplumber`). On PulseAudio, install
@@ -43,6 +43,10 @@ Confirm the session is PipeWire:
 pactl info | grep 'Server Name'
 # expect: PulseAudio (on PipeWire …)
 ```
+
+### MacBook10,1 audio setup
+
+See [docs/macbook10-internal-audio.md](docs/macbook10-internal-audio.md) before calibrating that model.
 
 ## Install
 

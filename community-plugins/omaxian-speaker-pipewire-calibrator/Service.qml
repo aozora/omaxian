@@ -16,9 +16,9 @@ Item {
   // panel should not collapse or dim for it.  These are the quick phases;
   // everything else (measuring, fitting, checking, installing, rendering)
   // takes long enough that the panel says so while it runs.
-  readonly property var _quickPhases: ["relevel", "deepbass", "loudness", "bypass", "compare",
+  readonly property var _quickPhases: ["relevel", "deepbass", "loudness", "bypass", "library",
                                         "status", "devices", "cache", "mics", "output",
-                                        "export", "vendor", "previewapply", "previewdiscard"]
+                                        "export", "vendor"]
   // What the last export wrote and where, shown next to the buttons that did it.
   property string exportNote: ""
   readonly property bool working: busy && _quickPhases.indexOf(phase) < 0
@@ -39,7 +39,7 @@ Item {
   // { microphone, description, channel }.  Gone as soon as something else runs.
   property var offer: null
   // Calibrations other people shared for this machine's model, as the last
-  // lookup found them: { consent, profiles, checked_at, uploads }.  Looking
+  // lookup found them: { consent, profiles, checked_at, uploads, uploads_listed }.  Looking
   // needs a yes given once; until then nothing is asked of anyone.
   property var registry: ({ consent: null, profiles: [] })
   // What the last press on Share answered: { state: "confirm" | "uploaded" | "browser", ... }.
@@ -74,7 +74,7 @@ Item {
     }
     message = operation === "measure"
       ? "Measuring — a short level check, then six sweeps, about 30 seconds. Keep quiet…"
-      : operation === "compare" ? "Switching profiles…"
+      : operation === "library" ? "Switching…"
       : operation === "bypass" ? "Switching…"
       : operation === "verify" ? "Checking — playing the sweeps through the calibration…"
       : operation === "refine" ? "Improving from the last check…"
@@ -104,10 +104,11 @@ Item {
   function simpleLabel(profile) {
     if (!profile) return ""
     var parts = []
-    parts.push(profile.bass === "full" ? "Loudness on" : "Loudness off")
+    parts.push(profile.bass === "full" ? "Fuller bass on" : "Fuller bass off")
     var loudness = profile.loudness || "protected"
     parts.push(loudness === "matched" ? "Louder on"
       : loudness === "balanced" ? "Louder halfway" : "Louder off")
+    if (profile.loudness_compensation === "on") parts.push("Loudness on")
     if (profile.voicing === "warm") parts.push("warm voicing")
     return parts.join(" · ")
   }
@@ -119,24 +120,17 @@ Item {
     var loudness = profile.loudness || "protected"
     return voicing + " · " + bass + " · " + loudness
   }
-  // The summary of the profile that is playing right now.
+  // The row of the calibration list that is playing right now.
   function playingSummary() {
-    var compare = status.compare
-    if (compare && compare.available && compare[compare.active]) return compare[compare.active]
-    if (compare && compare.current) return compare.current
+    var rows = status.library || []
+    for (var index = 0; index < rows.length; index++)
+      if (rows[index].playing === true) return rows[index]
     return null
   }
   function playingLabel() {
     var summary = playingSummary()
     if (summary && summary.label) return summary.label
     return status.profile ? optionsLabel(status.profile) : ""
-  }
-  // Label of the profile the compare button would switch to.
-  function otherLabel() {
-    var compare = status.compare
-    if (!compare || !compare.available) return ""
-    var other = compare.active === "previous" ? compare.current : compare.previous
-    return other && other.label ? other.label : (compare.active === "previous" ? "current" : "previous")
   }
   function optionArguments(options) {
     return ["--voicing", options.voicing || "neutral",
@@ -200,7 +194,7 @@ Item {
     if (busy) return
     start("registry", ["registry-lookup-json", "--quiet"].concat(refresh ? ["--refresh"] : []))
   }
-  function registryLoad(identifier) { start("registryload", ["registry-load-json", "--id", String(identifier), "--preview"]) }
+  function registryLoad(identifier) { start("registryload", ["registry-load-json", "--id", String(identifier)]) }
   function share(confirmed) { start("share", ["share-json"].concat(confirmed ? ["--confirmed"] : [])) }
   // Only ever the registry's own pages, whatever a reply says.
   // The two pages this ever opens, each in its whole shape: a submission's
@@ -237,21 +231,22 @@ Item {
                      "--channel", String(channel)].concat(optionArguments(options))
     if (options.micCalibrationFile && options.micCalibrationFile.length > 0)
       arguments.push("--mic-cal-file", options.micCalibrationFile)
-    if (install === "preview") arguments.push("--preview")
-    else if (install) arguments.push("--install")
+    if (install) arguments.push("--install")
     start("measure", arguments)
   }
-  // Re-fit the last recorded sweeps with different options, without playing
-  // anything; with install=true the result is applied immediately.
-  function refit(options, install) {
-    var arguments = ["reanalyze-saved-json"].concat(optionArguments(options))
-    if (install) arguments.push("--install")
-    start("refit", arguments)
+  // Re-fit the last recorded sweeps with different options and play the
+  // result; what played before stays in the list.
+  function refit(options) {
+    start("refit", ["reanalyze-saved-json"].concat(optionArguments(options)).concat(["--install"]))
   }
-  function install() { start("install", ["install-proposal"]) }
-  // A new calibration is playing and waits: keep it, or go back.
-  function applyPreview() { start("previewapply", ["preview-apply-json"]) }
-  function discardPreview() { start("previewdiscard", ["preview-discard-json"]) }
+  // The calibration list: a click plays one, live or without a break; the
+  // pin keeps one past the last ten; delete drops one that is not playing.
+  // The id is one the helper listed, and it checks it again.
+  function playEntry(identifier) { start("library", ["library-play-json", "--id", String(identifier)]) }
+  function pinEntry(identifier, pinned) {
+    start("library", ["library-pin-json", "--id", String(identifier), "--pinned", pinned ? "on" : "off"])
+  }
+  function deleteEntry(identifier) { start("library", ["library-delete-json", "--id", String(identifier)]) }
   // Bass and loudness without a refit: the fit already holds both answers.
   function relevel(options) {
     start("relevel", ["relevel-json", "--bass", options.bass || "normal",
@@ -267,7 +262,6 @@ Item {
   function vendorRestore() { start("vendorrestore", ["vendor-restore-json"]) }
   function importProfile(name) { start("import", ["import-json", "--file", String(name)]) }
   function disable() { start("disable", ["disable"]) }
-  function compare() { start("compare", ["compare-toggle"]) }
   function bypass() { start("bypass", ["bypass-toggle"]) }
   // Put the sound back through the calibration after the output moved.
   function useCalibratedOutput() { start("output", ["use-calibrated-output"]) }
@@ -464,9 +458,11 @@ Item {
             root.status = Object.assign({}, root.status, { enabled: true, profile: result, bypass: false })
             var refinement = ((result.measurement || {}).refinement) || {}
             root.message = root.phase === "measure"
-              ? (result.previewing
-                 ? "New calibration measured and playing. Apply it, or keep the previous one?"
-                 : "Calibrated and playing: " + root.simpleLabel(result))
+              ? "Calibrated and playing: " + root.simpleLabel(result)
+                + (root.status.library && root.status.library.length > 0
+                   ? " · the one before is in the list" : "")
+                + ((result.microphone || {}).internal === true ? ""
+                   : " · check it to prove it works")
               : root.phase === "refine"
                 ? "Improved from the check, round " + refinement.iterations
                   + " · biggest change " + Number(refinement.largest_step_db || 0).toFixed(1)
@@ -479,26 +475,19 @@ Item {
             root.message = (root.phase === "refit" ? "Refit ready: " : "Measurement accepted: ")
               + root.optionsLabel(result) + " · " + count
               + (count === 1 ? " section" : " sections")
-              + " · nothing changes until you press Install"
           } else
             root.message = "The measurement was rejected — see the guidance below and try again"
-        } else if (root.phase === "install") {
-          var installed = JSON.parse(raw)
-          root.status = Object.assign({}, root.status, { enabled: true, profile: installed, bypass: false })
-          root.message = "Installed and playing: " + root.optionsLabel(installed)
-            + (installed.activation === "restart" ? " · tuning restarted" : " · switched live")
-          Qt.callLater(root.refreshStatus)
         } else if (root.phase === "relevel") {
           var levelled = JSON.parse(raw)
           root.status = Object.assign({}, root.status, { profile: levelled.profile, bypass: false })
           if (levelled.proposal) root.setProposal(levelled.proposal)
           root.message = levelled.message || ""
           Qt.callLater(root.refreshStatus)
-        } else if (root.phase === "previewapply" || root.phase === "previewdiscard") {
-          var decided = JSON.parse(raw)
-          if (decided.profile) root.status = Object.assign({}, root.status, { profile: decided.profile, previewing: false, bypass: false })
-          root.message = decided.message || ""
-          Qt.callLater(root.refreshStatus)
+        } else if (root.phase === "library") {
+          // The helper answers with the whole status, as it is after the change.
+          var listed = JSON.parse(raw)
+          root.status = listed
+          root.message = listed.message || ""
         } else if (root.phase === "export") {
           var exported = JSON.parse(raw)
           root.message = "Exported"
@@ -517,9 +506,8 @@ Item {
           root.registry = JSON.parse(raw)
         } else if (root.phase === "registryload") {
           var fetched = JSON.parse(raw)
-          root.setProposal(fetched.proposal || null)
-          if (fetched.proposal && fetched.proposal.installed)
-            root.status = Object.assign({}, root.status, { enabled: true, profile: fetched.proposal, bypass: false })
+          if (fetched.profile && fetched.profile.installed)
+            root.status = Object.assign({}, root.status, { enabled: true, profile: fetched.profile, bypass: false })
           root.message = fetched.message || "Loaded"
           Qt.callLater(root.refreshStatus)
         } else if (root.phase === "share") {
@@ -536,19 +524,17 @@ Item {
           } else root.message = ""
         } else if (root.phase === "import") {
           var loaded = JSON.parse(raw)
-          root.setProposal(loaded.proposal || null)
+          if (loaded.profile && loaded.profile.installed)
+            root.status = Object.assign({}, root.status, { enabled: true, profile: loaded.profile, bypass: false })
           root.message = loaded.message || "Loaded"
           Qt.callLater(root.refreshStatus)
-        } else if (root.phase === "compare") {
-          var compare = JSON.parse(raw)
-          var playing = compare[compare.active]
-          root.status = Object.assign({}, root.status, { compare: compare, bypass: false })
-          root.message = "Now playing: " + (playing && playing.label ? playing.label : compare.active)
-            + (compare.method === "restart" ? " · tuning restarted" : " · switched live")
         } else if (root.phase === "verify") {
           var check = JSON.parse(raw)
           root.status = Object.assign({}, root.status, { verification: check })
           root.message = root.verificationSummary(check)
+          // A check changes what sharing would publish and how it scores;
+          // the next step and the share rows read that from the status.
+          Qt.callLater(root.refreshStatus)
         } else if (root.phase === "deepbass") {
           var bass = JSON.parse(raw)
           root.status = Object.assign({}, root.status, {

@@ -1,0 +1,12 @@
+#!/bin/bash
+# Stands in for xdotool in the tests.
+printf '%s\n' "$*" >> "$FAKE_DIR/xdotool.log"
+if [[ " $* " == *" --file "* ]] || [[ ${!#} == - ]]; then
+  text=$(cat; printf .)
+  text=${text%.}
+  for ((i = 0; i < ${#text}; i++)); do
+    printf '%s' "${text:i:1}" >> "$FAKE_DIR/typed"
+    sleep "${FAKE_KEY_SECONDS:-0}"
+  done
+fi
+exit 0

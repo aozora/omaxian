@@ -13,6 +13,7 @@
 #include <QProcess>
 #include <QLockFile>
 #include <memory>
+#include <utility>
 #include "writer.h"
 #include "edit.h"
 #include "thumbnails.h"
@@ -28,6 +29,7 @@ class Backend : public QObject {
     Q_PROPERTY(int cameraIndex READ cameraIndex NOTIFY devicesChanged)
     Q_PROPERTY(int microphoneIndex READ microphoneIndex NOTIFY devicesChanged)
     Q_PROPERTY(bool ready READ ready NOTIFY changed)
+    Q_PROPERTY(bool mirror READ mirror NOTIFY mirrorChanged)
     Q_PROPERTY(bool audioEnabled READ audioEnabled NOTIFY changed)
     Q_PROPERTY(bool takeActive READ takeActive NOTIFY changed)
     Q_PROPERTY(bool dialogOpen READ dialogOpen NOTIFY changed)
@@ -58,6 +60,7 @@ public:
     int cameraIndex() const;
     int microphoneIndex() const;
     bool ready() const;
+    bool mirror() const { return m_mirror; }
     bool audioEnabled() const { return m_audioId != "none"; }
     bool takeActive() const { return m_writer != nullptr; }
     bool dialogOpen() const { return m_dialogOpen; }
@@ -79,6 +82,7 @@ public:
     Q_INVOKABLE void setPreview(QObject *sink);
     Q_INVOKABLE void selectCamera(int index);
     Q_INVOKABLE void selectMicrophone(int index);
+    Q_INVOKABLE void setMirror(bool value);
     Q_INVOKABLE void retry();
     Q_INVOKABLE void toggleRecording();
     Q_INVOKABLE void finish();
@@ -99,9 +103,12 @@ public:
     Q_INVOKABLE void closeTake();
     Q_INVOKABLE void discardAndClose();
     Q_INVOKABLE void discardCurrent();
+    // Rebuilds the labels the backend wrote itself, after a language change. Messages already shown stay as they were.
+    void retranslate();
 signals:
     void changed();
     void devicesChanged();
+    void mirrorChanged();
     void meterChanged();
     void editChanged();
     void safeToClose();
@@ -109,13 +116,16 @@ signals:
 private:
     qint64 now() const { return m_wall.nsecsElapsed() / 1000; }
     void refreshDevices();
+    // The camera and microphone choices; whether the selected camera and microphone are missing.
+    std::pair<bool,bool> listDevices();
+    QString describeFormat() const;
     void activateSources();
     // keepPicture leaves the last camera frame on screen, e.g. while a stopped take finalizes.
     void releaseSources(bool keepPicture = false);
     void readAudio();
     void receiveAudio(const QByteArray &data, qint64 capturedAt);
     void finishWhenCaptured();
-    void receiveVideo(const QVideoFrame &frame);
+    void receiveVideo(QVideoFrame frame);
     void tick();
     void sourceFailed(const QString &message);
     void startTake();
@@ -142,6 +152,7 @@ private:
     QAudioFormat m_audioFormat;
     QVideoFrame m_lastFrame;
     QCameraFormat m_cameraFormat;
+    QVideoFrameFormat::ColorSpace m_colorSpace = QVideoFrameFormat::ColorSpace_Undefined;
     QElapsedTimer m_wall;
     QTimer m_tick;
     QTimer m_finishTimeout;
@@ -170,5 +181,6 @@ private:
     qint64 m_clipUntil = 0, m_peakUntil = 0, m_signalAt = 0;
     double m_duration = 0, m_level = -60, m_peak = -60, m_pendingPeak = 0, m_fps = 30;
     bool m_cameraHealthy = false, m_audioHealthy = false, m_dialogOpen = false;
+    bool m_mirror = true;
     bool m_hasSaved = false, m_discardAfter = false, m_restartAfter = false, m_probing = false;
 };

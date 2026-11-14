@@ -6,7 +6,7 @@ signal to play it, or click a country to browse its stations. Playback runs in
 pause, previous, and next controls.
 
 Port of [AksharP5/omarchy-radio-atlas](https://github.com/AksharP5/omarchy-radio-atlas)
-(upstream commit `cb604f7`, version 0.1.9). Upstream won the
+(upstream commit `d8f10a5`, version 0.2.0). Upstream won the
 [first Omarchy plugin competition](https://omarchy.org/news/2026/08/the-first-plugin-competition-winners/).
 
 Plugin id: `akshar.radio-atlas` (unchanged). Optional — not installed by
@@ -23,9 +23,13 @@ pattern.
 | Dynamic Lua window_rule before map | No-op sizing handshake; float/center via i3 `for_window` |
 | Attached window opacity fade-in | Dropped (`FloatingWindow` has no `opacity` here; maps immediately) |
 | Screensaver dismiss via compositor window events | Dropped (Omaxian uses `xss-lock` / `i3lock`, not a QS screensaver surface) |
-| Wayland clipboard CLI for track copy | `xclip` (fallback `xsel`) |
+| Wayland paste CLI / shell clipboard | `xclip` (fallback `xsel`) for track copy and search paste (`radio-clipboard`) |
 | mpv `--audio-device=pipewire/<sink>` only | `pipewire/` or `pulse/` chosen from available mpv AOs |
 | Arch / session-manager / user-unit docs | Debian apt deps below |
+
+v0.2.0 upstream also adds bounded helper timeouts (`RadioProcess` / `radio-run`),
+TLS retry for directory fetches, stable mute-button width, and marketplace-bound
+radio resources.
 
 Stock i3 ships a matching rule in `omaxian/.config/i3/config.d/05_rules.conf`
 (`title="^Radio Atlas$"`). After deploy, `i3-msg reload` picks it up.
@@ -37,7 +41,7 @@ Stock i3 ships a matching rule in `omaxian/.config/i3/config.d/05_rules.conf`
 | `mpv`, `socat`, `jq`, `bubblewrap`, `curl`, `iproute2`, `file` | player, fetch sandbox, status |
 | `python3`, `python3-dbus`, `python3-gi` | MPRIS bridge + helpers |
 | `pulseaudio-utils` (or PipeWire pulse compat providing `pactl`) | output list / sink names |
-| `xclip` (or `xsel`) | copy track metadata |
+| `xclip` (or `xsel`) | copy track metadata and search paste |
 
 ```bash
 sudo apt install bubblewrap curl iproute2 jq mpv python3 python3-dbus python3-gi \

@@ -10,6 +10,7 @@ sink (the default), so that is what is watched.
 """
 
 import importlib.util
+import select
 import signal
 import subprocess
 import sys
@@ -19,6 +20,8 @@ from pathlib import Path
 HELPER = Path(__file__).resolve().parent / "speaker-calibrate.py"
 VOLUME_EPSILON_DB = 0.4
 RETRY_SECONDS = 2.0
+SETTLE_SECONDS = 0.12
+SETTLE_LIMIT_SECONDS = 0.6
 
 
 def load_helper():
@@ -63,7 +66,8 @@ class Tracker:
       self.input_gain = float(
         (profile.get("fit") or {}).get("input_gain_linear", 1.0))
       # Virtual sink is the default users hear; its volume is the listening level.
-      self.sink = self.helper.VIRTUAL_SINK
+      sink = getattr(self.helper, "listening_sink", lambda p: None)(profile)
+      self.sink = sink or self.helper.VIRTUAL_SINK
       self.profile_stamp = stamp
     return self.enabled
 
@@ -88,17 +92,33 @@ class Tracker:
   def watch(self):
     try:
       events = subprocess.Popen(
-        ["/usr/bin/pactl", "subscribe"], stdout=subprocess.PIPE, text=True
+        ["/usr/bin/pactl", "subscribe"], stdout=subprocess.PIPE, bufsize=0
       )
     except OSError:
       return False
     try:
-      for line in events.stdout:
+      out = events.stdout
+      while True:
+        line = out.readline()
+        if not line:
+          return False
         if not self.running:
           return True
-        if "on sink" in line and not self.follow_volume():
+        if b"on sink" not in line:
+          continue
+        ended = False
+        deadline = time.monotonic() + SETTLE_LIMIT_SECONDS
+        while time.monotonic() < deadline:
+          ready, _, _ = select.select([out], [], [], SETTLE_SECONDS)
+          if not ready:
+            break
+          if not out.readline():
+            ended = True
+            break
+        if not self.follow_volume():
           return False
-      return False
+        if ended:
+          return False
     finally:
       events.terminate()
       try:
