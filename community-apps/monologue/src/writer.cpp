@@ -9,6 +9,50 @@
 #include <cstring>
 #include <turbojpeg.h>
 
+// Excalibur ships libjpeg-turbo 2.1 (tj* API). Upstream Monologue targets
+// TurboJPEG 3 (tj3*). Map the few calls used here when TJ3 is absent.
+#if !defined(TJINIT_DECOMPRESS)
+#ifndef TJINIT_DECOMPRESS
+#define TJINIT_DECOMPRESS 0
+#endif
+namespace {
+inline tjhandle tj3Init(int) { return tjInitDecompress(); }
+inline void tj3Destroy(tjhandle h) { tjDestroy(h); }
+enum { TJPARAM_JPEGWIDTH = 0, TJPARAM_JPEGHEIGHT = 1, TJPARAM_SUBSAMP = 2 };
+struct Tj3Header {
+  int width = 0, height = 0, subsamp = -1;
+};
+thread_local Tj3Header tj3Header;
+inline int tj3DecompressHeader(tjhandle h, const unsigned char *jpeg, size_t size) {
+  int colorspace = 0;
+  if (tjDecompressHeader3(h, jpeg, unsigned(size), &tj3Header.width, &tj3Header.height,
+                          &tj3Header.subsamp, &colorspace) != 0)
+    return -1;
+  return 0;
+}
+inline int tj3Get(tjhandle, int param) {
+  switch (param) {
+  case TJPARAM_JPEGWIDTH: return tj3Header.width;
+  case TJPARAM_JPEGHEIGHT: return tj3Header.height;
+  case TJPARAM_SUBSAMP: return tj3Header.subsamp;
+  default: return -1;
+  }
+}
+inline int tj3YUVPlaneWidth(int component, int width, int subsamp) {
+  return tjPlaneWidth(component, width, subsamp);
+}
+inline int tj3YUVPlaneHeight(int component, int height, int subsamp) {
+  return tjPlaneHeight(component, height, subsamp);
+}
+inline int tj3DecompressToYUVPlanes8(tjhandle h, const unsigned char *jpeg, size_t size,
+                                     unsigned char **planes, int *strides) {
+  return tjDecompressToYUVPlanes(h, jpeg, unsigned(size), planes, tj3Header.width, strides,
+                                 tj3Header.height, 0);
+}
+inline int tj3GetErrorCode(tjhandle h) { return tjGetErrorCode(h); }
+} // namespace
+#endif
+
 namespace {
 // Qt chooses the encoder's input format from the source frame's. For RGB it
 // asks for 12-bit 4:4:4 and for packed 4:2:2 for 10-bit 4:2:2, both of which

@@ -1,30 +1,58 @@
-#!/usr/bin/env sh
-set -eu
+#!/bin/bash
+# Build Signed. Prefer upstream CMake; fall back to signed.pro (Omaxian) when
+# the local Qt tree has qmake but incomplete cmake support (no qtpaths / no
+# libs under CMAKE_PREFIX_PATH — typical ~/.local/opt/omaxian-qt6-* layout).
+set -euo pipefail
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-BUILD_DIR="$ROOT/build"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$root/build"
+
+if command -v nproc >/dev/null 2>&1; then
+  JOBS="$(nproc)"
+else
+  JOBS=1
+fi
+
+cmake_ok=0
+if command -v cmake >/dev/null 2>&1 && [[ -f $root/CMakeLists.txt ]]; then
+  probe="$BUILD_DIR/.cmake-probe"
+  rm -rf "$probe"
+  if cmake -S "$root" -B "$probe" -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1; then
+    cmake_ok=1
+  fi
+  rm -rf "$probe"
+fi
+
+if (( cmake_ok )); then
+  if [[ -f $BUILD_DIR/Makefile && ! -f $BUILD_DIR/CMakeCache.txt ]]; then
+    rm -rf "$BUILD_DIR"
+  fi
+  cmake -S "$root" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release >/dev/null
+  cmake --build "$BUILD_DIR" -j"$JOBS"
+  echo "Built $BUILD_DIR/signed (cmake)"
+  exit 0
+fi
+
+if [[ ! -f $root/signed.pro ]]; then
+  echo "cmake could not configure Qt6, and signed.pro is missing for the qmake fallback." >&2
+  exit 1
+fi
 
 if command -v qmake6 >/dev/null 2>&1; then
   QMAKE=qmake6
 elif command -v qmake >/dev/null 2>&1; then
   QMAKE=qmake
 else
-  echo "qmake6 or qmake is required to build signed." >&2
+  echo "cmake could not find a working Qt6, and qmake6/qmake is missing." >&2
+  echo "Install matching Qt headers under ~/.local/opt/omaxian-qt6-<mm>/ (with qmake6), or a full qt6-*-dev set." >&2
   exit 1
 fi
 
-if command -v nproc >/dev/null 2>&1; then
-  JOBS="$(nproc)"
-elif command -v sysctl >/dev/null 2>&1; then
-  JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 1)"
-else
-  JOBS=1
-fi
-
 mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
-
-"$QMAKE" "$ROOT/signed.pro"
-make -j"$JOBS"
-
-echo "Built $BUILD_DIR/signed"
+rm -f "$BUILD_DIR/CMakeCache.txt"
+(
+  cd "$BUILD_DIR"
+  "$QMAKE" "$root/signed.pro"
+  make -j"$JOBS"
+)
+echo "Built $BUILD_DIR/signed (qmake)"

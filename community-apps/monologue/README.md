@@ -16,7 +16,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Upstream (Omarchy / Hyprland) | This port |
 | ----------------------------- | --------- |
 | `omarchy pkg add` / `makepkg` (`bin/install`) | Debian `install.sh` → `~/.local`. Arch script kept as `bin/install.arch` |
-| CMake build (`./bin/build`) | Same; upstream dropped qmake/`.pro` |
+| CMake build (`./bin/build`) | Prefers CMake; falls back to `monologue.pro` when the local `omaxian-qt6-*` tree has qmake but incomplete cmake (no qtpaths / libs). Excalibur's libjpeg-turbo 2.1 gets a TurboJPEG 3 shim in `writer.cpp`. |
 | Wayland session, `qt6-wayland` on the desktop | XCB via `qt6-qpa-plugins`. No Wayland module |
 | Corner radius from `hyprctl` | Unchanged; already gated on `HYPRLAND_INSTANCE_SIGNATURE` (square corners on i3) |
 | File chooser via xdg-desktop-portal | Same, with `xdg-desktop-portal-gtk` |
