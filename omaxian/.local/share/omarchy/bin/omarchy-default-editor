@@ -1,8 +1,10 @@
 #!/bin/bash
 
 # omarchy:summary=Set the default editor used by omarchy-launch-editor
-# omarchy:args=[code|cursor|zed|sublime_text|helix|vim|emacs|nvim]
-# omarchy:examples=omarchy-default-editor | omarchy-default-editor code | omarchy-default-editor helix
+# omarchy:args=[plain|code|cursor|zed|sublime_text|helix|vim|emacs|nvim]
+# omarchy:examples=omarchy-default-editor | omarchy-default-editor plain | omarchy-default-editor helix
+
+: "${OMARCHY_PATH:=$HOME/.local/share/omarchy}"
 
 editor_file="$HOME/.local/state/omarchy/defaults/editor"
 
@@ -11,26 +13,45 @@ if (( $# == 0 )); then
     read -r editor <"$editor_file"
   fi
 
-  [[ -n $editor ]] && echo "$editor" || echo "nvim"
+  # sublime-text-4 ships `subl`; older defaults stored `sublime_text`.
+  [[ $editor == sublime_text ]] && editor=subl
+
+  [[ -n $editor ]] && echo "$editor" || echo "plain"
   exit 0
 fi
 
 case "$1" in
+plain) editor="plain"; name="Plain"; glyph= ;;
 code) editor="code"; name="VSCode"; glyph= ;;
 cursor) editor="cursor"; name="Cursor"; glyph= ;;
 zed | zeditor) editor="zeditor"; name="Zed"; glyph= ;;
-sublime_text) editor="sublime_text"; name="Sublime Text"; glyph= ;;
+sublime_text | subl) editor="subl"; name="Sublime Text"; glyph= ;;
 helix) editor="helix"; name="Helix"; glyph= ;;
 vim) editor="vim"; name="Vim"; glyph= ;;
 emacs) editor="emacs"; name="Emacs"; glyph= ;;
 nvim) editor="nvim"; name="Neovim"; glyph= ;;
 *)
-  echo "Usage: omarchy-default-editor <code|cursor|zed|sublime_text|helix|vim|emacs|nvim>"
+  echo "Usage: omarchy-default-editor <plain|code|cursor|zed|sublime_text|helix|vim|emacs|nvim>"
   exit 1
   ;;
 esac
 
+if ! omarchy-cmd-present "$editor"; then
+  if [[ $editor == plain ]]; then
+    omarchy-notification-send -u critical "Plain is not installed" \
+      "Build it with community-apps/plain/install.sh, then pick Plain again."
+    echo "Plain is not installed. Run: community-apps/plain/install.sh" >&2
+    exit 1
+  fi
+fi
+
 mkdir -p "$(dirname "$editor_file")"
 printf '%s\n' "$editor" >"$editor_file"
+
+# Point text MIME types at omarchy-launch-editor.desktop so file managers and
+# other apps follow Setup → Default → Editor (including Plain).
+if command -v omarchy-cmd-editor-mimetypes >/dev/null 2>&1; then
+  omarchy-cmd-editor-mimetypes
+fi
 
 omarchy-notification-send -g $glyph "$name is now the default editor"

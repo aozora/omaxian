@@ -14,7 +14,7 @@
     "category": "Local",
     "allowMultiple": false,
     "defaults": {
-      "icon": "",
+      "icon": "",
       "iconFont": ""
     },
     "schema": [
@@ -22,8 +22,8 @@
         "key": "icon",
         "type": "string",
         "label": "Icon glyph",
-        "description": "Single glyph shown on the bar. Default is the xbox (U+ued3e). Must exist in the bar font (monospace → typically JetBrainsMono Nerd Font) unless Icon font is set.",
-        "defaultValue": ""
+        "description": "Single glyph shown on the bar. Default is nf-linux-devuan (U+F307). Must exist in the bar font (monospace → typically JetBrainsMono Nerd Font) unless Icon font is set.",
+        "defaultValue": ""
       },
       {
         "key": "iconFont",

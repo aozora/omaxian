@@ -56,6 +56,16 @@ Monologue/Signed), it uses that prefix via `CMAKE_PREFIX_PATH`.
 Open **Text Editor** from the launcher, or `plain path/to/file`. Works as
 `$EDITOR` / `$VISUAL` / `$SUDO_EDITOR` (foreground until the window closes).
 
+After install, make it the desktop default (config menu, MIME, `$EDITOR`):
+
+```bash
+omarchy-default-editor plain
+```
+
+That is also the unread default when nothing is saved under
+`~/.local/state/omarchy/defaults/editor` (falls back to Neovim if `plain` is
+missing). Setup → Default → Editor lists Plain first.
+
 ## Smoke check
 
 1. `plain --version` prints a version without needing a display.

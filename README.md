@@ -455,7 +455,7 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | [Monologue](community-apps/monologue/) | Webcam recorder: one key to record, then trim and save |
 | [Signed](community-apps/signed/) | Sign a PDF and place text or dates on a copy |
 | [disktree](community-apps/disktree/) | Disk treemap: see what fills a volume, then remove it |
-| [Plain](community-apps/plain/) | Config/text editor: one file, Omarchy theme, careful saves |
+| [Plain](community-apps/plain/) | Config/text editor: one file, Omarchy theme, careful saves. After install, `omarchy-default-editor plain` (Setup → Default → Editor) makes it the config/MIME/`$EDITOR` default |
 | [Omacalc](community-apps/omacalc/) | Simple calculator that follows the Omarchy theme |
 | [Omacut](community-apps/omacut/) | Video trimmer/editor (ffmpeg export) |
 | [Omawrite](community-apps/omawrite/) | Markdown writing app with auto-save and Omarchy theme |

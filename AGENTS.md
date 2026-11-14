@@ -92,6 +92,7 @@ Use these instead of raw shell commands where they exist:
 - `omarchy-idle-lock-apply` - apply Settings → Lock screen idle auto-lock (`xss-lock` + `xset`)
 - `i3lock-omaxian` - lock screen compositor (screenshot / image / random; `--preview`)
 - `omarchy-session-is-i3` - exit 0 only in a live i3 session
+- `omarchy-default-editor` / `omarchy-launch-editor` / `omarchy-cmd-editor-mimetypes` - Setup → Default → Editor (Plain when installed; MIME via `omarchy-launch-editor.desktop`)
 
 There is no `omarchy-pkg-add` / `omarchy-pkg-drop`. Install packages with `apt` (via `scripts/setup.sh` for the default desktop sets; community-plugin deps via `omaxian.deps.json`). Do not add `pacman` or AUR paths.
 
