@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Text Editor
+Comment=Edit config and text files
+Exec=plain -- %f
+Icon=plain
+Terminal=false
+Categories=Utility;TextEditor;
+Keywords=text;editor;config;
+MimeType=text/plain;text/x-lua;text/css;text/x-shellscript;application/x-shellscript;application/json;application/toml;application/x-yaml;application/yaml;text/x-ini;application/x-desktop;text/x-systemd-unit;
+StartupWMClass=plain

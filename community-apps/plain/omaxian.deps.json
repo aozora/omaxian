@@ -1,0 +1,30 @@
+{
+  "apt": [
+    "qml6-module-qtcore",
+    "qml6-module-qtquick",
+    "qml6-module-qtquick-controls",
+    "qml6-module-qtquick-layouts",
+    "qml6-module-qtquick-templates",
+    "qml6-module-qtqml",
+    "qml6-module-qtqml-workerscript",
+    "qt6-qpa-plugins",
+    "xdg-desktop-portal",
+    "xdg-desktop-portal-gtk"
+  ],
+  "apt_build": [
+    "build-essential",
+    "cmake",
+    "pkg-config",
+    "qmake6",
+    "qt6-base-dev",
+    "qt6-declarative-dev"
+  ],
+  "manual": [
+    "Build with community-apps/plain/install.sh. Prefers CMake; falls back to plain.pro + qmake6. Stock Devuan Excalibur Qt 6.8 is enough; there is no Qt ≥ 6.9 pin.",
+    "When apt's qt6-*-dev candidate would downgrade libqt6core, use a matching ~/.local/opt/omaxian-qt6-<mm>/ (same layout as Monologue/Signed). install.sh puts that prefix on PATH / CMAKE_PREFIX_PATH.",
+    "Runtime needs qml6-module-qtcore (Main.qml imports QtCore for StandardPaths/StandardKey). If apt cannot match libqt6core, place QtCore under ~/.local/lib/qt6/qml/ — install.sh then wraps ~/.local/bin/plain like Monologue.",
+    "Open/Save uses xdg-desktop-portal; install.sh pulls in the GTK backend.",
+    "Hyprland corner rounding is skipped when HYPRLAND_INSTANCE_SIGNATURE is unset, so corners stay square on i3.",
+    "Text size follows [font] base-size in ~/.config/omarchy/shell.toml (Settings → Appearance), then the theme's shell.toml, else 12px."
+  ]
+}

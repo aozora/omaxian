@@ -455,6 +455,7 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | [Monologue](community-apps/monologue/) | Webcam recorder: one key to record, then trim and save |
 | [Signed](community-apps/signed/) | Sign a PDF and place text or dates on a copy |
 | [disktree](community-apps/disktree/) | Disk treemap: see what fills a volume, then remove it |
+| [Plain](community-apps/plain/) | Config/text editor: one file, Omarchy theme, careful saves |
 
 Details: [`community-apps/README.md`](community-apps/README.md).
 
