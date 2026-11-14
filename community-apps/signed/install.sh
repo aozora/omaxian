@@ -118,7 +118,25 @@ use_local_qt_if_present() {
     PKG_CONFIG_PATH="$pc_dir${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     export PKG_CONFIG_PATH
   fi
+  # Local poppler-qt6.pc points at ~/.local/lib (see omaxian-qt6 overlay).
+  if [[ -e $HOME/.local/lib/libpoppler-qt6.so || -e $local_qt_prefix/lib/x86_64-linux-gnu/libpoppler-qt6.so ]]; then
+    local_poppler_qt6=1
+  fi
   echo ">> local Qt prefix $local_qt_prefix"
+}
+
+local_poppler_qt6=0
+
+# Pick libpoppler-qt6-3t64 at the same version as installed libpoppler147.
+# Security-suite Candidate can lag/lead main and exact-Depends then fail.
+apt_poppler_qt6_pkg() {
+  local core_ver
+  core_ver=$(dpkg-query -W -f '${Version}' libpoppler147 2>/dev/null || true)
+  if [[ -n $core_ver ]] && apt-cache show "libpoppler-qt6-3t64=$core_ver" >/dev/null 2>&1; then
+    printf 'libpoppler-qt6-3t64=%s\n' "$core_ver"
+    return 0
+  fi
+  printf 'libpoppler-qt6-3t64\n'
 }
 
 install_apt() {
@@ -127,19 +145,31 @@ install_apt() {
     echo "apt-get not found; install deps yourself (see omaxian.deps.json)" >&2
     return 0
   fi
-  local packages=("${apt_runtime[@]}" "${apt_build[@]}")
+  local packages=() pkg
   if [[ -n $local_qt_prefix ]]; then
-    local kept=() pkg
-    for pkg in "${packages[@]}"; do
+    for pkg in "${apt_runtime[@]}" "${apt_build[@]}"; do
       case "$pkg" in
         qt6-*|libqt6*|qml6-*|libpoppler-qt6-dev|libqpdf-dev) ;;
-        *) kept+=("$pkg") ;;
+        libpoppler-qt6-3t64)
+          if (( local_poppler_qt6 )); then
+            echo ">> skip $pkg (local tree / ~/.local/lib already has libpoppler-qt6)"
+          else
+            packages+=("$(apt_poppler_qt6_pkg)")
+          fi
+          ;;
+        *) packages+=("$pkg") ;;
       esac
     done
-    packages=("${kept[@]}")
     echo ">> matching Qt headers under $local_qt_prefix; skipping apt Qt and poppler-dev packages"
   else
     refuse_qt_downgrade
+    for pkg in "${apt_runtime[@]}" "${apt_build[@]}"; do
+      if [[ $pkg == libpoppler-qt6-3t64 ]]; then
+        packages+=("$(apt_poppler_qt6_pkg)")
+      else
+        packages+=("$pkg")
+      fi
+    done
   fi
   if (( ${#packages[@]} == 0 )); then
     return 0

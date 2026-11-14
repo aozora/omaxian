@@ -16,6 +16,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | ----------------------------- | --------- |
 | `omarchy pkg add` / `makepkg` (`bin/install`) | Debian `install.sh` → `~/.local`. Arch script kept as `bin/install.arch` |
 | CMake build (`./bin/build`) | Prefers CMake; falls back to `signed.pro` (`c++20`) when the local `omaxian-qt6-*` tree has qmake but incomplete cmake |
+| apt `libpoppler-qt6-3t64` at Candidate | Skipped when `~/.local/opt/omaxian-qt6-*` already ships it; otherwise pinned to the installed `libpoppler147` version (security-suite Candidate can exact-Depends-mismatch) |
 | Runtime dep `qt6-wayland` | Not installed. The binary is a `QGuiApplication` and uses XCB |
 | Corner radius from `hyprctl` | Unchanged; already gated on `HYPRLAND_INSTANCE_SIGNATURE` (square corners on i3) |
 | `noto-fonts`, `poppler-qt6`, `qpdf`, `nss` | `fonts-noto-core`, `libpoppler-qt6-3t64`, `libqpdf30`, `libnss3` |
