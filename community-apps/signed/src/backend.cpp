@@ -86,24 +86,24 @@ bool Backend::openUrl(const QUrl &url) {
     const QString path = url.isLocalFile() ? url.toLocalFile() : url.toString();
     const QString name = QFileInfo(path).fileName();
     if (!QFileInfo(path).isFile()) {
-        setNotice(QStringLiteral("Can't find %1.").arg(name));
+        setNotice(tr("Can't find %1.").arg(name));
         return false;
     }
 
     std::unique_ptr<Poppler::Document> document = Poppler::Document::load(path);
     if (!document) {
-        setNotice(QStringLiteral("%1 isn't a PDF Signed can read.").arg(name));
+        setNotice(tr("%1 isn't a PDF Signed can read.").arg(name));
         return false;
     }
     if (document->isLocked()) {
-        setNotice(QStringLiteral("%1 is password protected.").arg(name));
+        setNotice(tr("%1 is password protected.").arg(name));
         return false;
     }
     // Saving goes through qpdf, so make sure it can read the file too before
     // anyone spends time signing it.
     QString error;
     if (Stamper::pageSizes(path, &error).isEmpty()) {
-        setNotice(QStringLiteral("Can't sign %1: %2").arg(name, error));
+        setNotice(tr("Can't sign %1: %2").arg(name, error));
         return false;
     }
 
@@ -113,7 +113,7 @@ bool Backend::openUrl(const QUrl &url) {
         sizes.append(page ? page->pageSizeF() : QSizeF(612, 792));
     }
     if (sizes.isEmpty()) {
-        setNotice(QStringLiteral("%1 has no pages.").arg(name));
+        setNotice(tr("%1 has no pages.").arg(name));
         return false;
     }
 
@@ -124,7 +124,7 @@ bool Backend::openUrl(const QUrl &url) {
         m_pages->setDocument(m_path, m_generation);
     m_items.clear();
     m_items.setPageSizes(sizes);
-    m_savedRevision = m_items.revision();
+    m_savedItems.clear();
     m_settings->setValue("folder", QFileInfo(m_path).absolutePath());
     setNotice({});
     emit documentChanged();
@@ -143,17 +143,17 @@ bool Backend::saveTo(const QString &target) {
     if (!hasDocument() || target.isEmpty())
         return false;
     if (samePath(target, m_path)) {
-        setNotice(QStringLiteral("Save the signed copy under a new name — the original stays as it is."));
+        setNotice(tr("Save the signed copy under a new name — the original stays as it is."));
         return false;
     }
 
-    const int revision = m_items.revision();
+    const QList<Item> items = m_items.items();
     const Stamper::Result result = Stamper::stamp(m_path, target, m_items.stamps());
     if (!result.error.isEmpty()) {
-        setNotice(QStringLiteral("Couldn't save: %1").arg(result.error));
+        setNotice(tr("Couldn't save: %1").arg(result.error));
         return false;
     }
-    m_savedRevision = revision;
+    m_savedItems = items;
     emit dirtyChanged();
     emit saved();
 
@@ -196,13 +196,13 @@ bool Backend::saveTo(const QString &target) {
     // A failure outranks a partial success: a copy missing one of its
     // certificates must say so.
     if (cancelled)
-        setNotice(QStringLiteral("Saved %1, but signing was cancelled.").arg(QFileInfo(target).fileName()));
+        setNotice(tr("Saved %1, but signing was cancelled.").arg(QFileInfo(target).fileName()));
     else if (!failure.isEmpty())
-        setNotice(QStringLiteral("Saved %1, but signing failed: %2").arg(QFileInfo(target).fileName(), failure));
+        setNotice(tr("Saved %1, but signing failed: %2").arg(QFileInfo(target).fileName(), failure));
     else if (!signedWith.isEmpty())
-        setNotice(QStringLiteral("Saved %1, signed with %2").arg(QFileInfo(target).fileName(), signedWith.join(QStringLiteral(", "))));
+        setNotice(tr("Saved %1, signed with %2").arg(QFileInfo(target).fileName(), signedWith.join(QStringLiteral(", "))));
     else
-        setNotice(result.warning.isEmpty() ? QStringLiteral("Saved %1").arg(QFileInfo(target).fileName()) : result.warning);
+        setNotice(result.warning.isEmpty() ? tr("Saved %1").arg(QFileInfo(target).fileName()) : result.warning);
     return true;
 }
 
@@ -214,7 +214,7 @@ QString Backend::lastSignature() const {
 int Backend::placeSignature(const QString &name, int page, qreal centerX, qreal centerY) {
     const QImage image = m_signatures->image(name);
     if (image.isNull() || page < 0 || page >= pageCount()) {
-        setNotice(QStringLiteral("Can't find the signature “%1”.").arg(name));
+        setNotice(tr("Can't find the signature “%1”.").arg(name));
         return -1;
     }
     qreal width = m_settings->value("signatureWidth/" + name, DefaultSignatureWidth).toReal();
@@ -281,7 +281,7 @@ bool Backend::loadSignatureImage(const QString &path) {
         return false;
     }
     m_previewSource = image;
-    m_previewName = m_signatures->count() == 0 ? QStringLiteral("Signature") : QString();
+    m_previewName = m_signatures->count() == 0 ? tr("Signature") : QString();
     updatePreview();
     emit signatureImageReady();
     return true;
@@ -305,21 +305,30 @@ QImage Backend::previewImage(const QString &which) const {
 }
 
 QString Backend::saveSignature(const QString &name, const QString &organization, const QString &certId) {
-    const QString error = m_signatures->add(name, m_preview);
-    if (!error.isEmpty())
-        return error;
-    // A replaced signature should start at its new natural size.
-    m_settings->remove("signatureWidth/" + name.trimmed());
+    if (const QString invalid = m_signatures->validateName(name); !invalid.isEmpty())
+        return invalid;
+    if (m_preview.isNull())
+        return tr("There's no signature in that image.");
 
     // The dialog sends a certificate id, "new" for a fresh self-signed one
     // made for this signature (Common Name = name, Organization =
-    // organization), or nothing for no certificate at all.
+    // organization), or nothing for no certificate at all. A new one is made
+    // first, so failing to make it leaves the saved signature as it was.
     QString bound = certId;
     if (bound == QLatin1String("new")) {
         const QString failure = Signer::createCertificate(name, organization, &bound);
         if (!failure.isEmpty())
             return failure;
     }
+
+    const QString error = m_signatures->add(name, m_preview);
+    if (!error.isEmpty()) {
+        if (certId == QLatin1String("new"))
+            Signer::removeCertificate(bound);
+        return error;
+    }
+    // A replaced signature should start at its new natural size.
+    m_settings->remove("signatureWidth/" + name.trimmed());
     if (bound.isEmpty())
         m_settings->remove("signatureKey/" + name.trimmed());
     else
@@ -334,7 +343,11 @@ QString Backend::saveSignature(const QString &name, const QString &organization,
 }
 
 void Backend::removeSignature(const QString &name) {
-    m_signatures->remove(name);
+    // Its size and seal go only with the image, so one that stays keeps them.
+    if (!m_signatures->remove(name)) {
+        setNotice(tr("Couldn't delete “%1”.").arg(name));
+        return;
+    }
     m_settings->remove("signatureWidth/" + name);
     m_settings->remove("signatureKey/" + name);
     emit lastSignatureChanged();

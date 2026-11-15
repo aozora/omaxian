@@ -45,9 +45,8 @@ pub fn run(detach: bool) -> std::process::ExitCode {
         }
     };
     let outcome = runtime.block_on(serve());
-    // Dropping the runtime would wait forever for a blocking task that cannot finish (a key
-    // derivation that was given absurd parameters); abandon it instead so the process exits
-    // and releases the instance lock.
+    // Dropping the runtime would wait for every blocking task; abandon anything still running
+    // so the process exits and releases the instance lock.
     runtime.shutdown_timeout(Duration::from_secs(1));
     match outcome {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -161,7 +160,7 @@ async fn client(daemon: Arc<Daemon>, stream: UnixStream) {
         if Daemon::is_async(&header.cmd) {
             let (daemon, replies) = (daemon.clone(), replies.clone());
             tokio::spawn(async move {
-                let reply = daemon.handle_async(&header.cmd, &line).await;
+                let reply = daemon.handle_async(&header.cmd, line).await;
                 let _ = replies.send(encode_reply(header.id, reply)).await;
             });
         } else {

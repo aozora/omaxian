@@ -5,7 +5,7 @@ calibration for the Omaxian bar.
 
 Port of
 [thefreshoffice/omarchy-speaker-calibrator](https://github.com/thefreshoffice/omarchy-speaker-calibrator)
-(upstream commit `08be2c30c74ed9dfa845aab2d3d64185056502f3`).
+(upstream commit `0ce90c6`, v1.3.0).
 
 Plugin id: `omaxian-speaker-pulseaudio-calibrator`. **PulseAudio only.** On
 PipeWire, install
@@ -34,6 +34,10 @@ the often-silent Stereo (headset jack) mic, and switches the card from
 Headphones to Speakers when measuring so the laptop mics can hear the sweeps.
 
 Measurement, fitting, safety limits, and the panel UX follow upstream.
+
+## v1.3.0 upstream features in this port
+
+Measurement, fitting, safety limits, the calibration library, registry sharing, and the expanded panel UX follow upstream v1.3.0. PipeWire-only trial hosts and built-in harmonic bass without bankstown live in the PipeWire plugin.
 
 ## Prerequisites
 

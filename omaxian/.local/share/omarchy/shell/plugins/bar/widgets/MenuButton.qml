@@ -8,8 +8,8 @@ import qs.Ui
 
 // Menu button: left-click / `launcher toggle` opens the Omarchy command
 // palette (`omarchy.menu` — apps + commands). Right-click / `runner toggle`
-// is the command runner. Glyph defaults to U+F011B (Archcraft cat); override
-// via shell.json layout settings `icon` / `iconFont`.
+// is the command runner. Glyph defaults to U+F307 (nf-linux-devuan);
+// override via shell.json layout settings `icon` / `iconFont`.
 // IPC for launcher/runner is owned by shell.qml (see callBarModule).
 BarWidget {
   id: root
@@ -20,8 +20,8 @@ BarWidget {
 
   readonly property string iconGlyph: {
     var _ = settings
-    var v = String(setting("icon", "\u{f011b}"))
-    return v.length > 0 ? v : "\u{f011b}"
+    var v = String(setting("icon", "\u{f307}"))
+    return v.length > 0 ? v : "\u{f307}"
   }
   readonly property string iconFontFamily: {
     var _ = settings

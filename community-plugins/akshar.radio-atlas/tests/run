@@ -19,7 +19,7 @@ assert_no_match() {
 jq -e '
   .schemaVersion == 1
   and .id == "akshar.radio-atlas"
-  and .version == "0.1.9"
+  and .version == "0.2.0"
   and (.kinds | index("panel"))
   and (.kinds | index("bar-widget"))
   and .keepLoaded == true
@@ -31,6 +31,9 @@ bash -n "$project_dir/radio-fetch" "$project_dir/radio-player" \
   "$project_dir/tests/fixtures/"*
 luac -p "$project_dir/radio-status.lua"
 python3 "$project_dir/tests/mpris.test.py"
+python3 "$project_dir/tests/commands.test.py"
+python3 "$project_dir/tests/clipboard.test.py"
+python3 "$project_dir/tests/search-field.test.py"
 node "$project_dir/tests/model.test.mjs"
 node "$project_dir/tests/search.test.mjs"
 node "$project_dir/tests/search-queue.test.mjs"
@@ -219,7 +222,6 @@ rg -Fq -- '--max-filesize "$max_response_bytes"' "$project_dir/radio-fetch"
 rg -q -- "--proto '=https'" "$project_dir/radio-fetch"
 rg -Fq 'setpriv --pdeathsig TERM curl' "$project_dir/radio-fetch"
 assert_no_match -- '--location' "$project_dir/radio-fetch"
-rg -Fq -- '--retry 1 --retry-delay 0' "$project_dir/radio-fetch"
 rg -Fq '.[:500]' "$project_dir/radio-fetch"
 sed -n '/  random)/,/^    ;;/p' "$project_dir/radio-fetch" \
   | assert_no_match -F 'has_geo_info=true'

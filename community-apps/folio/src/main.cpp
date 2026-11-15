@@ -1,0 +1,159 @@
+// folio — Omarchy's file manager: airy, keyboard-first, and following the theme.
+
+#include <QDir>
+#include <QFileInfo>
+#include <QFont>
+#include <QGuiApplication>
+#include <QIcon>
+#include <QQmlApplicationEngine>
+#include <QQmlEngine>
+#include <QQmlContext>
+#include <QQuickStyle>
+#include <QUrl>
+#include <cstdio>
+
+#include "filemanager1.h"
+#include "foldermodel.h"
+#include "places.h"
+#include "plugins.h"
+#include "previewer.h"
+#include "theme.h"
+#include "thumbnails.h"
+#include "translator.h"
+#include "windows.h"
+
+// Accepts a path, a file:// URI (how launchers and xdg-open pass folders),
+// or nothing for home. A file opens its folder with the file selected.
+static QString startPath(const QStringList &args, QString *select) {
+    if (args.size() < 2)
+        return QDir::homePath();
+    const QString arg = args.at(1);
+    const QUrl url(arg);
+    const QString path = url.isLocalFile() ? url.toLocalFile() : QFileInfo(arg).absoluteFilePath();
+    const QFileInfo info(path);
+    if (info.isDir())
+        return info.absoluteFilePath();
+    if (info.exists()) {
+        *select = info.fileName();
+        return info.absolutePath();
+    }
+    return QDir::homePath();
+}
+
+// Omarchy points fontconfig's monospace at the font picked in its menu, so
+// asking for "monospace" follows the user's choice.
+static void setUp(QGuiApplication &app) {
+    app.setApplicationName("folio");
+    // Settings (the chosen view) go to ~/.config/folio/folio.conf.
+    app.setOrganizationName("folio");
+    app.setWindowIcon(QIcon::fromTheme("folio"));
+    QFont font("monospace");
+    font.setStyleHint(QFont::Monospace);
+    font.setPixelSize(13);
+    app.setFont(font);
+    QQuickStyle::setStyle("Material");
+}
+
+// `folio preview [--hidden] [--sort name|kind|modified|oldest|size] [--follow] FILE`:
+// the large look at one file, stepping through its folder. Its own process,
+// so a file that crashes a decoder only closes this window.
+static int preview(QGuiApplication &app) {
+    // Qt's FFmpeg backend first tries every kind of video hardware it knows
+    // (VDPAU, CUDA, VA-API, Vulkan), which takes seconds before the first
+    // frame. A preview is a quick look, so it decodes in software and starts
+    // at once, unless the user picked the hardware themselves. Set before
+    // the multimedia plugin loads, when the window does.
+    for (const char *name : {"QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "QT_FFMPEG_ENCODING_HW_DEVICE_TYPES"})
+        if (!qEnvironmentVariableIsSet(name))
+            qputenv(name, "none");
+    QStringList args = app.arguments().mid(2);
+    bool showHidden = false;
+    bool follow = false;
+    QString sort = "name";
+    QString path;
+    while (!args.isEmpty()) {
+        const QString arg = args.takeFirst();
+        if (arg == "--hidden")
+            showHidden = true;
+        else if (arg == "--follow")
+            follow = true;
+        else if (arg == "--sort" && !args.isEmpty())
+            sort = args.takeFirst();
+        else
+            path = QUrl(arg).isLocalFile() ? QUrl(arg).toLocalFile() : arg;
+    }
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
+        fprintf(stderr, "usage: folio preview [--hidden] [--sort name|kind|modified|oldest|size] [--follow] FILE\n");
+        return 1;
+    }
+
+    // Its own app id / WM_CLASS, so window rules can float it the way Omarchy
+    // floats Sushi's previewer (Hyprland app_id; i3 class on X11).
+    app.setApplicationName("folio-preview");
+    app.setDesktopFileName("folio-preview");
+
+    Translator translator;
+    app.installTranslator(&translator);
+    Theme theme;
+    Thumbnails thumbnails;
+    Previewer previewer;
+    previewer.start(path, showHidden, sort);
+    if (follow)
+        previewer.connectToFolio();
+
+    QQmlApplicationEngine engine;
+    QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
+    QObject::connect(&translator, &Translator::changed, &previewer, &Previewer::relist);
+    engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
+    engine.rootContext()->setContextProperty("translator", &translator);
+    engine.rootContext()->setContextProperty("theme", &theme);
+    engine.rootContext()->setContextProperty("previewer", &previewer);
+    engine.load(QUrl("qrc:/PreviewWindow.qml"));
+    if (engine.rootObjects().isEmpty())
+        return 1;
+    return app.exec();
+}
+
+int main(int argc, char *argv[]) {
+    QGuiApplication app(argc, argv);
+    setUp(app);
+    if (app.arguments().value(1) == "preview")
+        return preview(app);
+
+    // Matches the window to folio.desktop, so the compositor (Wayland app_id)
+    // and the launcher pick up the installed icon.
+    app.setDesktopFileName("folio");
+
+    // Installed before anything is translated, and every qsTr() binding is
+    // re-evaluated when the Omarchy language changes.
+    Translator translator;
+    app.installTranslator(&translator);
+
+    Theme theme;
+    Places places;
+    Thumbnails thumbnails;
+    // Plugins' text follows the language too.
+    Plugins plugins(translator.language());
+    QObject::connect(&translator, &Translator::changed, &plugins, [&] { plugins.setLanguage(translator.language()); });
+
+    QString select;
+    const QString start = startPath(app.arguments(), &select);
+
+    QQmlEngine engine;
+    QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
+    engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
+    engine.addImageProvider("plugin-icon", new PluginIconProvider);
+    // Creatable too: the column view lists each folder on the way here.
+    qmlRegisterType<FolderModel>("Folio", 1, 0, "FolderModel");
+    engine.rootContext()->setContextProperty("translator", &translator);
+    engine.rootContext()->setContextProperty("theme", &theme);
+    engine.rootContext()->setContextProperty("places", &places);
+    engine.rootContext()->setContextProperty("plugins", &plugins);
+
+    Windows windows(&engine, &plugins);
+    if (!windows.open(start, select))
+        return 1;
+    FileManager1::registerOn(&windows);
+
+    return app.exec();
+}

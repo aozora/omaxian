@@ -1,0 +1,33 @@
+#!/bin/bash
+# Stands in for xclip in the tests. Writes selections to $FAKE_DIR/clipboard or primary.
+args=" $* "
+which=clipboard
+[[ $args == *" primary "* ]] && which=primary
+if [[ $args == *" -o "* ]]; then
+  if [[ -f $FAKE_DIR/$which ]]; then
+    cat "$FAKE_DIR/$which"
+  elif [[ -f $FAKE_DIR/$which.kept ]]; then
+    cat "$FAKE_DIR/$which.kept"
+  fi
+  exit 0
+fi
+case ${FAKE_XCLIP:-} in
+  fails) exit 1 ;;
+  stalls)
+    printf 'stalled\n' >> "$FAKE_DIR/xclip.log"
+    exec sleep 600
+    ;;
+esac
+if [[ $args != *" -o "* ]]; then
+  printf 'write %s\n' "$*" >> "$FAKE_DIR/xclip.log"
+  if cat > "$FAKE_DIR/$which"; then
+    if [[ ${FAKE_XCLIP:-} == taken-over ]]; then
+      cp "$FAKE_DIR/$which" "$FAKE_DIR/$which.kept"
+      rm -f "$FAKE_DIR/$which"
+      printf 'clear %s\n' "$which" >> "$FAKE_DIR/xclip.log"
+    fi
+  else
+    exit 1
+  fi
+fi
+exit 0

@@ -6,7 +6,7 @@ auto-type username, Tab and password into the window you were in. A padlock in
 the bar shows whether the database is unlocked.
 
 Port of [mirecad/omakeepick](https://github.com/mirecad/omakeepick) (upstream
-commit `7ca5b0f`, version 0.1.6).
+commit `db112fb`, version 0.1.9).
 
 Plugin id: `mirecad.omakeepick` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md) for the catalog install
@@ -20,7 +20,7 @@ pattern.
 - **Auto-type** with KeePass sequences (`{USERNAME}{TAB}{PASSWORD}{ENTER}` by
   default, or the sequence on the entry / group).
 - **Copy** username, password, URL or current TOTP. Cleared after 15 seconds if
-  still on the clipboard.
+  still on the clipboard (salted-hash check on X11).
 - **Quick unlock** with a short PIN after idle or screen lock (session only).
 - **Read-only.** Never writes your `.kdbx`; KeePassXC (or anything else) edits it.
 
@@ -33,7 +33,7 @@ pattern.
 | Wayland clipboard CLI (`--sensitive`) | `xclip` (fallback `xsel`); no sensitive flag — timed clear is the history mitigation |
 | Compositor XWayland paste branch | Dropped; always type with `xdotool` on X11 |
 | Hyprland keybind / layer rule | i3 bind example below |
-| Arch rust package helper | `sudo apt install cargo` (or download the pinned binary) |
+| Prebuilt `omakeepickd` + `bin/omakeepickd.sha256` | **Build from source** with cargo (`bin/install`); upstream release binaries are Wayland-only |
 
 Security contract is unchanged: **no secret ever enters QML**; field values go
 daemon → `xdotool` / `xclip` only.
@@ -133,13 +133,18 @@ auto-lock countdown. Left click → status panel; right click → lock; middle c
 
 **Locking:** idle timeout (default 30 min), screen lock, and before
 suspend/hibernate. PIN works after idle/screen lock until 3 wrong attempts,
-suspend, or *Close database*.
+suspend, or *Close database*. A lock always wins: in-flight unlocks are
+cancelled, auto-type stops, and copied values are cleared.
 
 Settings live on the bar widget entry in `~/.config/omarchy/shell.json`
 (idle lock, clipboard clear, auto-type sequence, delays, recent count, notify
 on copy).
 
 ## Security
+
+Upstream 0.1.7–0.1.9 hardened the daemon (helper subprocess for KDF/file read,
+no unlock during suspend, lock ends copy/type, hand-over size cap). This port
+keeps that logic and only swaps the clipboard/typing tools for X11.
 
 - **All key handling is in `omakeepickd`.** Passwords, notes and TOTP secrets
   never reach QML; the daemon types and copies them itself.
@@ -148,16 +153,29 @@ on copy).
 - **Socket** at `$XDG_RUNTIME_DIR/omakeepick/sock` (directory `0700`,
   `SO_PEERCRED` UID check). Core dumps off / non-dumpable.
 - **Helper is built locally** with cargo (`bin/install`). Do not install
-  upstream’s release binary on X11.
+  upstream’s Wayland release binary on X11.
 - State file `~/.local/state/omakeepick/state.json` holds paths and use counts
   only — never passwords or PINs.
 
-X11 has no clipboard "sensitive" flag; timed clear is the mitigation if you use
-a clipboard manager. See [SECURITY.md](SECURITY.md).
+X11 has no clipboard "sensitive" flag; timed clear (and lock) is the mitigation if
+you use a clipboard manager. See [SECURITY.md](SECURITY.md).
 
 ## Limitations
 
 - KDBX 3.1 / 4.x with password and/or key file. No YubiKey challenge-response.
 - Screen-lock detection polls Omarchy's lock screen every 10 seconds; suspend
   and `loginctl lock-session` are instant.
-- One database at a time.
+- One database at a time; at most ~32 MiB of entry payload in RAM (upstream cap).
+
+## Development
+
+```bash
+bin/dev-install
+tests/run
+```
+
+Daemon protocol: [docs/PROTOCOL.md](docs/PROTOCOL.md).
+
+## License
+
+MIT

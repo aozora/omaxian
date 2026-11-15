@@ -5,7 +5,7 @@
 #   ./install.sh
 #   ./install.sh --skip-apt
 #
-# Arch packaging remains in bin/install.arch (makepkg). Do not use it here.
+# Upstream builds with CMake. Arch packaging remains in bin/install.arch.
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [--skip-apt]
 
-  (default)  apt deps, qmake6 build, install to ~/.local
+  (default)  apt deps, cmake build, install to ~/.local
   --skip-apt do not apt-get install deps
 EOF
   exit 0
@@ -58,44 +58,62 @@ apt_runtime=(
 )
 apt_build=(
   build-essential
+  cmake
   pkg-config
-  qmake6
   qt6-base-dev
   qt6-declarative-dev
   qt6-multimedia-dev
   libpulse-dev
+  libturbojpeg0-dev
 )
 
-# apt's qmake6 must match the Qt already on the system. A stock Excalibur
-# box has 6.8 for both. A newer libqt6core with an older qmake6 candidate
-# would downgrade the desktop Qt.
 refuse_qt_downgrade() {
   local installed candidate inst_mm cand_mm
   installed=$(dpkg-query -W -f '${Version}' libqt6core6t64 2>/dev/null || true)
   [[ -z $installed ]] && return 0
-  candidate=$(apt-cache policy qmake6 2>/dev/null | awk '/Candidate:/{print $2; exit}')
+  candidate=$(apt-cache policy qt6-base-dev 2>/dev/null | awk '/Candidate:/{print $2; exit}')
   [[ -z $candidate || $candidate == "(none)" ]] && return 0
   inst_mm=${installed%%+*}
   inst_mm=${inst_mm%.*}
   cand_mm=${candidate%%+*}
   cand_mm=${cand_mm%.*}
   if [[ $inst_mm != "$cand_mm" ]]; then
-    echo "Installed Qt is $installed but apt's qmake6 candidate is $candidate." >&2
+    echo "Installed Qt is $installed but apt's qt6-base-dev candidate is $candidate." >&2
     echo "Refusing to apt-install Qt packages: that would mix or downgrade the desktop Qt." >&2
-    echo "Install a matching qmake6 yourself and re-run with --skip-apt." >&2
+    echo "Install matching Qt headers yourself (or use ~/.local/opt/omaxian-qt6-<mm>/) and re-run with --skip-apt." >&2
     exit 1
   fi
 }
 
-# A qmake built for the Qt already on this machine, kept out of apt so the
-# desktop libraries are not downgraded. Created by hand when apt's qmake6
-# candidate is a different major.minor than libqt6core.
-local_qmake="$HOME/.local/opt/omaxian-qt6-6.10/usr/bin/qmake6"
+local_qt_prefix=""
 
-use_local_qmake_if_present() {
-  [[ -x $local_qmake ]] || return 0
-  PATH="$(dirname "$local_qmake"):$PATH"
+find_local_qt_prefix() {
+  local dir prefix
+  shopt -s nullglob
+  for dir in "$HOME"/.local/opt/omaxian-qt6-*/usr; do
+    [[ -f $dir/lib/x86_64-linux-gnu/cmake/Qt6/Qt6Config.cmake ]] || continue
+    local_qt_prefix=$dir
+  done
+  shopt -u nullglob
+  local installed inst_mm
+  installed=$(dpkg-query -W -f '${Version}' libqt6core6t64 2>/dev/null || true)
+  [[ -z $installed ]] && return 0
+  inst_mm=${installed%%+*}
+  inst_mm=${inst_mm%.*}
+  prefix="$HOME/.local/opt/omaxian-qt6-${inst_mm}/usr"
+  if [[ -f $prefix/lib/x86_64-linux-gnu/cmake/Qt6/Qt6Config.cmake ]]; then
+    local_qt_prefix=$prefix
+  fi
+}
+
+use_local_qt_if_present() {
+  find_local_qt_prefix
+  [[ -n $local_qt_prefix ]] || return 0
+  CMAKE_PREFIX_PATH="${local_qt_prefix}${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+  export CMAKE_PREFIX_PATH
+  PATH="$local_qt_prefix/bin${PATH:+:$PATH}"
   export PATH
+  echo ">> local Qt prefix $local_qt_prefix"
 }
 
 install_apt() {
@@ -105,16 +123,16 @@ install_apt() {
     return 0
   fi
   local packages=("${apt_runtime[@]}" "${apt_build[@]}")
-  if [[ -x $local_qmake ]]; then
+  if [[ -n $local_qt_prefix ]]; then
     local kept=() pkg
     for pkg in "${packages[@]}"; do
       case "$pkg" in
-        qmake6|qt6-*|libqt6*|qml6-*) ;;
+        qt6-*|libqt6*|qml6-*) ;;
         *) kept+=("$pkg") ;;
       esac
     done
     packages=("${kept[@]}")
-    echo ">> matching qmake6 is $local_qmake; skipping apt Qt packages"
+    echo ">> matching Qt headers under $local_qt_prefix; skipping apt Qt packages"
   else
     refuse_qt_downgrade
   fi
@@ -125,26 +143,23 @@ install_apt() {
   sudo apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
-qt_versions_match() {
-  local qmake_bin qt_qmake qt_lib qmake_mm lib_mm
-  qmake_bin=$(command -v qmake6 || true)
-  if [[ -z $qmake_bin ]]; then
-    echo "qmake6 not found" >&2
-    exit 1
-  fi
-  qt_qmake=$("$qmake_bin" -query QT_VERSION)
+qt_build_ready() {
+  local qt_lib
   qt_lib=$(dpkg-query -W -f '${Version}' libqt6core6t64 2>/dev/null || true)
-  qmake_mm=${qt_qmake%.*}
-  lib_mm=${qt_lib%%+*}
-  lib_mm=${lib_mm%-*}
-  # 6.8.2+dfsg-9 → 6.8.2, then drop the patch level for the comparison below.
-  lib_mm=${lib_mm%.*}
-  if [[ -n $qt_lib && $qmake_mm != "$lib_mm" ]]; then
-    echo "qmake6 is Qt $qt_qmake but libqt6core6t64 is $qt_lib." >&2
-    echo "Refusing to build: apt would mix Qt ABIs. Install a qmake6 that matches the installed Qt, and do not downgrade libqt6core." >&2
+  if [[ -n $local_qt_prefix ]]; then
+    echo ">> local Qt $local_qt_prefix (libqt6core $qt_lib); cmake will probe"
+    return 0
+  fi
+  if ! command -v cmake >/dev/null; then
+    echo "cmake not found" >&2
     exit 1
   fi
-  echo ">> Qt $qt_qmake ($qmake_bin)"
+  if [[ -f /usr/lib/x86_64-linux-gnu/cmake/Qt6/Qt6Config.cmake ]]; then
+    echo ">> cmake $(cmake --version | head -1 | awk '{print $3}'); system Qt $qt_lib"
+    return 0
+  fi
+  echo "No Qt6 cmake config found. Install qt6-base-dev + qt6-declarative-dev, or a matching ~/.local/opt/omaxian-qt6-<mm>/." >&2
+  exit 1
 }
 
 install_files() {
@@ -181,9 +196,9 @@ EOF
   fi
 }
 
-use_local_qmake_if_present
+use_local_qt_if_present
 install_apt
-qt_versions_match
+qt_build_ready
 echo ">> bin/build"
 "$ROOT/bin/build"
 install_files

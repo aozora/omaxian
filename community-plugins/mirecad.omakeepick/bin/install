@@ -2,8 +2,8 @@
 # Installs omakeepickd, the plugin's helper daemon, as bin/omakeepickd next to this script.
 #
 # Omaxian port: always build from the local daemon/ sources. Upstream's GitHub
-# release binary is linked against wl-clipboard / wtype and is wrong on X11;
-# downloading it leaves a helper that fails with "wl-copy … is not installed".
+# release binary is linked against Wayland clipboard / virtual-keyboard tools and is wrong on X11;
+# downloading it leaves a helper that fails with "Wayland clipboard … is not installed".
 #
 #   bin/install           build from source (needs rustc/cargo: sudo apt install cargo)
 #   bin/install --source  same (kept for upstream CLI compatibility)

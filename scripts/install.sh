@@ -142,11 +142,24 @@ if [ -d "$PORT_AGENTS" ]; then
 fi
 
 cp -r "$REPO_DIR/omaxian/.local/share/omarchy/bin" "$OMARCHY_SHARE/bin"
+
+# Seed applications from upstream (webapp .desktop files), then overlay the
+# port's handler (omarchy-launch-editor.desktop for Setup → Default → Editor).
+if [ -d "$UPSTREAM_DIR/applications" ]; then
+	mkdir -p "$OMARCHY_SHARE/applications"
+	cp -a "$UPSTREAM_DIR/applications/." "$OMARCHY_SHARE/applications/"
+fi
+PORT_APPS="$REPO_DIR/omaxian/.local/share/omarchy/applications"
+if [ -d "$PORT_APPS" ]; then
+	mkdir -p "$OMARCHY_SHARE/applications"
+	cp -a "$PORT_APPS/." "$OMARCHY_SHARE/applications/"
+fi
+
 # Runtime version for Settings → About (`omarchy-system-info`).
 if [ -f "$REPO_DIR/version" ]; then
 	cp "$REPO_DIR/version" "$OMARCHY_SHARE/version"
 fi
-omaxian_info "default/ + bin/ + menu/agents overlays"
+omaxian_info "default/ + bin/ + menu/agents/applications overlays"
 
 if [ "$INSTALLED" -eq 0 ]; then
 	omaxian_err "no themes landed in $OMARCHY_SHARE/themes — aborting"

@@ -19,6 +19,12 @@
 export OMARCHY_PATH="$HOME/.local/share/omarchy"
 export PATH="$OMARCHY_PATH/bin:$HOME/.local/bin:$HOME/bin:$PATH"
 
+# Terminal programs ($EDITOR / git commit / sudoedit) open the editor chosen
+# under Setup → Default → Editor (Plain when installed and selected / default).
+export EDITOR="omarchy-launch-editor --inline"
+export VISUAL="$EDITOR"
+export SUDO_EDITOR="$EDITOR"
+
 # Optional LANG from omarchy-language (Setup > Language). Written as a small
 # export file so a missing language choice is a no-op.
 if [ -f "$HOME/.config/omarchy/session-env" ]; then

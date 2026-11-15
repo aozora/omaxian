@@ -20,7 +20,8 @@ HEADERS += \
     src/stamper.h \
     src/textitem.h \
     src/textlayout.h \
-    src/theme.h
+    src/theme.h \
+    src/translator.h
 
 SOURCES += \
     src/cli.cpp \
@@ -34,6 +35,7 @@ SOURCES += \
     src/stamper.cpp \
     src/textitem.cpp \
     src/textlayout.cpp \
-    src/theme.cpp
+    src/theme.cpp \
+    src/translator.cpp
 
 RESOURCES += src/resources.qrc

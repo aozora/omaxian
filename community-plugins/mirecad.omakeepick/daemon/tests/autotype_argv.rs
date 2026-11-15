@@ -9,6 +9,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use omakeepickd::autotype::{self, Fields, Xdotool};
+use omakeepickd::inflight::Tracker;
 use zeroize::Zeroizing;
 
 struct Entry(HashMap<&'static str, &'static str>);
@@ -37,14 +38,13 @@ async fn field_values_reach_xdotool_on_stdin_only() {
 
     let entry = Entry(HashMap::from([("PASSWORD", "S3cr3t!"), ("USERNAME", "joe"), ("TOTP", "123456")]));
 
-    // A modifier before a field would type its first character as a chord; it is refused
-    // before anything is typed.
-    assert!(autotype::parse("{USERNAME}{TAB}+{PASSWORD}", &entry).is_err());
+    assert!(autotype::parse("{USERNAME}{TAB}+{PASSWORD}").is_err());
 
-    let tokens = autotype::parse("^a{USERNAME}{TAB}{PASSWORD}{TAB}{TOTP}{ENTER}", &entry).unwrap();
-    autotype::run(&tokens, &mut Xdotool, 0, || true).await.unwrap();
+    let tokens = autotype::parse("^a{USERNAME}{TAB}{PASSWORD}{TAB}{TOTP}{ENTER}").unwrap();
+    let inflight = Tracker::default();
+    autotype::run(&tokens, &entry, &mut Xdotool::new(&inflight), 0).await.unwrap();
+    assert_eq!(inflight.count(), 0);
 
-    // Only flags, key names, delays/repeats, and the chord's own literal `a`.
     let args = fs::read_to_string(log.join("args")).unwrap();
     for arg in args.lines() {
         let harmless = matches!(

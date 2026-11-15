@@ -1,30 +1,62 @@
-#!/usr/bin/env sh
-set -eu
+#!/bin/bash
+# Build Monologue. Prefer upstream CMake; fall back to monologue.pro (Omaxian)
+# when the local Qt tree has qmake but incomplete cmake support (no qtpaths /
+# no libs under CMAKE_PREFIX_PATH — typical ~/.local/opt/omaxian-qt6-* layout).
+set -euo pipefail
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-BUILD_DIR="$ROOT/build"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$root/build"
+
+if command -v nproc >/dev/null 2>&1; then
+  JOBS="$(nproc)"
+else
+  JOBS=1
+fi
+
+cmake_ok=0
+if command -v cmake >/dev/null 2>&1 && [[ -f $root/CMakeLists.txt ]]; then
+  # Probe: a broken CMAKE_PREFIX_PATH must not leave a half-configured tree
+  # that the qmake path then fights with.
+  probe="$BUILD_DIR/.cmake-probe"
+  rm -rf "$probe"
+  if cmake -S "$root" -B "$probe" -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1; then
+    cmake_ok=1
+  fi
+  rm -rf "$probe"
+fi
+
+if (( cmake_ok )); then
+  # Drop a leftover qmake tree so cmake owns this directory.
+  if [[ -f $BUILD_DIR/Makefile && ! -f $BUILD_DIR/CMakeCache.txt ]]; then
+    rm -rf "$BUILD_DIR"
+  fi
+  cmake -S "$root" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release >/dev/null
+  cmake --build "$BUILD_DIR" -j"$JOBS"
+  echo "Built $BUILD_DIR/monologue (cmake)"
+  exit 0
+fi
+
+if [[ ! -f $root/monologue.pro ]]; then
+  echo "cmake could not configure Qt6, and monologue.pro is missing for the qmake fallback." >&2
+  exit 1
+fi
 
 if command -v qmake6 >/dev/null 2>&1; then
   QMAKE=qmake6
 elif command -v qmake >/dev/null 2>&1; then
   QMAKE=qmake
 else
-  echo "qmake6 or qmake is required to build monologue." >&2
+  echo "cmake could not find a working Qt6, and qmake6/qmake is missing." >&2
+  echo "Install matching Qt headers under ~/.local/opt/omaxian-qt6-<mm>/ (with qmake6), or a full qt6-*-dev set." >&2
   exit 1
 fi
 
-if command -v nproc >/dev/null 2>&1; then
-  JOBS="$(nproc)"
-elif command -v sysctl >/dev/null 2>&1; then
-  JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 1)"
-else
-  JOBS=1
-fi
-
 mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
-
-"$QMAKE" "$ROOT/monologue.pro"
-make -j"$JOBS"
-
-echo "Built $BUILD_DIR/monologue"
+# Drop a previous cmake cache so qmake owns this directory.
+rm -f "$BUILD_DIR/CMakeCache.txt"
+(
+  cd "$BUILD_DIR"
+  "$QMAKE" "$root/monologue.pro"
+  make -j"$JOBS"
+)
+echo "Built $BUILD_DIR/monologue (qmake)"
