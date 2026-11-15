@@ -41,7 +41,8 @@ Keep these rules:
   packages live in each app’s `omaxian.deps.json` and are installed by that
   app’s `install.sh` (driven by `scripts/install-community-apps.sh` or the
   TUI). The only other intentional apt callers are the tiny preflight installs
-  in `omaxian-install.sh` (`whiptail`) and `bootstrap.sh` (`git`).
+  in `omaxian-install.sh` (`whiptail` / `dialog` / `git`) and `bootstrap.sh`
+  (`git`).
 - `install.sh` and `deploy.sh` must refuse to run as root (re-exec as
   `$SUDO_USER` / exit). Never seed `/root`. Same for the TUI / plugin helper.
 - Use `$OMARCHY_PATH` / `$HOME/.local/share/omarchy` instead of hard-coded

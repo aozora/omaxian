@@ -121,20 +121,52 @@ ensure_sudo() {
 	exit 1
 }
 
+# Refresh apt indexes once before any install in this process.
+APT_UPDATED=0
+ensure_apt_updated() {
+	if (( APT_UPDATED )); then
+		return 0
+	fi
+	if ! sudo -n true 2>/dev/null; then
+		# No whiptail yet → terminal sudo (same path as first TUI dep install).
+		if ! command -v whiptail >/dev/null 2>&1; then
+			omaxian_msg "apt update"
+			sudo apt-get update || {
+				omaxian_err "apt update failed — check network / sources and re-run"
+				exit 1
+			}
+			APT_UPDATED=1
+			return 0
+		fi
+		ensure_sudo
+	fi
+	omaxian_msg "apt update"
+	sudo apt-get update || {
+		omaxian_err "apt update failed — check network / sources and re-run"
+		exit 1
+	}
+	APT_UPDATED=1
+}
+
 ensure_tui_tools() {
 	local need=()
 	command -v whiptail >/dev/null 2>&1 || need+=(whiptail)
 	# dialog --programbox streams setup/apt without leaving the TUI chrome.
 	command -v dialog >/dev/null 2>&1 || need+=(dialog)
+	# setup.sh / install.sh clone omarchy-quattro; ensure git before that phase.
+	command -v git >/dev/null 2>&1 || need+=(git)
+
+	ensure_apt_updated
+
 	if (( ${#need[@]} == 0 )); then
 		return 0
 	fi
-	omaxian_msg "installing TUI tools: ${need[*]}"
+	omaxian_msg "installing TUI deps: ${need[*]}"
 	if ! sudo -n true 2>/dev/null; then
 		# No whiptail yet → must prompt on the terminal this one time.
 		if ! command -v whiptail >/dev/null 2>&1; then
 			sudo apt-get install -y "${need[@]}" || {
-				omaxian_err "install whiptail (and dialog) then re-run: sudo apt install whiptail dialog"
+				omaxian_err "install whiptail dialog git then re-run: sudo apt install whiptail dialog git"
 				exit 1
 			}
 			return 0
@@ -750,6 +782,7 @@ main_noninteractive() {
 	omaxian_banner
 	omaxian_msg "installer ${OMAXIAN_VERSION}  (noninteractive)"
 	omaxian_info "recommended packages + install + deploy (no community plugins/apps)"
+	ensure_apt_updated
 	run_desktop
 	check_quickshell
 	final_checklist "Community plugins/apps skipped (--yes). Re-run ./omaxian-install.sh or see community-plugins/README.md and community-apps/README.md."

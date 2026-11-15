@@ -91,7 +91,8 @@ pgrep -x quickshell
 
 ## `omaxian-install.sh` (TUI)
 
-- Ensures `whiptail` + `dialog` (apt-installs them if missing).
+- Runs `sudo apt-get update` first (once), then ensures `whiptail` + `dialog` +
+  `git` (apt-installs them if missing).
 - Asks for the sudo password in a whiptail password box (cached for apt).
 - Streams setup/apt/install/deploy output through `dialog --programbox` so the
   flow stays in the TUI instead of dropping to a bare terminal.
