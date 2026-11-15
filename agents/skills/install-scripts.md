@@ -2,11 +2,13 @@
 
 Read this before working on `scripts/setup.sh`, `scripts/install.sh`,
 `scripts/deploy.sh`, `omaxian-install.sh`, `bootstrap.sh`,
-`scripts/install-community-plugins.sh`, or the session/user setup they perform.
+`scripts/install-community-plugins.sh`, `scripts/install-community-apps.sh`,
+or the session/user setup they perform.
 
 User-facing reference (roles, flags, re-run guide, why they stay separate):
 [`docs/omaxian/install-scripts.md`](../../docs/omaxian/install-scripts.md).
 Community plugins: [`community-plugins/README.md`](../../community-plugins/README.md).
+Community apps: [`community-apps/README.md`](../../community-apps/README.md).
 
 Omaxian has no ISO and no `install/` leaf tree. Layout:
 
@@ -27,15 +29,19 @@ Omaxian has no ISO and no `install/` leaf tree. Layout:
   the user file is missing (Settings / bar layout survive redeploy).
 - `scripts/install-community-plugins.sh` — opt-in local ports + `omaxian.deps.json`
   apt installs. Not called by setup/install/deploy.
+- `scripts/install-community-apps.sh` — opt-in standalone apps via each
+  `community-apps/*/install.sh` (apt + build). Not called by setup/install/deploy.
 
 Keep these rules:
 
 - `scripts/setup.sh` owns the **desktop** package sets (`REQUIRED` /
   `RECOMMENDED` / `OPTIONAL`). Community-plugin apt packages live only in each
   port’s `omaxian.deps.json` and are installed by
-  `scripts/install-community-plugins.sh` (or the TUI). The only other
-  intentional apt callers are the tiny preflight installs in
-  `omaxian-install.sh` (`whiptail`) and `bootstrap.sh` (`git`).
+  `scripts/install-community-plugins.sh` (or the TUI). Community-app apt
+  packages live in each app’s `omaxian.deps.json` and are installed by that
+  app’s `install.sh` (driven by `scripts/install-community-apps.sh` or the
+  TUI). The only other intentional apt callers are the tiny preflight installs
+  in `omaxian-install.sh` (`whiptail`) and `bootstrap.sh` (`git`).
 - `install.sh` and `deploy.sh` must refuse to run as root (re-exec as
   `$SUDO_USER` / exit). Never seed `/root`. Same for the TUI / plugin helper.
 - Use `$OMARCHY_PATH` / `$HOME/.local/share/omarchy` instead of hard-coded

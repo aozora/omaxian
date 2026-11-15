@@ -94,7 +94,10 @@ Use these instead of raw shell commands where they exist:
 - `omarchy-session-is-i3` - exit 0 only in a live i3 session
 - `omarchy-default-editor` / `omarchy-launch-editor` / `omarchy-cmd-editor-mimetypes` - Setup → Default → Editor (Plain when installed; MIME via `omarchy-launch-editor.desktop`)
 
-There is no `omarchy-pkg-add` / `omarchy-pkg-drop`. Install packages with `apt` (via `scripts/setup.sh` for the default desktop sets; community-plugin deps via `omaxian.deps.json`). Do not add `pacman` or AUR paths.
+Opt-in install helpers (not `omarchy-*`): `scripts/install-community-plugins.sh`,
+`scripts/install-community-apps.sh` (also driven by `./omaxian-install.sh`).
+
+There is no `omarchy-pkg-add` / `omarchy-pkg-drop`. Install packages with `apt` (via `scripts/setup.sh` for the default desktop sets; community-plugin / community-app deps via `omaxian.deps.json`). Do not add `pacman` or AUR paths.
 
 Commands that `scripts/setup.sh` installs as required are runtime invariants on a deployed desktop. Invoke them directly; do not add defensive `omarchy-cmd-present` checks around `i3`, `dunst`, `kitty`, and the like. Use command-presence helpers only for optional dependencies (`redshift`, `xkb-switch`, `i3lock-fancy`, `imagemagick`/`maim` for fancy lock compose, GPU tools).
 
