@@ -90,9 +90,9 @@ cd ~/projects/omaxian
 ```
 
 The TUI (whiptail) runs system packages → themes/`bin` → home configs, then
-optionally lets you pick community plugins (and installs their declared apt
-deps). Noninteractive: `./omaxian-install.sh --yes` (recommended packages, no
-plugins).
+optionally lets you pick community plugins and community apps (and installs
+their declared apt deps). Noninteractive: `./omaxian-install.sh --yes`
+(recommended packages, no plugins/apps).
 
 **Then log out and back in** (not `i3 restart`) so i3 picks up `PATH`.
 Pick the i3 / Omaxian session in your greeter.
@@ -112,8 +112,9 @@ sudo ./scripts/setup.sh          # packages, fonts, session D-Bus
 `setup.sh` flags: `--minimal`, `--optional`, `--deploy` (then install + deploy
 as `$SUDO_USER`). Full roles:
 [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md).
-Community plugins outside the TUI:
-[`community-plugins/README.md`](community-plugins/README.md).
+Community plugins / apps outside the TUI:
+[`community-plugins/README.md`](community-plugins/README.md),
+[`community-apps/README.md`](community-apps/README.md).
 
 ### Quickshell
 
@@ -472,7 +473,7 @@ Details: [`community-apps/README.md`](community-apps/README.md).
 | Understand `setup` / `install` / `deploy` | [`docs/omaxian/install-scripts.md`](docs/omaxian/install-scripts.md) — TUI, `scripts/` roles, flags, re-run guide; desktop packages live in `scripts/setup.sh`                                                                                              |
 | Customize bar / dock / displays           | [`docs/omaxian/customize/`](docs/omaxian/customize/) — [bar](docs/omaxian/customize/bar.md) (incl. floating island), [dock](docs/omaxian/customize/dock.md), [displays](docs/omaxian/customize/displays.md), [settings](docs/omaxian/customize/settings.md) |
 | Install optional community plugins        | [`community-plugins/README.md`](community-plugins/README.md) — opt-in only; not installed by setup/install/deploy                                                                                                                                           |
-| Install optional community apps           | [`community-apps/README.md`](community-apps/README.md) — standalone ports; each has `install.sh`                                                                                                                                                            |
+| Install optional community apps           | TUI, or `./scripts/install-community-apps.sh` — see [`community-apps/README.md`](community-apps/README.md)                                                                                                                                                   |
 | Understand the port / bump upstream       | [`docs/omarchy-port/`](docs/omarchy-port/) — start with [migration](docs/omarchy-port/omarchy-migration.md) and [deltas](docs/omarchy-port/deltas.md)                                                                                                       |
 | Tinker with the Quickshell tree           | [`docs/quickshell/`](docs/quickshell/)                                                                                                                                                                                                                      |
 

@@ -2,10 +2,10 @@
 # omaxian-install.sh — one-shot TUI installer for Omaxian (Devuan/Debian + X11 + i3).
 #
 # Orchestrates scripts/setup.sh → install.sh → deploy.sh, then optionally
-# community plugins (with apt deps from omaxian.deps.json).
+# community plugins and community apps (with apt deps from omaxian.deps.json).
 #
 #   ./omaxian-install.sh
-#   ./omaxian-install.sh --yes          # noninteractive: recommended + deploy, no plugins
+#   ./omaxian-install.sh --yes          # noninteractive: recommended + deploy, no plugins/apps
 #   OMAXIAN_INSTALL_NONINTERACTIVE=1 ./omaxian-install.sh
 #   ./omaxian-install.sh --version
 #
@@ -20,6 +20,7 @@ SETUP="$SCRIPTS/setup.sh"
 INSTALL="$SCRIPTS/install.sh"
 DEPLOY="$SCRIPTS/deploy.sh"
 PLUGIN_HELPER="$SCRIPTS/install-community-plugins.sh"
+APP_HELPER="$SCRIPTS/install-community-apps.sh"
 # shellcheck source=scripts/lib/ui.sh
 source "$SCRIPTS/lib/ui.sh"
 
@@ -67,7 +68,7 @@ if [ "$(id -u)" -eq 0 ]; then
 	exec sudo -u "$SUDO_USER" -H "$0" "$@"
 fi
 
-for f in "$SETUP" "$INSTALL" "$DEPLOY" "$PLUGIN_HELPER"; do
+for f in "$SETUP" "$INSTALL" "$DEPLOY" "$PLUGIN_HELPER" "$APP_HELPER"; do
 	if [ ! -x "$f" ]; then
 		omaxian_err "missing $f — wrong checkout?"
 		exit 1
@@ -385,6 +386,136 @@ install_selected_plugins() {
 	run_phase "Community plugins" "$PLUGIN_HELPER" "${SELECTED_PLUGIN_DIRS[@]}"
 }
 
+# --- community apps ---------------------------------------------------------
+# Sets SELECTED_APP_DIRS (basenames under community-apps/)
+SELECTED_APP_DIRS=()
+
+ask_install_apps() {
+	wt --title "Community apps" --yesno \
+		"Install optional community apps from this repo?\n\n\
+Standalone ports (file manager, editor, recorder, …).\n\
+They are NOT part of the default desktop. You can pick which ones next.\n\n\
+Builds may take several minutes. Default: No." \
+		14 72
+}
+
+# Short checklist tag — long directory names overflow a ~78-col whiptail box.
+app_checklist_tag() {
+	local dir="$1"
+	case "$dir" in
+		omarchy-meeting-recorder) echo "meeting" ;;
+		*) echo "$dir" ;;
+	esac
+}
+
+choose_apps() {
+	local list args=() dir name tag
+	local -A tag_to_dir=()
+	SELECTED_APP_DIRS=()
+	list=$("$APP_HELPER" --list) || true
+	if [ -z "$list" ]; then
+		wt --title "Community apps" --msgbox "No community apps found under community-apps/." 8 60
+		return 0
+	fi
+
+	while IFS=$'\t' read -r dir name; do
+		[ -n "$dir" ] || continue
+		tag=$(app_checklist_tag "$dir")
+		tag_to_dir[$tag]=$dir
+		args+=("$tag" "$name" OFF)
+	done <<< "$list"
+
+	if (( ${#args[@]} == 0 )); then
+		return 0
+	fi
+
+	local selected
+	selected=$(wt --title "Select community apps" --checklist \
+		"Space toggles. Each app builds/installs via its own install.sh." \
+		20 60 12 \
+		"${args[@]}" \
+		3>&1 1>&2 2>&3) || return 1
+
+	SELECTED_APP_DIRS=()
+	local tok
+	for tok in $selected; do
+		tok=${tok//\"/}
+		[ -n "$tok" ] || continue
+		SELECTED_APP_DIRS+=("${tag_to_dir[$tok]}")
+	done
+
+	return 0
+}
+
+# Union apt + apt_build for selected apps; confirm; return 0 to proceed.
+confirm_app_deps() {
+	local pkgs=() manuals=() dir deps pkg note name
+	local -A dir_to_name=()
+	if (( ${#SELECTED_APP_DIRS[@]} == 0 )); then
+		return 0
+	fi
+	while IFS=$'\t' read -r dir name; do
+		[ -n "$dir" ] || continue
+		dir_to_name[$dir]=$name
+	done < <("$APP_HELPER" --list)
+
+	for dir in "${SELECTED_APP_DIRS[@]}"; do
+		deps="$REPO_DIR/community-apps/$dir/omaxian.deps.json"
+		[ -f "$deps" ] || continue
+		while IFS= read -r pkg; do
+			[ -n "$pkg" ] || continue
+			pkgs+=("$pkg")
+		done < <(jq -r '(.apt // []) + (.apt_build // []) | .[]' "$deps" 2>/dev/null)
+		while IFS= read -r note; do
+			[ -n "$note" ] || continue
+			manuals+=("$note")
+		done < <(jq -r '.manual // [] | .[]' "$deps" 2>/dev/null)
+	done
+
+	mapfile -t pkgs < <(printf '%s\n' "${pkgs[@]+"${pkgs[@]}"}" | sort -u)
+	local need=()
+	for pkg in "${pkgs[@]+"${pkgs[@]}"}"; do
+		[ -n "$pkg" ] || continue
+		if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q 'install ok installed'; then
+			continue
+		fi
+		need+=("$pkg")
+	done
+
+	local msg="Apps:\n"
+	local a
+	for a in "${SELECTED_APP_DIRS[@]}"; do
+		msg+="  • ${dir_to_name[$a]:-$a}\n"
+	done
+	msg+="\n"
+	if (( ${#need[@]} > 0 )); then
+		msg+="apt packages (sudo; runtime + build):\n"
+		for pkg in "${need[@]}"; do
+			msg+="  • $pkg\n"
+		done
+	else
+		msg+="No extra apt packages needed.\n"
+	fi
+	if (( ${#manuals[@]} > 0 )); then
+		mapfile -t manuals < <(printf '%s\n' "${manuals[@]}" | sort -u)
+		msg+="\nManual follow-up:\n"
+		for note in "${manuals[@]}"; do
+			msg+="  • $note\n"
+		done
+	fi
+	msg+="\nEach selected app will build and install under ~/.local.\nContinue?"
+
+	wt --title "App dependencies" --yesno "$msg" 22 68
+}
+
+install_selected_apps() {
+	if (( ${#SELECTED_APP_DIRS[@]} == 0 )); then
+		return 0
+	fi
+	ensure_sudo
+	run_phase "Community apps" "$APP_HELPER" "${SELECTED_APP_DIRS[@]}"
+}
+
 # --- Quickshell (required for the bar) --------------------------------------
 QUICKSHELL_MISSING=0
 
@@ -580,9 +711,10 @@ This installer will:\n\
   • seed themes and omarchy-* commands\n\
   • deploy i3 / Quickshell configs\n\
   • verify Quickshell (required for the bar)\n\
-  • optionally install community plugins\n\n\
+  • optionally install community plugins\n\
+  • optionally install community apps\n\n\
 Repo: $REPO_DIR" \
-		17 64 || exit 1
+		18 64 || exit 1
 
 	choose_package_set || { omaxian_msg "cancelled"; exit 1; }
 	confirm_desktop || { omaxian_msg "cancelled"; exit 1; }
@@ -590,17 +722,26 @@ Repo: $REPO_DIR" \
 	run_desktop
 	check_quickshell
 
-	local plugin_extra=""
+	local extras=()
 	if ask_install_plugins; then
 		choose_plugins || { omaxian_msg "plugin selection cancelled — desktop is installed"; final_checklist; exit 0; }
 		if (( ${#SELECTED_PLUGIN_DIRS[@]} > 0 )); then
 			confirm_plugin_deps || { omaxian_msg "plugin deps declined — desktop is installed"; final_checklist; exit 0; }
 			install_selected_plugins
-			plugin_extra="Community plugins → ~/.config/omarchy/plugins/.\nEnable under Settings → Plugins after login if needed."
+			extras+=("Community plugins → ~/.config/omarchy/plugins/.\nEnable under Settings → Plugins after login if needed.")
 		fi
 	fi
 
-	final_checklist "$plugin_extra"
+	if ask_install_apps; then
+		choose_apps || { omaxian_msg "app selection cancelled — desktop is installed"; final_checklist "$(printf '%s\n' "${extras[@]+"${extras[@]}"}")"; exit 0; }
+		if (( ${#SELECTED_APP_DIRS[@]} > 0 )); then
+			confirm_app_deps || { omaxian_msg "app deps declined — desktop is installed"; final_checklist "$(printf '%s\n' "${extras[@]+"${extras[@]}"}")"; exit 0; }
+			install_selected_apps
+			extras+=("Community apps → ~/.local (bin + .desktop).\nSee community-apps/README.md for per-app notes.")
+		fi
+	fi
+
+	final_checklist "$(printf '%s\n' "${extras[@]+"${extras[@]}"}")"
 }
 
 main_noninteractive() {
@@ -608,10 +749,10 @@ main_noninteractive() {
 	PKG_LABEL="Recommended (default)"
 	omaxian_banner
 	omaxian_msg "installer ${OMAXIAN_VERSION}  (noninteractive)"
-	omaxian_info "recommended packages + install + deploy (no community plugins)"
+	omaxian_info "recommended packages + install + deploy (no community plugins/apps)"
 	run_desktop
 	check_quickshell
-	final_checklist "Community plugins skipped (--yes). Re-run ./omaxian-install.sh or see community-plugins/README.md."
+	final_checklist "Community plugins/apps skipped (--yes). Re-run ./omaxian-install.sh or see community-plugins/README.md and community-apps/README.md."
 }
 
 if (( NONINTERACTIVE )); then

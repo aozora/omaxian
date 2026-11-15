@@ -53,7 +53,15 @@ human) should install. Extra keys used by apps:
 
 ## Install
 
-Each app ships its own `install.sh`. Example:
+During `./omaxian-install.sh`, accept the community-apps step and pick apps.
+Outside the TUI:
+
+```bash
+./scripts/install-community-apps.sh --list
+./scripts/install-community-apps.sh <dir>…
+```
+
+Or run one app’s installer directly:
 
 ```bash
 ./community-apps/omarchy-meeting-recorder/install.sh
@@ -68,7 +76,9 @@ Review the tree before running it; apps run unsandboxed as your user.
 2. Replace Arch/Hyprland packaging with Debian user install + i3 glue.
 3. Patch any `omarchy` group-dispatcher calls to `omarchy-*` binaries.
 4. Pin upstream with `.omaxian-upstream-commit`; document deltas in `README.md`.
-5. Add a catalog row above. Do not wire into `setup` / `install` / `deploy`.
+5. Add a catalog row above. Do not wire into `setup` / `install` / `deploy`
+   (the TUI / `scripts/install-community-apps.sh` discover dirs with
+   `install.sh` automatically).
 
 ## See also
 

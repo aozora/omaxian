@@ -16,12 +16,13 @@ Upstream clone / pin bumps:
 
 | Script | Who runs it | Privilege | What it does |
 | --- | --- | --- | --- |
-| [`omaxian-install.sh`](../../omaxian-install.sh) | first-time / guided | **user** (sudo for apt) | whiptail TUI: setup → install → deploy → optional community plugins |
+| [`omaxian-install.sh`](../../omaxian-install.sh) | first-time / guided | **user** (sudo for apt) | whiptail TUI: setup → install → deploy → optional community plugins + apps |
 | [`bootstrap.sh`](../../bootstrap.sh) | first-time remote | **user** | clone repo (or reuse), then `exec` `omaxian-install.sh` |
 | [`scripts/setup.sh`](../../scripts/setup.sh) | once per machine (or when deps change) | **root** (`sudo`) | `apt` packages, session D-Bus, root-owned `omarchy-dns`, bundled fonts; may clone `omarchy-quattro/` |
 | [`scripts/install.sh`](../../scripts/install.sh) | login user | **user** (refuses root) | seed `~/.local/share/omarchy/{themes,default,bin}` from upstream + the port |
 | [`scripts/deploy.sh`](../../scripts/deploy.sh) | login user | **user** (refuses root) | copy `omaxian/` into `$HOME` (i3, Quickshell, `.xsessionrc`, …) |
 | [`scripts/install-community-plugins.sh`](../../scripts/install-community-plugins.sh) | opt-in | **user** (+ sudo for plugin apt) | copy selected `community-plugins/` ports; install `omaxian.deps.json` apt packages |
+| [`scripts/install-community-apps.sh`](../../scripts/install-community-apps.sh) | opt-in | **user** (+ sudo via each app’s `install.sh`) | run selected `community-apps/*/install.sh` |
 
 ```text
   omaxian-install.sh / bootstrap.sh
@@ -29,10 +30,11 @@ Upstream clone / pin bumps:
        └─► scripts/install.sh   → ~/.local/share/omarchy  (themes / default / bin)
        └─► scripts/deploy.sh    → ~/.config, ~/.local/share (shell, …), ~/.xsessionrc
        └─► (optional) install-community-plugins.sh
+       └─► (optional) install-community-apps.sh
 ```
 
-Desktop `setup` / `install` / `deploy` never copy community plugins. The TUI
-(or the helper above) does that only when you opt in.
+Desktop `setup` / `install` / `deploy` never copy community plugins or apps.
+The TUI (or the helpers above) does that only when you opt in.
 
 ---
 
@@ -105,8 +107,11 @@ pgrep -x quickshell
 - Asks whether to install community plugins; if yes, checklist + deps confirm
   (union of each port’s `omaxian.deps.json` `apt` list), then
   `scripts/install-community-plugins.sh`.
-- `--yes` / `OMAXIAN_INSTALL_NONINTERACTIVE=1`: recommended desktop only, skip plugins
-  (still prints the Quickshell warning when missing).
+- Asks whether to install community apps; if yes, checklist + deps confirm
+  (union of each app’s `omaxian.deps.json` `apt` + `apt_build`), then
+  `scripts/install-community-apps.sh` (each app’s own `install.sh`).
+- `--yes` / `OMAXIAN_INSTALL_NONINTERACTIVE=1`: recommended desktop only, skip
+  plugins and apps (still prints the Quickshell warning when missing).
 
 Bootstrap env: `OMAXIAN_DIR` (default `~/projects/omaxian`), `OMAXIAN_REF`,
 `OMAXIAN_REPO`.
@@ -134,8 +139,8 @@ sudo ./scripts/setup.sh --deploy     # then run install.sh + deploy.sh as you
 
 On non-systemd hosts it may pull **elogind** so `loginctl` / `xss-lock` work.
 
-Community-plugin apt packages are **not** in these arrays — see each port’s
-`omaxian.deps.json` and `install-community-plugins.sh`.
+Community-plugin and community-app apt packages are **not** in these arrays —
+see each port’s `omaxian.deps.json` and the community install helpers.
 
 ---
 
@@ -191,6 +196,7 @@ orphans left from older deploys.
 | QML, i3, picom, dunst, or other `omaxian/` edits | `./scripts/deploy.sh`, then **log out / log in** for QML |
 | Only i3 binds changed (already deployed) | `i3-msg reload` after deploy returns |
 | Optional community plugin | TUI, or `./scripts/install-community-plugins.sh` — see [`community-plugins/README.md`](../../community-plugins/README.md) |
+| Optional community app | TUI, or `./scripts/install-community-apps.sh` / per-app `install.sh` — see [`community-apps/README.md`](../../community-apps/README.md) |
 
 ---
 
@@ -205,4 +211,5 @@ orphans left from older deploys.
 | `~/.config/omarchy/themes/` | User theme overlays | user (install leaves empty) |
 | `~/.config/omarchy/plugins/` | Community / third-party plugins | TUI helper, `omarchy-plugin-add`, or rsync |
 | `community-plugins/*/omaxian.deps.json` | Declared apt + manual deps for a port | maintainers |
+| `community-apps/*/omaxian.deps.json` | Declared apt / apt_build + manual deps for an app | maintainers |
 | `~/.xsessionrc` | Exports `OMARCHY_PATH` and prepends `bin` to `PATH` | `deploy.sh` |
