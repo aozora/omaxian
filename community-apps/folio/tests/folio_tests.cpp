@@ -5795,6 +5795,59 @@ private slots:
         }
     }
 
+    void gridBandDragDoesNotFlick()
+    {
+        // Omaxian: scrolled down, a press on empty space and a drag draws the
+        // band over the tile it reaches and leaves the view where it is. The
+        // band must sit in the view's content (to know empty space when
+        // scrolled) and, on Qt 6.8, which lacks Flickable.acceptedButtons,
+        // keep the view from taking the drag over.
+        QTemporaryDir home;
+        // Two columns at 400 wide; 41 tiles leave the last row half empty.
+        for (int i = 0; i < 41; ++i)
+            write(home.filePath(QString("f%1").arg(i, 2, 10, QChar('0'))), "x");
+        Backend backend(home.path());
+        backend.navigate(home.path());
+        QTRY_COMPARE(backend.folder()->rowCount(), 41);
+        Theme theme(home.filePath("theme"));
+        FileOps fileOps;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("fileOps", &fileOps);
+        engine.rootContext()->setContextProperty("translator", QVariantMap{{"language", "en"}});
+        Thumbnails thumbnails(home.filePath("cache"), {home.filePath("none")});
+        engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\n"
+                          "Window {\n"
+                          "    width: 400; height: 300; visible: true\n"
+                          "    property alias grid: grid\n"
+                          "    FolderGrid { id: grid; anchors.fill: parent }\n"
+                          "}\n",
+                          QUrl::fromLocalFile(sourceFolder() + "/GridFlickTest.qml"));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *grid = root->property("grid").value<QQuickItem *>();
+        QTRY_COMPARE(grid->property("count").toInt(), 41);
+        QCOMPARE(grid->property("columns").toInt(), 2);
+        // Scrolled to the end, the last row's empty cell is at the right.
+        QMetaObject::invokeMethod(grid, "positionViewAtEnd");
+        const qreal endY = grid->property("contentY").toReal();
+        QVERIFY(endY > 0);
+
+        // Down and left, into the last tile: a flick would scroll back up.
+        const QPoint from(300, 150), to(150, 260);
+        QTest::mousePress(window, Qt::LeftButton, {}, from);
+        for (int step = 1; step <= 10; ++step)
+            QTest::mouseMove(window, from + (to - from) * step / 10, 10);
+        QTest::mouseRelease(window, Qt::LeftButton, {}, to);
+        QCOMPARE(backend.folder()->selectedCount(), 1);
+        QCOMPARE(grid->property("contentY").toReal(), endY);
+    }
+
     void themeFallsBack()
     {
         QTemporaryDir dir;

@@ -25,7 +25,8 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Preview `setDesktopFileName("folio-preview")` only | Also `setApplicationName("folio-preview")` so i3 can float Space preview on X11 |
 | Plugin dirs may be group-writable from umask | `install.sh` runs `chmod -R go-w` so Folio's `trusted()` accepts them |
 | `QDir::mkpath(path, permissions)` for the home trash (Qt 6.10+) | `mkpathWith()` in `src/fileops.cpp`: the same call on Qt ≥ 6.10, per-level `QDir::mkdir(path, permissions)` on Excalibur's Qt 6.8 |
-| Views set `acceptedButtons: Qt.NoButton` (`Flickable` property, Qt 6.9+) | Set from `Component.onCompleted` only where the property exists. On Qt 6.8 a mouse drag on empty space flicks the view, as 6.8 always did |
+| Views set `acceptedButtons: Qt.NoButton` (`Flickable` property, Qt 6.9+) | Set from `Component.onCompleted` only where the property exists. On Qt 6.8 the rubber band (`Band.qml`) sets `preventStealing`, so a drag on empty space draws the band instead of flicking. Dragging a file away isn't covered by a test on 6.8 |
+| `Band.qml` declared inside a `GridView` / `ListView` (stays on the view, not its content) | Band reparented to `view.contentItem`, so a press on empty space after scrolling starts a band rather than counting as a press on a tile. Upstream bug on every Qt; `gridBandDragDoesNotFlick` covers it |
 | Tests use `QQmlPropertyMap::create()` and a `QPointF` `QDragEnterEvent` (newer Qt) | `tests/folio_tests.cpp` uses `new QQmlPropertyMap` and `toPoint()`, so the tests compile on Qt 6.8 |
 
 ## Requirements

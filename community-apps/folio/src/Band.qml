@@ -16,10 +16,18 @@ MouseArea {
     property bool dragging: false
     property var before: []
 
+    // Omaxian: a GridView/ListView keeps the items declared in it on the
+    // view, not its content, so put the band there by hand. Otherwise, once
+    // scrolled, a press on empty space is taken for one on a tile.
+    parent: view.contentItem
     z: -1
     width: view.width
     height: Math.max(view.height, view.contentHeight)
     acceptedButtons: Qt.LeftButton
+    // Omaxian: keep the view from taking a band drag over to flick. Qt 6.9+
+    // also turns the view's own dragging off (Flickable.acceptedButtons);
+    // Excalibur's Qt 6.8 has only this. The wheel still scrolls the view.
+    preventStealing: true
 
     function hit(a, b) {
         return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
