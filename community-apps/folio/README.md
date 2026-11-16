@@ -24,6 +24,8 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | CMake-only build | Same CMake path when `qt6-*-dev` works; `folio.pro` + qmake fallback for `~/.local/opt/omaxian-qt6-<mm>/` |
 | Preview `setDesktopFileName("folio-preview")` only | Also `setApplicationName("folio-preview")` so i3 can float Space preview on X11 |
 | Plugin dirs may be group-writable from umask | `install.sh` runs `chmod -R go-w` so Folio's `trusted()` accepts them |
+| `QDir::mkpath(path, permissions)` for the home trash (Qt 6.10+) | `mkpathWith()` in `src/fileops.cpp`: the same call on Qt ≥ 6.10, per-level `QDir::mkdir(path, permissions)` on Excalibur's Qt 6.8 |
+| Tests use `QQmlPropertyMap::create()` and a `QPointF` `QDragEnterEvent` (newer Qt) | `tests/folio_tests.cpp` uses `new QQmlPropertyMap` and `toPoint()`, so the tests compile on Qt 6.8 |
 
 ## Requirements
 

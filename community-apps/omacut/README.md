@@ -20,6 +20,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Theme accent from `colors.toml` | Unchanged |
 | Runtime dep `qt6-wayland` | Not installed. Uses XCB via `qt6-qpa-plugins` |
 | CMake-only build | Same CMake path when `qt6-*-dev` works; `omacut.pro` + qmake fallback for `~/.local/opt/omaxian-qt6-<mm>/` |
+| Test drop helper builds `QDragEnterEvent` from a `QPointF` (newer Qt) | `tests/omacut_tests.cpp` passes `point.toPoint()`, so the tests compile on Qt 6.8 |
 
 ## Requirements
 

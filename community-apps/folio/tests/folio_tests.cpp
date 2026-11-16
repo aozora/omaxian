@@ -1374,7 +1374,8 @@ private slots:
         QTemporaryDir home;
         QDir(home.path()).mkpath("project/install");
         FileOps ops;
-        const std::unique_ptr<QQmlPropertyMap> theme(QQmlPropertyMap::create());
+        // Omaxian: QQmlPropertyMap::create() is newer than Qt 6.8 (Excalibur).
+        const std::unique_ptr<QQmlPropertyMap> theme(new QQmlPropertyMap);
         theme->insert("accent", QColor(Qt::blue));
         theme->insert("radius", 0);
         QQmlEngine engine;
@@ -1404,7 +1405,8 @@ private slots:
         QMimeData data;
         data.setUrls({QUrl::fromLocalFile(home.filePath("project/install"))});
         const auto dropAt = [&](QPointF at) {
-            QDragEnterEvent enter(at, Qt::MoveAction, &data, Qt::LeftButton, Qt::NoModifier);
+            // Omaxian: Qt 6.8 has only the QPoint constructor.
+            QDragEnterEvent enter(at.toPoint(), Qt::MoveAction, &data, Qt::LeftButton, Qt::NoModifier);
             QGuiApplication::sendEvent(window, &enter);
             QDropEvent drop(at, Qt::MoveAction, &data, Qt::LeftButton, Qt::NoModifier);
             QGuiApplication::sendEvent(window, &drop);

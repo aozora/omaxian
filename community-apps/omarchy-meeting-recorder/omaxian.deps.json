@@ -18,7 +18,8 @@
     "libglib2.0-dev",
     "libpulse-dev",
     "libvulkan-dev",
-    "glslc"
+    "glslc",
+    "libclang-dev"
   ],
   "manual": [
     "Rust via rustup (install.sh installs it). Do not use Debian apt rustc/cargo — gtk4-rs needs rustc ≥ 1.92.",

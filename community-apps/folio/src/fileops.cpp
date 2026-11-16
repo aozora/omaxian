@@ -1308,6 +1308,25 @@ QString FileOps::trashedSince(const QString &original, const QStringList &before
 // the same time, then goes in, as the freedesktop Trash spec has it. Other
 // drives' trash folders, with their own rules, are GIO's to fill, and the
 // item is looked for there once it's gone.
+// Omaxian: QDir::mkpath(path, permissions) needs Qt 6.10; Devuan Excalibur
+// ships Qt 6.8. Create each missing level with QDir::mkdir(path,
+// permissions) (Qt 6.3+), which gives the same result.
+static bool mkpathWith(const QString &path, QFileDevice::Permissions permissions) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    return QDir().mkpath(path, permissions);
+#else
+    const QFileInfo info(path);
+    if (info.isDir())
+        return true;
+    if (info.exists())
+        return false;
+    const QString parent = info.absolutePath();
+    if (parent != info.absoluteFilePath() && !mkpathWith(parent, permissions))
+        return false;
+    return QDir().mkdir(info.absoluteFilePath(), permissions) || QFileInfo(path).isDir();
+#endif
+}
+
 QString FileOps::trashOne(const QString &path, QString *error) {
     const QFileInfo item(path);
     const QString trash = homeTrash();
@@ -1316,7 +1335,7 @@ QString FileOps::trashOne(const QString &path, QString *error) {
         return {};
     }
     const auto owner = QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner;
-    if (QDir().mkpath(trash + "/files", owner) && QDir().mkpath(trash + "/info", owner)
+    if (mkpathWith(trash + "/files", owner) && mkpathWith(trash + "/info", owner)
         && sameDrive(path, trash)) {
         const QByteArray note = "[Trash Info]\nPath=" + QUrl::toPercentEncoding(item.absoluteFilePath(), "/")
                                 + "\nDeletionDate=" + QDateTime::currentDateTime().toString("yyyy-MM-ddTHH:mm:ss").toUtf8() + "\n";
