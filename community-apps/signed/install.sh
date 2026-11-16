@@ -2,7 +2,8 @@
 # Omaxian / Debian install for Signed (Qt Quick PDF signer).
 # Run from this directory, or: community-apps/signed/install.sh
 #
-#   ./install.sh
+#   ./install.sh                 # pinned pre-built binary when available
+#   ./install.sh --from-source   # always compile
 #   ./install.sh --skip-apt
 #
 # Upstream builds with CMake. Arch packaging remains in bin/install.arch.
@@ -16,13 +17,16 @@ APP_DIR="$PREFIX/share/applications"
 ICON_DIR="$PREFIX/share/icons/hicolor/scalable/apps"
 
 SKIP_APT=0
+FROM_SOURCE=0
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--skip-apt]
+Usage: install.sh [--from-source] [--skip-apt]
 
-  (default)  apt deps, cmake build, install to ~/.local
-  --skip-apt do not apt-get install deps
+  (default)      pinned pre-built binary (runtime apt only) → ~/.local;
+                 falls back to apt build deps + cmake build
+  --from-source  always apt build deps + cmake build
+  --skip-apt     do not apt-get install deps
 EOF
   exit 0
 }
@@ -30,6 +34,7 @@ EOF
 for arg in "$@"; do
   case "$arg" in
     --skip-apt) SKIP_APT=1 ;;
+    --from-source) FROM_SOURCE=1 ;;
     -h|--help) usage ;;
     *)
       echo "unknown option: $arg" >&2
@@ -43,29 +48,10 @@ if (( $(id -u) == 0 )); then
   exit 1
 fi
 
-apt_runtime=(
-  libpoppler-qt6-3t64
-  libqpdf30
-  libnss3
-  fonts-noto-core
-  qml6-module-qtquick
-  qml6-module-qtquick-controls
-  qml6-module-qtquick-layouts
-  qml6-module-qtquick-shapes
-  qt6-qpa-plugins
-  qt6-image-formats-plugins
-  xdg-desktop-portal
-  xdg-desktop-portal-gtk
-)
-apt_build=(
-  build-essential
-  cmake
-  pkg-config
-  qt6-base-dev
-  qt6-declarative-dev
-  libpoppler-qt6-dev
-  libqpdf-dev
-)
+# Package lists live in omaxian.deps.json (the TUI reads the same file).
+# shellcheck source=../lib/prebuilt.sh
+source "$ROOT/../lib/prebuilt.sh"
+app_deps_read
 
 refuse_qt_downgrade() {
   local installed candidate inst_mm cand_mm
@@ -162,7 +148,7 @@ install_apt() {
     done
     echo ">> matching Qt headers under $local_qt_prefix; skipping apt Qt and poppler-dev packages"
   else
-    refuse_qt_downgrade
+    (( ${#apt_build[@]} == 0 )) || refuse_qt_downgrade
     for pkg in "${apt_runtime[@]}" "${apt_build[@]}"; do
       if [[ $pkg == libpoppler-qt6-3t64 ]]; then
         packages+=("$(apt_poppler_qt6_pkg)")
@@ -175,7 +161,7 @@ install_apt() {
     return 0
   fi
   echo ">> apt packages: ${packages[*]}"
-  sudo apt-get install -y --no-install-recommends "${packages[@]}"
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
 qt_build_ready() {
@@ -199,7 +185,7 @@ qt_build_ready() {
 
 install_files() {
   mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR"
-  install -m 0755 "$ROOT/build/signed" "$BIN_DIR/signed"
+  install -m 0755 "$BUILT_BIN" "$BIN_DIR/signed"
   install -m 0644 "$ROOT/pkgbuild/signed.svg" "$ICON_DIR/signed.svg"
   sed -e "s|^Exec=signed open %f|Exec=$BIN_DIR/signed open %f|" \
     "$ROOT/pkgbuild/signed.desktop" > "$APP_DIR/signed.desktop"
@@ -216,10 +202,18 @@ install_files() {
 }
 
 use_local_qt_if_present
-install_apt
-qt_build_ready
-echo ">> bin/build"
-"$ROOT/bin/build"
+BUILT_BIN="$ROOT/build/signed"
+if prebuilt_fetch signed; then
+  # Runtime packages only: the binary is already built.
+  apt_build=()
+  install_apt
+  BUILT_BIN=$PREBUILT_BIN
+else
+  install_apt
+  qt_build_ready
+  echo ">> bin/build"
+  "$ROOT/bin/build"
+fi
 install_files
 
 cat <<EOF

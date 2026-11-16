@@ -35,6 +35,12 @@ Build: `cmake` + `qt6-base-dev` + `qt6-declarative-dev` + `qt6-multimedia-dev`, 
 community-apps/omacut/install.sh
 ```
 
+With a pinned binary in `.omaxian-prebuilt`, `install.sh` downloads it
+(sha256-checked, built against Qt 6.8 so it runs on 6.8 and newer) and
+installs only the runtime packages. Otherwise, or with `--from-source`, it
+builds as described below. See
+[`../README.md`](../README.md#pre-built-binaries-omaxian-prebuilt).
+
 `install.sh` refuses to apt-install Qt when the `qt6-base-dev` candidate's
 major.minor does not match the already-installed `libqt6core6t64`.
 

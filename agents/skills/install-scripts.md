@@ -30,7 +30,10 @@ Omaxian has no ISO and no `install/` leaf tree. Layout:
 - `scripts/install-community-plugins.sh` — opt-in local ports + `omaxian.deps.json`
   apt installs. Not called by setup/install/deploy.
 - `scripts/install-community-apps.sh` — opt-in standalone apps via each
-  `community-apps/*/install.sh` (apt + build). Not called by setup/install/deploy.
+  `community-apps/*/install.sh` (pinned pre-built binary + runtime apt, or
+  apt + build with `--from-source` / as a fallback). Not called by
+  setup/install/deploy. Shared logic: `community-apps/lib/prebuilt.sh`;
+  binaries come from `.github/workflows/community-apps.yml`.
 
 Keep these rules:
 
@@ -38,10 +41,13 @@ Keep these rules:
   `RECOMMENDED` / `OPTIONAL`). Community-plugin apt packages live only in each
   port’s `omaxian.deps.json` and are installed by
   `scripts/install-community-plugins.sh` (or the TUI). Community-app apt
-  packages live in each app’s `omaxian.deps.json` and are installed by that
-  app’s `install.sh` (driven by `scripts/install-community-apps.sh` or the
-  TUI). The only other intentional apt callers are the tiny preflight installs
-  in `omaxian-install.sh` (`whiptail`) and `bootstrap.sh` (`git`).
+  packages live in each app’s `omaxian.deps.json` (read by `install.sh` via
+  `app_deps_read`; never repeated as arrays in `install.sh`) and are installed
+  by that app’s `install.sh` (driven by `scripts/install-community-apps.sh` or
+  the TUI). A pre-built binary gets only `apt`, so `apt` must cover every
+  library the binary links. The only other intentional apt callers are the tiny preflight installs
+  in `omaxian-install.sh` (`whiptail` / `dialog` / `git`) and `bootstrap.sh`
+  (`git`).
 - `install.sh` and `deploy.sh` must refuse to run as root (re-exec as
   `$SUDO_USER` / exit). Never seed `/root`. Same for the TUI / plugin helper.
 - Use `$OMARCHY_PATH` / `$HOME/.local/share/omarchy` instead of hard-coded

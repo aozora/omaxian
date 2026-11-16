@@ -2,7 +2,8 @@
 # Omaxian / Debian install for Monologue (Qt Quick webcam recorder).
 # Run from this directory, or: community-apps/monologue/install.sh
 #
-#   ./install.sh
+#   ./install.sh                 # pinned pre-built binary when available
+#   ./install.sh --from-source   # always compile
 #   ./install.sh --skip-apt
 #
 # Upstream builds with CMake. Arch packaging remains in bin/install.arch.
@@ -16,13 +17,16 @@ APP_DIR="$PREFIX/share/applications"
 ICON_DIR="$PREFIX/share/icons/hicolor/scalable/apps"
 
 SKIP_APT=0
+FROM_SOURCE=0
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--skip-apt]
+Usage: install.sh [--from-source] [--skip-apt]
 
-  (default)  apt deps, cmake build, install to ~/.local
-  --skip-apt do not apt-get install deps
+  (default)      pinned pre-built binary (runtime apt only) → ~/.local;
+                 falls back to apt build deps + cmake build
+  --from-source  always apt build deps + cmake build
+  --skip-apt     do not apt-get install deps
 EOF
   exit 0
 }
@@ -30,6 +34,7 @@ EOF
 for arg in "$@"; do
   case "$arg" in
     --skip-apt) SKIP_APT=1 ;;
+    --from-source) FROM_SOURCE=1 ;;
     -h|--help) usage ;;
     *)
       echo "unknown option: $arg" >&2
@@ -43,29 +48,10 @@ if (( $(id -u) == 0 )); then
   exit 1
 fi
 
-apt_runtime=(
-  ffmpeg
-  libpulse0
-  libqt6multimedia6
-  qml6-module-qtmultimedia
-  qml6-module-qtquick
-  qml6-module-qtquick-controls
-  qml6-module-qtquick-layouts
-  qml6-module-qtquick-shapes
-  qt6-qpa-plugins
-  xdg-desktop-portal
-  xdg-desktop-portal-gtk
-)
-apt_build=(
-  build-essential
-  cmake
-  pkg-config
-  qt6-base-dev
-  qt6-declarative-dev
-  qt6-multimedia-dev
-  libpulse-dev
-  libturbojpeg0-dev
-)
+# Package lists live in omaxian.deps.json (the TUI reads the same file).
+# shellcheck source=../lib/prebuilt.sh
+source "$ROOT/../lib/prebuilt.sh"
+app_deps_read
 
 refuse_qt_downgrade() {
   local installed candidate inst_mm cand_mm
@@ -134,13 +120,13 @@ install_apt() {
     packages=("${kept[@]}")
     echo ">> matching Qt headers under $local_qt_prefix; skipping apt Qt packages"
   else
-    refuse_qt_downgrade
+    (( ${#apt_build[@]} == 0 )) || refuse_qt_downgrade
   fi
   if (( ${#packages[@]} == 0 )); then
     return 0
   fi
   echo ">> apt packages: ${packages[*]}"
-  sudo apt-get install -y --no-install-recommends "${packages[@]}"
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
 qt_build_ready() {
@@ -167,7 +153,7 @@ install_files() {
   local qml_extra="$HOME/.local/lib/qt6/qml"
   if [[ -d $qml_extra/QtMultimedia && ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtMultimedia ]]; then
     mkdir -p "$PREFIX/libexec"
-    install -m 0755 "$ROOT/build/monologue" "$PREFIX/libexec/monologue"
+    install -m 0755 "$BUILT_BIN" "$PREFIX/libexec/monologue"
     local lib_extra="$HOME/.local/lib"
     local plugin_extra="$lib_extra/qt6/plugins"
     cat > "$BIN_DIR/monologue" <<EOF
@@ -179,7 +165,7 @@ exec "$PREFIX/libexec/monologue" "\$@"
 EOF
     chmod 0755 "$BIN_DIR/monologue"
   else
-    install -m 0755 "$ROOT/build/monologue" "$BIN_DIR/monologue"
+    install -m 0755 "$BUILT_BIN" "$BIN_DIR/monologue"
   fi
   install -m 0644 "$ROOT/pkgbuild/monologue.svg" "$ICON_DIR/monologue.svg"
   sed -e "s|^Exec=monologue|Exec=$BIN_DIR/monologue|" \
@@ -197,10 +183,18 @@ EOF
 }
 
 use_local_qt_if_present
-install_apt
-qt_build_ready
-echo ">> bin/build"
-"$ROOT/bin/build"
+BUILT_BIN="$ROOT/build/monologue"
+if prebuilt_fetch monologue; then
+  # Runtime packages only: the binary is already built.
+  apt_build=()
+  install_apt
+  BUILT_BIN=$PREBUILT_BIN
+else
+  install_apt
+  qt_build_ready
+  echo ">> bin/build"
+  "$ROOT/bin/build"
+fi
 install_files
 
 cat <<EOF

@@ -2,7 +2,8 @@
 # Omaxian / Debian install for Folio (Qt Quick file manager).
 # Run from this directory, or: community-apps/folio/install.sh
 #
-#   ./install.sh
+#   ./install.sh                 # pinned pre-built binary when available
+#   ./install.sh --from-source   # always compile
 #   ./install.sh --skip-apt
 #
 # Upstream builds with CMake only (Qt6 + GIO). There is no Arch makepkg script here.
@@ -18,13 +19,16 @@ PLUGIN_DIR="$PREFIX/share/folio/plugins"
 NAME="folio"
 
 SKIP_APT=0
+FROM_SOURCE=0
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--skip-apt]
+Usage: install.sh [--from-source] [--skip-apt]
 
-  (default)  apt deps, cmake build, install to ~/.local
-  --skip-apt do not apt-get install deps
+  (default)      pinned pre-built binary (runtime apt only) → ~/.local;
+                 falls back to apt build deps + cmake build
+  --from-source  always apt build deps + cmake build
+  --skip-apt     do not apt-get install deps
 EOF
   exit 0
 }
@@ -32,6 +36,7 @@ EOF
 for arg in "$@"; do
   case "$arg" in
     --skip-apt) SKIP_APT=1 ;;
+    --from-source) FROM_SOURCE=1 ;;
     -h|--help) usage ;;
     *)
       echo "unknown option: $arg" >&2
@@ -45,40 +50,10 @@ if (( $(id -u) == 0 )); then
   exit 1
 fi
 
-apt_runtime=(
-  qml6-module-qtcore
-  qml6-module-qtquick
-  qml6-module-qtquick-controls
-  qml6-module-qtquick-layouts
-  qml6-module-qtquick-templates
-  qml6-module-qtquick-effects
-  qml6-module-qtquick-shapes
-  qml6-module-qtqml
-  qml6-module-qtqml-workerscript
-  qt6-qpa-plugins
-  xdg-desktop-portal
-  xdg-desktop-portal-gtk
-  xdg-terminal-exec
-  gvfs
-  gvfs-backends
-  udisks2
-  libarchive-tools
-  libqt6multimedia6
-  qml6-module-qtmultimedia
-  qml6-module-qtquick-pdf
-  poppler-utils
-  ffmpegthumbnailer
-)
-apt_build=(
-  build-essential
-  cmake
-  pkg-config
-  qmake6
-  qt6-base-dev
-  qt6-declarative-dev
-  libglib2.0-dev
-  zlib1g-dev
-)
+# Package lists live in omaxian.deps.json (the TUI reads the same file).
+# shellcheck source=../lib/prebuilt.sh
+source "$ROOT/../lib/prebuilt.sh"
+app_deps_read
 
 # apt's qt6-*-dev must match the Qt already on the system. A stock Excalibur
 # box has 6.8 for both. A newer libqt6core with an older qt6-base-dev candidate
@@ -186,14 +161,14 @@ install_apt() {
     done
     echo ">> matching Qt headers under $local_qt_prefix; skipping apt Qt -dev packages"
   else
-    refuse_qt_downgrade
+    (( ${#apt_build[@]} == 0 )) || refuse_qt_downgrade
     packages=("${apt_runtime[@]}" "${apt_build[@]}")
   fi
   if (( ${#packages[@]} == 0 )); then
     return 0
   fi
   echo ">> apt packages: ${packages[*]}"
-  sudo apt-get install -y --no-install-recommends "${packages[@]}"
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
 qt_build_ready() {
@@ -259,7 +234,7 @@ install_files() {
   install_plugins
   if needs_qml_wrapper; then
     mkdir -p "$PREFIX/libexec"
-    install -m 0755 "$ROOT/build/$NAME" "$PREFIX/libexec/$NAME"
+    install -m 0755 "$BUILT_BIN" "$PREFIX/libexec/$NAME"
     local lib_extra="$HOME/.local/lib"
     local qml_extra="$lib_extra/qt6/qml"
     local plugin_extra="$lib_extra/qt6/plugins"
@@ -274,7 +249,7 @@ EOF
     chmod 0755 "$BIN_DIR/$NAME"
     echo ">> wrapper $BIN_DIR/$NAME (QML from $qml_extra)"
   else
-    install -m 0755 "$ROOT/build/$NAME" "$BIN_DIR/$NAME"
+    install -m 0755 "$BUILT_BIN" "$BIN_DIR/$NAME"
     if [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtCore ]]; then
       echo "warning: qml6-module-qtcore is not installed; Folio will exit on start" >&2
       echo "  install a package matching libqt6core, or place QtCore under ~/.local/lib/qt6/qml/" >&2
@@ -296,10 +271,18 @@ EOF
 }
 
 use_local_qt_if_present
-install_apt
-qt_build_ready
-echo ">> bin/build"
-"$ROOT/bin/build"
+BUILT_BIN="$ROOT/build/folio"
+if prebuilt_fetch folio; then
+  # Runtime packages only: the binary is already built.
+  apt_build=()
+  install_apt
+  BUILT_BIN=$PREBUILT_BIN
+else
+  install_apt
+  qt_build_ready
+  echo ">> bin/build"
+  "$ROOT/bin/build"
+fi
 install_files
 
 cat <<EOF

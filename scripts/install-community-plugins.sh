@@ -161,7 +161,7 @@ fi
 if (( ${#NEED_APT[@]} > 0 )); then
 	echo ":: installing ${#NEED_APT[@]} apt package(s) for selected community plugins:"
 	printf '   %s\n' "${NEED_APT[@]}"
-	sudo apt-get install -y -- "${NEED_APT[@]}"
+	sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -- "${NEED_APT[@]}"
 fi
 
 # --- copy + validate + enable ------------------------------------------------
@@ -173,12 +173,15 @@ if command -v omarchy-shell >/dev/null 2>&1 \
 fi
 
 INSTALLED_IDS=()
+n_item=0
 for dir in "${SELECTED_DIRS[@]}"; do
 	manifest="$dir/manifest.json"
 	id=$(jq -r '.id' "$manifest")
 	name=$(jq -r '.name // .id' "$manifest")
+	n_item=$(( n_item + 1 ))
 	echo
-	echo ":: $name ($id)"
+	# "-- i/N" is what omaxian-install.sh reads to move its progress bar.
+	echo "-- $n_item/${#SELECTED_DIRS[@]}  $name ($id)"
 
 	if command -v omarchy-plugin-validate >/dev/null 2>&1; then
 		if ! omarchy-plugin-validate "$dir"; then

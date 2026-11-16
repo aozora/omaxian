@@ -16,6 +16,7 @@
     "gvfs",
     "gvfs-backends",
     "udisks2",
+    "libglib2.0-0t64",
     "libarchive-tools",
     "libqt6multimedia6",
     "qml6-module-qtmultimedia",

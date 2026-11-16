@@ -51,7 +51,7 @@ ensure_upstream() {
 		return 0
 	fi
 	command -v git >/dev/null 2>&1 || { omaxian_err "git not found — cannot fetch upstream"; exit 1; }
-	omaxian_info "cloning $UPSTREAM_REF → omarchy-quattro/"
+	omaxian_step "cloning upstream Omarchy ($UPSTREAM_REF)"
 	tmp="$dir.tmp.$$"
 	rm -rf "$tmp"
 	if ! git clone --depth 1 --branch "$UPSTREAM_REF" "$UPSTREAM_URL" "$tmp" 2>/dev/null; then
@@ -189,6 +189,8 @@ else
 fi
 
 # Drop anything this suite doesn't ship; report it once.
+# One apt-cache/apt-get -s per package: quiet for a while on slow disks.
+omaxian_step "checking which packages this suite ships"
 AVAIL=()
 MISSING=()
 UNINSTALLABLE=()
@@ -209,7 +211,7 @@ while read -r p; do
 	fi
 done < <(printf '%s\n' "${PKGS[@]}" | sort -u)
 
-omaxian_info "installing ${#AVAIL[@]} packages"
+omaxian_step "installing ${#AVAIL[@]} packages"
 apt-get install -y "${AVAIL[@]}"
 
 # --- session D-Bus (Quickshell must reach the bus) -----------------------------
@@ -273,7 +275,7 @@ if [ -d "$FONT_SRC" ] && [ "$TARGET_USER" != root ]; then
 	install -d -o "$TARGET_USER" -g "$TARGET_GROUP" "$FONT_DST"
 	cp -r "$FONT_SRC/." "$FONT_DST/"
 	chown -R "$TARGET_USER:$TARGET_GROUP" "$FONT_DST"
-	sudo -u "$TARGET_USER" fc-cache -f >/dev/null 2>&1 || true
+	omaxian_spin "font cache" sudo -u "$TARGET_USER" fc-cache -f || true
 	omaxian_info "bundled fonts → $FONT_DST"
 fi
 

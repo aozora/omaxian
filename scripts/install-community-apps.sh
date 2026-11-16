@@ -5,6 +5,10 @@
 #   ./scripts/install-community-apps.sh <dir>…
 #   ./scripts/install-community-apps.sh --all
 #   ./scripts/install-community-apps.sh --skip-apt <dir>…
+#   ./scripts/install-community-apps.sh --from-source <dir>…   # never download
+#   ./scripts/install-community-apps.sh --report FILE <dir>…
+#
+# --report FILE writes one "ok<TAB>dir" / "failed<TAB>dir" line per app.
 #
 # Used by omaxian-install.sh (TUI). Not part of setup/install/deploy.
 # Prefer ./omaxian-install.sh for first-time setup.
@@ -16,23 +20,32 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APPS_SRC="$REPO_DIR/community-apps"
 
 SKIP_APT=0
+FROM_SOURCE=0
 DO_LIST=0
 DO_ALL=0
+REPORT=""
 ARGS=()
 
 usage() {
-	sed -n '2,12p' "$0"
+	sed -n '2,14p' "$0"
 	exit 0
 }
 
-for arg in "$@"; do
-	case "$arg" in
+while (( $# > 0 )); do
+	case "$1" in
 		--list)     DO_LIST=1 ;;
 		--all)      DO_ALL=1 ;;
 		--skip-apt) SKIP_APT=1 ;;
+		--from-source) FROM_SOURCE=1 ;;
+		--report)
+			[[ -n ${2:-} ]] || { echo "--report needs a file" >&2; exit 2; }
+			REPORT=$2
+			shift
+			;;
 		-h|--help)  usage ;;
-		*)          ARGS+=("$arg") ;;
+		*)          ARGS+=("$1") ;;
 	esac
+	shift
 done
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -127,22 +140,30 @@ fi
 # --- install each app via its own install.sh ---------------------------------
 INSTALLED=()
 FAILED=()
+n_item=0
 for dir in "${SELECTED_DIRS[@]}"; do
 	base=$(basename "$dir")
 	name=$(app_display_name "$base")
+	n_item=$(( n_item + 1 ))
 	echo
-	echo ":: $name ($base)"
+	# "-- i/N" is what omaxian-install.sh reads to move its progress bar.
+	echo "-- $n_item/${#SELECTED_DIRS[@]}  $name ($base)"
 	install_args=()
 	if (( SKIP_APT )); then
 		install_args+=(--skip-apt)
 	fi
+	if (( FROM_SOURCE )); then
+		install_args+=(--from-source)
+	fi
 	if (cd "$dir" && ./install.sh "${install_args[@]+"${install_args[@]}"}"); then
 		INSTALLED+=("$base")
 		echo "   ok → $name"
+		[[ -z $REPORT ]] || printf 'ok\t%s\n' "$base" >>"$REPORT"
 	else
 		ec=$?
 		echo "!! $name install failed (exit $ec)" >&2
 		FAILED+=("$base")
+		[[ -z $REPORT ]] || printf 'failed\t%s\n' "$base" >>"$REPORT"
 	fi
 done
 

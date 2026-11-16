@@ -2,26 +2,40 @@
 # Omaxian / Debian install for disktree (GPUI disk treemap).
 # Run from this directory, or: community-apps/disktree/install.sh
 #
-#   ./install.sh
+#   ./install.sh                 # pinned upstream release binary (x86_64)
+#   ./install.sh --from-source   # rustup + make install
 #   ./install.sh --skip-apt
 #
-# Linux `make install` builds the GUI and embeds static musl disktree-scan
-# helpers (SSH scans). Rust comes from rustup, not Debian rustc.
+# The default downloads the upstream release pinned in .omaxian-prebuilt and
+# checks its sha256 (Omaxian's disktree changes are packaging-only). It falls
+# back to building when there is no usable binary. Source builds embed static
+# musl disktree-scan helpers (SSH scans); Rust comes from rustup, not Debian.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local}"
 I3_SNIPPET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/i3/config.d"
+# Passed to make explicitly: its `?=` defaults would pick up unrelated env
+# vars (an AppImage terminal exports APPDIR).
+MAKE_DIRS=(
+  PREFIX="$PREFIX"
+  BINDIR="$PREFIX/bin"
+  APPDIR="$PREFIX/share/applications"
+  ICONDIR="$PREFIX/share/icons/hicolor/scalable/apps"
+)
 
 SKIP_APT=0
+FROM_SOURCE=0
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--skip-apt]
+Usage: install.sh [--from-source] [--skip-apt]
 
-  (default)  apt deps, rustup 1.97, make install to ~/.local, i3 float rule if missing
-  --skip-apt do not apt-get install deps
+  (default)      pinned release binary → ~/.local; builds when none is usable
+  --from-source  apt build deps, rustup 1.97, make install to ~/.local
+  --skip-apt     do not apt-get install deps
+  Also installs the i3 float rule when missing.
 EOF
   exit 0
 }
@@ -29,6 +43,7 @@ EOF
 for arg in "$@"; do
   case "$arg" in
     --skip-apt) SKIP_APT=1 ;;
+    --from-source) FROM_SOURCE=1 ;;
     -h|--help) usage ;;
     *)
       echo "unknown option: $arg" >&2
@@ -42,37 +57,23 @@ if (( $(id -u) == 0 )); then
   exit 1
 fi
 
-apt_runtime=(
-  libvulkan1
-  libx11-6
-  libxcb1
-  libxkbcommon0
-  libxkbcommon-x11-0
-  libwayland-client0
-  libfontconfig1
-  libfreetype6
-)
-apt_build=(
-  build-essential
-  pkg-config
-  libvulkan-dev
-  libx11-dev
-  libxcb1-dev
-  libxkbcommon-dev
-  libxkbcommon-x11-dev
-  libwayland-dev
-  libfontconfig-dev
-  libfreetype-dev
-)
+# shellcheck source=../lib/prebuilt.sh
+source "$ROOT/../lib/prebuilt.sh"
+app_deps_read
 
+# install_apt [--build] — runtime packages, plus build packages with --build.
 install_apt() {
   (( SKIP_APT )) && return 0
   if ! command -v apt-get >/dev/null; then
     echo "apt-get not found; install deps yourself (see omaxian.deps.json)" >&2
     return 0
   fi
-  echo ">> apt packages: ${apt_runtime[*]} ${apt_build[*]}"
-  sudo apt-get install -y --no-install-recommends "${apt_runtime[@]}" "${apt_build[@]}"
+  local packages=("${apt_runtime[@]}")
+  if [[ ${1:-} == "--build" ]]; then
+    packages+=("${apt_build[@]}")
+  fi
+  echo ">> apt packages: ${packages[*]}"
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
 use_rustup_path() {
@@ -127,10 +128,18 @@ install_i3_rules() {
   echo "installed i3 float rules → $dest (reload with: i3-msg reload)"
 }
 
-install_apt
-ensure_rustup
-echo ">> make install PREFIX=$PREFIX"
-make -C "$ROOT" install PREFIX="$PREFIX"
+if prebuilt_fetch disktree; then
+  install_apt
+  # Same install recipe as a source build (binary, desktop entry, icon),
+  # with the downloaded binary and the build step skipped.
+  echo ">> make install PREFIX=$PREFIX (pre-built binary)"
+  make -C "$ROOT" -o build install "${MAKE_DIRS[@]}" TARGET="$PREBUILT_BIN"
+else
+  install_apt --build
+  ensure_rustup
+  echo ">> make install PREFIX=$PREFIX"
+  make -C "$ROOT" install "${MAKE_DIRS[@]}"
+fi
 install_i3_rules
 
 cat <<EOF

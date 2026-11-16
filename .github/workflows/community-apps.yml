@@ -1,0 +1,171 @@
+# Build pre-built binaries for community apps and open a PR that pins them.
+#
+# On a push to main that touches community-apps/, every app whose pinned
+# binary is missing or stale is rebuilt in debian:trixie (Qt 6.8: binaries run
+# on Qt 6.8 and newer), checked on a clean trixie with runtime packages only,
+# uploaded to a release tagged apps-<sha7>, and pinned in each app's
+# .omaxian-prebuilt through a pull request.
+#
+# Repository settings: Actions → General → "Allow GitHub Actions to create and
+# approve pull requests" must be on for the PR step.
+# Plan: docs/omaxian/plans/community-apps-prebuilts.md
+
+name: Community app binaries
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "community-apps/**"
+      # A merged pin PR changes only these; nothing to rebuild.
+      - "!community-apps/**/.omaxian-prebuilt"
+      - ".github/scripts/prebuilt-*.sh"
+      - ".github/workflows/community-apps.yml"
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "Space-separated app dirs to rebuild (empty: every stale app)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: community-apps-prebuilt
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Find stale binaries
+    runs-on: ubuntu-24.04
+    outputs:
+      apps: ${{ steps.plan.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Plan
+        id: plan
+        # Through the environment, not spliced into the script: the dispatch
+        # input is text, never shell.
+        env:
+          INPUT_APPS: ${{ inputs.apps }}
+        run: |
+          read -r -a apps <<< "${INPUT_APPS:-}"
+          json=$(.github/scripts/prebuilt-plan.sh "${apps[@]}")
+          echo "apps=$json" >> "$GITHUB_OUTPUT"
+          echo "apps to build: $json"
+
+  build:
+    name: Build ${{ matrix.app }}
+    needs: plan
+    if: needs.plan.outputs.apps != '[]'
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.apps) }}
+    steps:
+      # git before checkout, so the checkout is a real clone (HEAD sha).
+      - name: Base tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git jq curl ca-certificates binutils
+
+      - uses: actions/checkout@v5
+
+      - name: Build and package
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          .github/scripts/prebuilt-build.sh "$APP" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-${{ matrix.app }}
+          path: dist/
+          if-no-files-found: error
+
+  verify:
+    name: Verify ${{ matrix.app }} (runtime packages only)
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.apps) }}
+    steps:
+      - name: Base tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            jq ca-certificates
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prebuilt-${{ matrix.app }}
+          path: dist
+
+      - name: Libraries resolve
+        env:
+          APP: ${{ matrix.app }}
+        run: .github/scripts/prebuilt-verify.sh "$APP" dist
+
+  publish:
+    name: Release and pin
+    needs: [plan, verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: prebuilt-*
+          path: dist
+          merge-multiple: true
+
+      - name: Release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="apps-${GITHUB_SHA::7}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$GITHUB_SHA" \
+              --title "Community app binaries ${GITHUB_SHA::7}" \
+              --notes "Built from $GITHUB_SHA in debian:trixie (Qt 6.8). Pinned by the matching .omaxian-prebuilt PR."
+          fi
+          gh release upload "$tag" dist/*.tar.gz --clobber
+
+      - name: Pin in a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          .github/scripts/prebuilt-manifests.sh dist "$GITHUB_REPOSITORY" "$TAG" "$GITHUB_SHA"
+          if git diff --quiet && [[ -z $(git ls-files --others --exclude-standard community-apps) ]]; then
+            echo "manifests unchanged"
+            exit 0
+          fi
+          branch="ci/prebuilt-${GITHUB_SHA::7}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add community-apps/*/.omaxian-prebuilt
+          git commit -m "Pin community app binaries from ${GITHUB_SHA::7}"
+          git push --force origin "$branch"
+          if ! gh pr view "$branch" >/dev/null 2>&1; then
+            gh pr create --base main --head "$branch" \
+              --title "Pin community app binaries from ${GITHUB_SHA::7}" \
+              --body "Release: $TAG. Each binary was built in debian:trixie and checked against its runtime packages only."
+          fi
