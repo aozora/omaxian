@@ -92,9 +92,12 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  # Each app is verified and published on its own: a failed build skips only
+  # that app, not the others.
   verify:
     name: Verify ${{ matrix.app }} (runtime packages only)
     needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.outputs.apps != '[]' }}
     runs-on: ubuntu-24.04
     container: debian:trixie
     strategy:
@@ -102,39 +105,84 @@ jobs:
       matrix:
         app: ${{ fromJSON(needs.plan.outputs.apps) }}
     steps:
+      # Missing when this app's build failed; the remaining steps then skip.
+      - uses: actions/download-artifact@v4
+        id: download
+        continue-on-error: true
+        with:
+          name: prebuilt-${{ matrix.app }}
+          path: dist
+
       - name: Base tools
+        if: steps.download.outcome == 'success'
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             jq ca-certificates
 
       - uses: actions/checkout@v5
-
-      - uses: actions/download-artifact@v4
+        if: steps.download.outcome == 'success'
         with:
-          name: prebuilt-${{ matrix.app }}
-          path: dist
+          path: src
 
       - name: Libraries resolve
+        if: steps.download.outcome == 'success'
         env:
           APP: ${{ matrix.app }}
-        run: .github/scripts/prebuilt-verify.sh "$APP" dist
+        run: |
+          src/.github/scripts/prebuilt-verify.sh "$APP" dist
+          mkdir -p verified && touch "verified/$APP"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.download.outcome == 'success'
+        with:
+          name: verified-${{ matrix.app }}
+          path: verified/
 
   publish:
     name: Release and pin
     needs: [plan, verify]
+    if: ${{ !cancelled() && needs.plan.outputs.apps != '[]' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: prebuilt-*
           path: dist
           merge-multiple: true
 
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: verified-*
+          path: verified
+          merge-multiple: true
+
+      # Publish only apps that built and verified.
+      - name: Select verified apps
+        id: select
+        run: |
+          shopt -s nullglob
+          kept=()
+          for env in dist/*.env; do
+            app=$(basename "$env" .env)
+            if [[ -f verified/$app ]]; then
+              kept+=("$app")
+            else
+              file=$(awk -F= '$1 == "file" { print $2 }' "$env")
+              rm -f "$env" "dist/$file"
+              echo "skipping $app (not verified)"
+            fi
+          done
+          echo "apps=${kept[*]}" >> "$GITHUB_OUTPUT"
+          echo "publishing: ${kept[*]:-none}"
+
       - name: Release
         id: release
+        if: steps.select.outputs.apps != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -148,9 +196,11 @@ jobs:
           gh release upload "$tag" dist/*.tar.gz --clobber
 
       - name: Pin in a pull request
+        if: steps.select.outputs.apps != ''
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
+          APPS: ${{ steps.select.outputs.apps }}
         run: |
           .github/scripts/prebuilt-manifests.sh dist "$GITHUB_REPOSITORY" "$TAG" "$GITHUB_SHA"
           if git diff --quiet && [[ -z $(git ls-files --others --exclude-standard community-apps) ]]; then
@@ -167,5 +217,5 @@ jobs:
           if ! gh pr view "$branch" >/dev/null 2>&1; then
             gh pr create --base main --head "$branch" \
               --title "Pin community app binaries from ${GITHUB_SHA::7}" \
-              --body "Release: $TAG. Each binary was built in debian:trixie and checked against its runtime packages only."
+              --body "Release: $TAG. Apps: $APPS. Each binary was built in debian:trixie and checked against its runtime packages only."
           fi

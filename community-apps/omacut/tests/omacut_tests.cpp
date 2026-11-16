@@ -3186,7 +3186,8 @@ static bool dropUrls(QQuickWindow *window, const QList<QUrl> &urls) {
     QMimeData mime;
     mime.setUrls(urls);
     const QPointF point(window->width() / 2, window->height() / 3);
-    QDragEnterEvent enter(point, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    // Omaxian: Qt 6.8 (Devuan Excalibur) has only the QPoint constructor.
+    QDragEnterEvent enter(point.toPoint(), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
     QCoreApplication::sendEvent(window, &enter);
     if (!enter.isAccepted()) {
         QDragLeaveEvent leave;
