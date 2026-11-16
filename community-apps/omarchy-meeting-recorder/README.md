@@ -50,6 +50,13 @@ community-apps/omarchy-meeting-recorder/install.sh
 community-apps/omarchy-meeting-recorder/install.sh --cpu-only
 ```
 
+With a pinned binary in `.omaxian-prebuilt` (Omaxian CI build, Vulkan, with
+the bar-enable patch), `install.sh` downloads it, checks its sha256 and
+installs only the runtime packages. Otherwise, or with `--from-source` /
+`--cpu-only`, it builds with rustup. `--binary` used to fetch upstream's
+release, which lacks the Omaxian patches; it is now a no-op. See
+[`../README.md`](../README.md#pre-built-binaries-omaxian-prebuilt).
+
 That installs:
 
 | Path | Role |

@@ -5,6 +5,7 @@
 #   ./scripts/install-community-apps.sh <dir>…
 #   ./scripts/install-community-apps.sh --all
 #   ./scripts/install-community-apps.sh --skip-apt <dir>…
+#   ./scripts/install-community-apps.sh --from-source <dir>…   # never download
 #   ./scripts/install-community-apps.sh --report FILE <dir>…
 #
 # --report FILE writes one "ok<TAB>dir" / "failed<TAB>dir" line per app.
@@ -19,13 +20,14 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APPS_SRC="$REPO_DIR/community-apps"
 
 SKIP_APT=0
+FROM_SOURCE=0
 DO_LIST=0
 DO_ALL=0
 REPORT=""
 ARGS=()
 
 usage() {
-	sed -n '2,13p' "$0"
+	sed -n '2,14p' "$0"
 	exit 0
 }
 
@@ -34,6 +36,7 @@ while (( $# > 0 )); do
 		--list)     DO_LIST=1 ;;
 		--all)      DO_ALL=1 ;;
 		--skip-apt) SKIP_APT=1 ;;
+		--from-source) FROM_SOURCE=1 ;;
 		--report)
 			[[ -n ${2:-} ]] || { echo "--report needs a file" >&2; exit 2; }
 			REPORT=$2
@@ -148,6 +151,9 @@ for dir in "${SELECTED_DIRS[@]}"; do
 	install_args=()
 	if (( SKIP_APT )); then
 		install_args+=(--skip-apt)
+	fi
+	if (( FROM_SOURCE )); then
+		install_args+=(--from-source)
 	fi
 	if (cd "$dir" && ./install.sh "${install_args[@]+"${install_args[@]}"}"); then
 		INSTALLED+=("$base")

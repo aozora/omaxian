@@ -504,13 +504,14 @@ Package output stays in a dialog window (not a bare shell)." \
 }
 
 # --- shared dependency confirmation -------------------------------------------
-# confirm_deps <title> <tree> <jq filter> <apt heading> <footer> <dirs[]> <names[]>
+# confirm_deps <title> <tree> <filter fn> <apt heading> <footer> <dirs[]> <names[]>
 # Unions packages from each selected dir's omaxian.deps.json, drops the ones
 # already installed, and asks to continue. names[] is parallel to dirs[].
+# <filter fn> is called with a dir and prints the jq filter for its packages.
 confirm_deps() {
-	local title="$1" tree="$2" filter="$3" apt_heading="$4" footer="$5"
+	local title="$1" tree="$2" filter_fn="$3" apt_heading="$4" footer="$5"
 	local -n dirs_ref="$6" names_ref="$7"
-	local pkgs=() manuals=() need=() deps pkg note i msg
+	local pkgs=() manuals=() need=() deps pkg note i msg filter
 
 	if (( ${#dirs_ref[@]} == 0 )); then
 		return 0
@@ -518,6 +519,7 @@ confirm_deps() {
 	for i in "${!dirs_ref[@]}"; do
 		deps="$REPO_DIR/$tree/${dirs_ref[$i]}/omaxian.deps.json"
 		[[ -f $deps ]] || continue
+		filter=$("$filter_fn" "${dirs_ref[$i]}")
 		while IFS= read -r pkg; do
 			[[ -n $pkg ]] && pkgs+=("$pkg")
 		done < <(jq -r "$filter | .[]" "$deps")
@@ -669,8 +671,12 @@ choose_plugins() {
 	return 0
 }
 
+plugin_deps_filter() {
+	echo '.apt // []'
+}
+
 confirm_plugin_deps() {
-	confirm_deps "Plugin dependencies" community-plugins '.apt // []' \
+	confirm_deps "Plugin dependencies" community-plugins plugin_deps_filter \
 		"apt packages (sudo):" "Continue?" \
 		SELECTED_PLUGIN_DIRS SELECTED_PLUGIN_NAMES
 }
@@ -690,14 +696,56 @@ install_selected_plugins() {
 SELECTED_APP_DIRS=()
 SELECTED_APP_NAMES=()
 FAILED_APPS=()
+# 1 = pass --from-source to every app (user chose to compile).
+APPS_FROM_SOURCE=0
 
 ask_install_apps() {
 	wt --title "Community apps" --defaultno --yesno \
 		"Install optional community apps from this repo?\n\n\
 Standalone ports (file manager, editor, recorder, …).\n\
 They are NOT part of the default desktop. You can pick which ones next.\n\n\
-Builds may take several minutes. Default: No." \
-		$(fit 14 72)
+Apps with a pre-built binary download in seconds; the rest compile,\n\
+which may take several minutes. Default: No." \
+		$(fit 15 74)
+}
+
+# True when <dir> pins a pre-built binary for this machine. install.sh makes
+# the final call (Qt version, local changes, download); it falls back to a
+# source build on its own.
+app_has_prebuilt() {
+	local manifest="$REPO_DIR/community-apps/$1/.omaxian-prebuilt" arch
+	[[ -f $manifest ]] || return 1
+	arch=$(awk -F= '$1 == "arch" { print $2; exit }' "$manifest")
+	[[ ${arch:-x86_64} == "$(uname -m)" ]]
+}
+
+# Prints the jq filter for the packages <dir> needs in the chosen mode.
+app_deps_filter() {
+	if (( ! APPS_FROM_SOURCE )) && app_has_prebuilt "$1"; then
+		echo '.apt // []'
+	else
+		echo '(.apt // []) + (.apt_build // [])'
+	fi
+}
+
+# Download or compile, asked only when a selected app has a pre-built binary.
+choose_app_build_mode() {
+	local dir any=0 choice
+	APPS_FROM_SOURCE=0
+	for dir in "${SELECTED_APP_DIRS[@]}"; do
+		if app_has_prebuilt "$dir"; then any=1; fi
+	done
+	(( any )) || return 0
+	choice=$(wt --title "Community apps" --radiolist \
+		"Some selected apps have a pre-built, checksum-pinned binary.\n\nHow should they be installed?" \
+		$(fit 14 74) 2 \
+		download "Download pre-built binaries (fast)" ON \
+		source "Build everything from source" OFF \
+		3>&1 1>&2 2>&3) || return 1
+	if [[ $choice == "source" ]]; then
+		APPS_FROM_SOURCE=1
+	fi
+	return 0
 }
 
 # Short checklist tag — long directory names overflow a ~78-col whiptail box.
@@ -736,7 +784,7 @@ choose_apps() {
 	fi
 
 	selected=$(checklist "Select community apps" \
-		"Space toggles. Each app builds/installs via its own install.sh." \
+		"Space toggles. Each app installs via its own install.sh." \
 		"${args[@]}") || return 1
 
 	while IFS= read -r tok; do
@@ -750,9 +798,29 @@ choose_apps() {
 }
 
 confirm_app_deps() {
-	confirm_deps "App dependencies" community-apps '(.apt // []) + (.apt_build // [])' \
-		"apt packages (sudo; runtime + build):" \
-		"Each selected app will build and install under ~/.local.\nContinue?" \
+	local footer i list downloads=() builds=()
+	for i in "${!SELECTED_APP_DIRS[@]}"; do
+		if (( ! APPS_FROM_SOURCE )) && app_has_prebuilt "${SELECTED_APP_DIRS[$i]}"; then
+			downloads+=("${SELECTED_APP_NAMES[$i]}")
+		else
+			builds+=("${SELECTED_APP_NAMES[$i]}")
+		fi
+	done
+	footer=""
+	if (( ${#downloads[@]} > 0 )); then
+		list=$(printf '%s, ' "${downloads[@]}")
+		footer+="Download (sha256-checked): ${list%, }\n"
+	fi
+	if (( ${#builds[@]} > 0 )); then
+		list=$(printf '%s, ' "${builds[@]}")
+		footer+="Build from source: ${list%, }\n"
+	fi
+	if (( ${#downloads[@]} > 0 )); then
+		footer+="A download that cannot be used falls back to a build,\nwhich also installs that app's build packages.\n"
+	fi
+	footer+="Everything installs under ~/.local.\nContinue?"
+	confirm_deps "App dependencies" community-apps app_deps_filter \
+		"apt packages (sudo):" "$footer" \
 		SELECTED_APP_DIRS SELECTED_APP_NAMES
 }
 
@@ -769,7 +837,10 @@ install_selected_apps() {
 	done
 	ensure_sudo
 	report=$(mktemp "${TMPDIR:-/tmp}/omaxian-apps.XXXXXX")
-	run_phase --soft "Community apps" "$APP_HELPER" --report "$report" "${SELECTED_APP_DIRS[@]}" || true
+	local mode=()
+	if (( APPS_FROM_SOURCE )); then mode=(--from-source); fi
+	run_phase --soft "Community apps" "$APP_HELPER" --report "$report" \
+		"${mode[@]+"${mode[@]}"}" "${SELECTED_APP_DIRS[@]}" || true
 	while IFS=$'\t' read -r line dir; do
 		if [[ $line == "failed" ]]; then
 			FAILED_APPS+=("${dir_to_name[$dir]:-$dir}")
@@ -995,6 +1066,7 @@ Repo: $REPO_DIR\n"
 	if ask_install_apps; then
 		choose_apps || { omaxian_msg "app selection cancelled — desktop is installed"; final_checklist "$(join_extras "${extras[@]+"${extras[@]}"}")"; exit 0; }
 		if (( ${#SELECTED_APP_DIRS[@]} > 0 )); then
+			choose_app_build_mode || { omaxian_msg "app install cancelled — desktop is installed"; final_checklist "$(join_extras "${extras[@]+"${extras[@]}"}")"; exit 0; }
 			confirm_app_deps || { omaxian_msg "app deps declined — desktop is installed"; final_checklist "$(join_extras "${extras[@]+"${extras[@]}"}")"; exit 0; }
 			install_selected_apps
 			if (( ${#FAILED_APPS[@]} < ${#SELECTED_APP_DIRS[@]} )); then

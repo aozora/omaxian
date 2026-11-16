@@ -40,8 +40,17 @@ to that toolchain (the one named by `rust-toolchain.toml`, not the default
 ## Install
 
 ```bash
-community-apps/disktree/install.sh
+community-apps/disktree/install.sh                # pinned upstream binary
+community-apps/disktree/install.sh --from-source  # rustup + make install
 ```
+
+The default downloads upstream's `v0.11.0` x86_64 release pinned in
+`.omaxian-prebuilt`, checks its sha256, installs the runtime packages only,
+and runs the same `make install` recipe with the build step skipped. No rustup.
+It builds from source when that binary cannot be used (other architectures,
+local changes; see [`../README.md`](../README.md#pre-built-binaries-omaxian-prebuilt)).
+When bumping `.omaxian-upstream-commit`, update `url=`, `sha256=` and `tree=`
+in `.omaxian-prebuilt` too.
 
 | Path | Role |
 | ---- | ---- |

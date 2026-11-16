@@ -1,6 +1,20 @@
 # Community apps: pre-built packages
 
-Status: proposed. Nothing here is implemented yet.
+Status: implemented; the CI workflow has not had its first run on GitHub yet.
+
+- Shared installer logic: `community-apps/lib/prebuilt.sh` (`app_deps_read`,
+  `prebuilt_fetch`). The manifest is `.omaxian-prebuilt`, as below, plus an
+  optional `bin=` (path inside the tarball).
+- disktree pins upstream `v0.11.0`. Every other app builds from source until
+  `.github/workflows/community-apps.yml` (scripts in `.github/scripts/`)
+  publishes its binary and the pin PR is merged.
+- Release tag: one `apps-<sha7>` per workflow run. Tarball:
+  `<app>-<sha7>-x86_64-linux.tar.gz`, one directory holding the binary.
+- Added beyond the plan: a CI job that installs only the runtime packages in
+  a clean trixie and fails on unresolved libraries. Reading the CMake files
+  already showed two gaps, now added to `apt`: `libturbojpeg0` (Monologue)
+  and `libglib2.0-0t64` (Folio).
+  `install.sh` also falls back to source when `<app>/` has local edits.
 
 ## Verdict
 

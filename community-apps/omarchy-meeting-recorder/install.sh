@@ -2,12 +2,15 @@
 # Omaxian / Debian install for Meeting Recorder (standalone GTK app).
 # Run from this directory, or: community-apps/omarchy-meeting-recorder/install.sh
 #
-#   ./install.sh              # build (Vulkan) + install to ~/.local
-#   ./install.sh --cpu-only   # build without Vulkan
-#   ./install.sh --skip-apt   # do not apt-get install deps
-#   ./install.sh --binary     # download upstream release tarball instead of building
+#   ./install.sh                # pinned Omaxian pre-built binary when available
+#   ./install.sh --from-source  # build (Vulkan) + install to ~/.local
+#   ./install.sh --cpu-only     # build without Vulkan (implies --from-source)
+#   ./install.sh --skip-apt     # do not apt-get install deps
 #
-# Source builds use rustup (Debian rustc is too old for gtk4-rs / whisper-rs).
+# Pre-built binaries come from Omaxian's CI (they carry the bar-enable patch;
+# upstream's release tarballs do not), pinned in .omaxian-prebuilt. Without a
+# usable one the script builds. Source builds use rustup (Debian rustc is too
+# old for gtk4-rs / whisper-rs).
 # Upstream Arch packaging remains in install.arch.sh / packaging/aur/.
 
 set -euo pipefail
@@ -24,25 +27,28 @@ RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-stable}"
 
 CPU_ONLY=0
 SKIP_APT=0
-USE_BINARY=0
+FROM_SOURCE=0
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--cpu-only] [--skip-apt] [--binary]
+Usage: install.sh [--from-source] [--cpu-only] [--skip-apt]
 
-  (default)   rustup build with Vulkan whisper backend → ~/.local
-  --cpu-only  cargo build --no-default-features
-  --skip-apt  do not apt-get install deps
-  --binary    download upstream release tarball (no Omaxian bar-enable patch in the binary)
+  (default)      pinned pre-built binary (Vulkan; runtime apt only) → ~/.local;
+                 falls back to a rustup build
+  --from-source  rustup build with Vulkan whisper backend → ~/.local
+  --cpu-only     cargo build --no-default-features (implies --from-source)
+  --skip-apt     do not apt-get install deps
+  --binary       accepted for compatibility; downloading is the default now
 EOF
   exit 0
 }
 
 for arg in "$@"; do
   case "$arg" in
-    --cpu-only) CPU_ONLY=1 ;;
+    --cpu-only) CPU_ONLY=1; FROM_SOURCE=1 ;;
     --skip-apt) SKIP_APT=1 ;;
-    --binary) USE_BINARY=1 ;;
+    --from-source) FROM_SOURCE=1 ;;
+    --binary) echo "note: --binary is the default now (Omaxian-built binary)" ;;
     -h|--help) usage ;;
     *)
       echo "unknown option: $arg" >&2
@@ -56,29 +62,13 @@ if [[ $(id -u) -eq 0 ]]; then
   exit 1
 fi
 
-apt_runtime=(
-  libgtk-4-1
-  libadwaita-1-0
-  pulseaudio-utils
-  ffmpeg
-  libvulkan1
-)
+# Package lists live in omaxian.deps.json (the TUI reads the same file).
 # Native build deps only — Rust comes from rustup, not apt rustc/cargo.
-apt_build=(
-  build-essential
-  cmake
-  pkg-config
-  curl
-  ca-certificates
-  libssl-dev
-  libgtk-4-dev
-  libadwaita-1-dev
-  libglib2.0-dev
-  libpulse-dev
-  libvulkan-dev
-  glslc
-)
+# shellcheck source=../lib/prebuilt.sh
+source "$ROOT/../lib/prebuilt.sh"
+app_deps_read
 
+# install_apt [--build] — runtime packages, plus build packages with --build.
 install_apt() {
   (( SKIP_APT )) && return 0
   if ! command -v apt-get >/dev/null; then
@@ -86,7 +76,7 @@ install_apt() {
     return 0
   fi
   local pkgs=("${apt_runtime[@]}")
-  if (( ! USE_BINARY )); then
+  if [[ ${1:-} == "--build" ]]; then
     pkgs+=("${apt_build[@]}")
     if (( CPU_ONLY )); then
       # glslc / vulkan headers only needed for the default Vulkan build
@@ -202,45 +192,11 @@ build_from_source() {
   install_files "$ROOT/target/release/omarchy-meeting-recorder"
 }
 
-fetch_binary() {
-  local tag url arch tmp
-  # second line of the pin file is the upstream tag (vX.Y.Z)
-  tag=$(awk 'NR==2{print; exit}' "$ROOT/.omaxian-upstream-commit")
-  [[ -n $tag ]] || tag="v1.8.0"
-  arch=$(uname -m)
-  case "$arch" in
-    x86_64|amd64) arch=x86_64 ;;
-    aarch64|arm64) arch=aarch64 ;;
-    *)
-      echo "no prebuilt binary for $arch — build from source instead" >&2
-      exit 1
-      ;;
-  esac
-  # Upstream release asset name: omarchy-meeting-recorder-<ver>-<arch>-linux.tar.gz
-  local pkgver=${tag#v}
-  url="https://github.com/jankeesvw/omarchy-meeting-recorder/releases/download/${tag}/omarchy-meeting-recorder-${pkgver}-${arch}-linux.tar.gz"
-  tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' RETURN
-  echo ">> download $url"
-  curl -fsSL "$url" -o "$tmp/app.tar.gz"
-  tar -xzf "$tmp/app.tar.gz" -C "$tmp"
-  local bin
-  bin=$(find "$tmp" -type f -name omarchy-meeting-recorder | head -n1)
-  [[ -n $bin && -x $bin ]] || {
-    echo "release tarball did not contain omarchy-meeting-recorder" >&2
-    exit 1
-  }
-  echo "note: upstream release binaries do not include Omaxian bar-enable patches;"
-  echo "      prefer building from this tree for the first-run bar offer."
-  install_files "$bin"
-  # Still install our plugin QML (identical) and i3 rules
-}
-
-install_apt
-
-if (( USE_BINARY )); then
-  fetch_binary
+if prebuilt_fetch omarchy-meeting-recorder; then
+  install_apt
+  install_files "$PREBUILT_BIN"
 else
+  install_apt --build
   build_from_source
 fi
 

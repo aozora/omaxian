@@ -2,6 +2,7 @@
   "apt": [
     "ffmpeg",
     "libpulse0",
+    "libturbojpeg0",
     "libqt6multimedia6",
     "qml6-module-qtmultimedia",
     "qml6-module-qtquick",

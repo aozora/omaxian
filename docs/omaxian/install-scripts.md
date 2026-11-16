@@ -129,9 +129,13 @@ pgrep -x quickshell
 - Asks whether to install community plugins; if yes, checklist + deps confirm
   (union of each port’s `omaxian.deps.json` `apt` list), then
   `scripts/install-community-plugins.sh`.
-- Asks whether to install community apps; if yes, checklist + deps confirm
-  (union of each app’s `omaxian.deps.json` `apt` + `apt_build`), then
-  `scripts/install-community-apps.sh` (each app’s own `install.sh`). A failed
+- Asks whether to install community apps; if yes, checklist, then (when any
+  selected app pins a pre-built binary) "Download pre-built binaries" or
+  "Build everything from source", then deps confirm: `apt` for apps that
+  download, `apt` + `apt_build` for apps that build. Then
+  `scripts/install-community-apps.sh` (each app’s own `install.sh`;
+  `--from-source` when chosen). See
+  [`community-apps/README.md`](../../community-apps/README.md#pre-built-binaries-omaxian-prebuilt). A failed
   plugin or app install does not abort the run; the final screen names the
   apps that failed (`install-community-apps.sh --report FILE`).
 - `--yes` / `OMAXIAN_INSTALL_NONINTERACTIVE=1`: recommended desktop only, skip
@@ -237,5 +241,6 @@ orphans left from older deploys.
 | `~/.config/omarchy/themes/` | User theme overlays | user (install leaves empty) |
 | `~/.config/omarchy/plugins/` | Community / third-party plugins | TUI helper, `omarchy-plugin-add`, or rsync |
 | `community-plugins/*/omaxian.deps.json` | Declared apt + manual deps for a port | maintainers |
-| `community-apps/*/omaxian.deps.json` | Declared apt / apt_build + manual deps for an app | maintainers |
+| `community-apps/*/omaxian.deps.json` | Declared apt / apt_build + manual deps for an app (read by its `install.sh` and the TUI) | maintainers |
+| `community-apps/*/.omaxian-prebuilt` | Pinned pre-built binary (url, sha256, source tree) | `.github/workflows/community-apps.yml` PRs; disktree by hand |
 | `~/.xsessionrc` | Exports `OMARCHY_PATH` and prepends `bin` to `PATH` | `deploy.sh` |

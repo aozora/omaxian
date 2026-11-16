@@ -18,11 +18,13 @@ Do **not** seed these apps into stock `shell.json` or first-party
 ```text
 community-apps/
   README.md
+  lib/prebuilt.sh          # shared: deps lists + pinned-binary download
   <app-id>/
     README.md              # Omaxian port notes + install
     omaxian.deps.json      # Debian apt (+ optional apt_build / manual)
     install.sh             # user-local install for this host
     .omaxian-upstream-commit
+    .omaxian-prebuilt      # pinned pre-built binary (optional; see below)
     … upstream / patched sources …
 ```
 
@@ -31,9 +33,41 @@ community-apps/
 Same idea as community plugins: declare Debian packages the installer (or a
 human) should install. Extra keys used by apps:
 
-- `apt` — runtime packages
+- `apt` — runtime packages. Everything the compiled binary links must be
+  reachable from here: a downloaded binary gets **only** these (CI checks it).
 - `apt_build` — packages needed only to compile from this tree
 - `manual` — human follow-ups (models, agents, bar widget link)
+
+`install.sh` reads both lists from this file (`app_deps_read` in
+`lib/prebuilt.sh`), and so does the TUI. Do not repeat them in `install.sh`.
+
+### Pre-built binaries (`.omaxian-prebuilt`)
+
+By default `install.sh` downloads a pinned, sha256-checked binary and installs
+only the `apt` packages. Everything else (`.desktop`, icons, fonts, Folio
+plugins, i3 rules) still comes from this tree. It builds from source instead,
+saying why, when:
+
+- `--from-source` is passed (or the TUI's "Build everything from source")
+- the app has no `.omaxian-prebuilt`, or the machine is not its `arch=`
+  (x86_64 only for now)
+- the system Qt is older than the binary's `qt=` (Qt apps are built against
+  Qt 6.8 and run on 6.8 and newer)
+- `<app>/` has local changes, or changed since the `tree=` commit (files that
+  only affect installing are ignored: `install.sh`, `*.md`,
+  `omaxian.deps.json`, `.omaxian-prebuilt`)
+- the download, checksum or unpack fails
+
+Who builds them:
+
+| App | Binary |
+| --- | ------ |
+| disktree | Upstream release, pinned by hand (Omaxian changes are packaging-only) |
+| Every other app | `.github/workflows/community-apps.yml`: builds in `debian:trixie`, checks the binary on a clean trixie with only `apt`, publishes release `apps-<sha7>`, and opens a PR that rewrites `.omaxian-prebuilt` |
+
+Until that PR lands for an app, its `install.sh` builds from source.
+Plan and rationale:
+[`docs/omaxian/plans/community-apps-prebuilts.md`](../docs/omaxian/plans/community-apps-prebuilts.md).
 
 ## Catalog
 
@@ -59,9 +93,11 @@ Outside the TUI:
 ```bash
 ./scripts/install-community-apps.sh --list
 ./scripts/install-community-apps.sh <dir>…
+./scripts/install-community-apps.sh --from-source <dir>…   # never download
 ```
 
-Or run one app’s installer directly:
+Or run one app’s installer directly (every `install.sh` takes
+`--from-source` and `--skip-apt`):
 
 ```bash
 ./community-apps/omarchy-meeting-recorder/install.sh
@@ -76,7 +112,11 @@ Review the tree before running it; apps run unsandboxed as your user.
 2. Replace Arch/Hyprland packaging with Debian user install + i3 glue.
 3. Patch any `omarchy` group-dispatcher calls to `omarchy-*` binaries.
 4. Pin upstream with `.omaxian-upstream-commit`; document deltas in `README.md`.
-5. Add a catalog row above. Do not wire into `setup` / `install` / `deploy`
+5. Source `lib/prebuilt.sh`, call `app_deps_read`, and use
+   `prebuilt_fetch <name>` before building (see any existing `install.sh`).
+   To have CI build it, add the dir to `CI_APPS` in
+   `.github/scripts/prebuilt-plan.sh`.
+6. Add a catalog row above. Do not wire into `setup` / `install` / `deploy`
    (the TUI / `scripts/install-community-apps.sh` discover dirs with
    `install.sh` automatically).
 
