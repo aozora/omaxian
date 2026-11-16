@@ -10,6 +10,8 @@
 #   url=     https release tarball
 #   sha256=  checksum of the tarball, checked before extraction
 #   tree=    Omaxian commit whose <app>/ the binary matches
+#   src=     prebuilt_src_hash of <app>/ at that commit; checked without
+#            history, so a shallow clone (bootstrap.sh) can tell the pin is stale
 #   bin=     path of the binary inside the tarball (default: the first
 #            executable file named <name>)
 #   arch=    machine the binary runs on (default: x86_64)
@@ -62,8 +64,18 @@ prebuilt_qt_version() {
 }
 
 # True when <app>/ still matches the commit the binary was built from.
+# prebuilt_src_hash <dir> — sha256 of the tracked files that make up the
+# binary (path, mode and blob id each, from the index). Needs no history.
+# Also run by .github/scripts/prebuilt-build.sh; keep the two in step.
+prebuilt_src_hash() {
+  local list
+  list=$(git -C "$1" ls-files -s -- . "${PREBUILT_IGNORE[@]}" 2>/dev/null) || return 1
+  [[ -n $list ]] || return 1
+  sha256sum <<<"$list" | cut -d' ' -f1
+}
+
 prebuilt_tree_current() {
-  local tree="$1" changes
+  local tree="$1" src="$2" changes have
   command -v git >/dev/null || return 0
   git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
 
@@ -72,7 +84,16 @@ prebuilt_tree_current() {
     echo ">> local changes in $(basename "$ROOT")/ — building from source"
     return 1
   fi
-  # A shallow clone (bootstrap.sh) may not have the commit; trust the pin.
+  if [[ -n $src ]]; then
+    have=$(prebuilt_src_hash "$ROOT" || true)
+    if [[ $have != "$src" ]]; then
+      echo ">> $(basename "$ROOT")/ differs from the pre-built binary's source (${tree:0:12}) — building from source"
+      return 1
+    fi
+    return 0
+  fi
+  # No src= (an older pin, or upstream's release): compare commits. A
+  # shallow clone may not have the commit; then trust the pin.
   if [[ -z $tree ]] || ! git -C "$ROOT" cat-file -e "$tree^{commit}" 2>/dev/null; then
     return 0
   fi
@@ -94,7 +115,7 @@ prebuilt_cleanup() {
 # Sets PREBUILT_BIN on success. Returns 1 (with the reason) to fall back.
 prebuilt_fetch() {
   local name="$1" manifest="$ROOT/.omaxian-prebuilt"
-  local url sha tree bin arch qt have tarball got
+  local url sha tree src bin arch qt have tarball got
   PREBUILT_BIN=""
 
   if (( ${FROM_SOURCE:-0} )); then
@@ -108,6 +129,7 @@ prebuilt_fetch() {
   url=$(prebuilt_get url)
   sha=$(prebuilt_get sha256)
   tree=$(prebuilt_get tree)
+  src=$(prebuilt_get src)
   bin=$(prebuilt_get bin)
   arch=$(prebuilt_get arch)
   qt=$(prebuilt_get qt)
@@ -132,7 +154,7 @@ prebuilt_fetch() {
       return 1
     fi
   fi
-  prebuilt_tree_current "$tree" || return 1
+  prebuilt_tree_current "$tree" "$src" || return 1
   if ! command -v curl >/dev/null || ! command -v sha256sum >/dev/null; then
     echo ">> curl / sha256sum missing — building from source"
     return 1

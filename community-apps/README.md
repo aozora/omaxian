@@ -54,9 +54,11 @@ saying why, when:
   (x86_64 only for now)
 - the system Qt is older than the binary's `qt=` (Qt apps are built against
   Qt 6.8 and run on 6.8 and newer)
-- `<app>/` has local changes, or changed since the `tree=` commit (files that
-  only affect installing are ignored: `install.sh`, `*.md`,
-  `omaxian.deps.json`, `.omaxian-prebuilt`)
+- `<app>/` has local changes, or its tracked files differ from the source
+  the binary was built from (`src=`, a hash of path, mode and blob id per
+  file, so a shallow clone can check it too; files that only affect
+  installing are ignored: `install.sh`, `*.md`, `omaxian.deps.json`,
+  `.omaxian-prebuilt`)
 - the download, checksum or unpack fails
 
 Who builds them:
@@ -66,7 +68,9 @@ Who builds them:
 | disktree | Upstream release, pinned by hand (Omaxian changes are packaging-only) |
 | Every other app | `.github/workflows/community-apps.yml`: builds in `debian:trixie`, checks the binary on a clean trixie with only `apt` (libraries resolve; Qt apps also start headless with their QML loaded, which catches QML written for a newer Qt), publishes release `apps-<sha7>`, and opens a PR that rewrites `.omaxian-prebuilt` |
 
-Until that PR lands for an app, its `install.sh` builds from source.
+Until that PR lands for an app, its `install.sh` builds from source. Tag a
+release only after it lands: `.github/workflows/release-pins.yml` fails a `v*`
+tag whose pins are stale.
 Plan and rationale:
 [`docs/omaxian/plans/community-apps-prebuilts.md`](../docs/omaxian/plans/community-apps-prebuilts.md).
 

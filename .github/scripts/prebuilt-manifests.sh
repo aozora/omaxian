@@ -23,6 +23,7 @@ for env in "$DIST"/*.env; do
     echo "url=https://github.com/$REPO/releases/download/$TAG/$(get file)"
     echo "sha256=$(get sha256)"
     echo "tree=$TREE"
+    echo "src=$(get src)"
     echo "bin=$(get bin)"
     echo "arch=$(get arch)"
     if [[ -n $(get qt) ]]; then

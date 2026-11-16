@@ -7,7 +7,7 @@
 #
 # Writes to <out dir>:
 #   <app>-<sha7>-<arch>-linux.tar.gz   one directory holding the binary only
-#   <app>.env                          file=, sha256=, bin=, arch=, qt=
+#   <app>.env                          file=, sha256=, src=, bin=, arch=, qt=
 # install.sh takes everything else (.desktop, icons, plugins) from the tree.
 
 set -euo pipefail
@@ -62,9 +62,16 @@ strip --strip-unneeded "$OUT/$NAME/$APP" || true
 tar -C "$OUT" --owner=0 --group=0 --numeric-owner -czf "$OUT/$NAME.tar.gz" "$NAME"
 rm -rf "${OUT:?}/$NAME"
 
+# The installer's staleness check (works in a shallow clone too).
+ROOT="$SRC"
+# shellcheck source=../../community-apps/lib/prebuilt.sh
+source "$REPO_DIR/community-apps/lib/prebuilt.sh"
+SRC_HASH=$(prebuilt_src_hash "$SRC")
+
 cat > "$OUT/$APP.env" <<EOF
 file=$NAME.tar.gz
 sha256=$(sha256sum "$OUT/$NAME.tar.gz" | awk '{ print $1 }')
+src=$SRC_HASH
 bin=$NAME/$APP
 arch=$ARCH
 qt=$QT
