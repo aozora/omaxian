@@ -373,7 +373,8 @@ ApplicationWindow {
             color: "black"; clip: true
             // Omaxian: VideoOutput.mirrored and endOfStreamPolicy are newer than Qt 6.8
             // (Devuan Excalibur). Use them where they exist; on 6.8 a Scale transform
-            // mirrors the preview, and the clip clears at its end as 6.8 always did.
+            // mirrors the preview. Playback pauses at the end of the last clip, which keeps
+            // its frame on 6.8 too (tests/ui_tests.cpp plays a take to its end).
             VideoOutput {
                 id: liveVideo; objectName: "liveVideo"; anchors.fill: parent; visible: !win.finished; fillMode: VideoOutput.PreserveAspectFit; focus: true
                 readonly property bool nativeMirror: liveVideo.mirrored !== undefined

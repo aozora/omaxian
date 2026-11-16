@@ -290,107 +290,29 @@ To install Quickshell follow the instructions on the [docs](https://quickshell.o
 
 ## Debian 13 and Devuan Excalibur
 
-In Debian 13 and Devuan Excalibur quickshell is available only in the testing repository.
-Instead of manually build it you can add the testing repository using apt pinning without compromising the system in this way:
+In Debian 13 and Devuan Excalibur quickshell is available only in the testing repository or in backports.
+Instead of manually build it you can add the backports:
 
 ### Debian 13
 
-1. Add the Forky repo
-
-Trixie uses deb822 format by default (your main sources live in /etc/apt/sources.list.d/debian.sources), so create:
-
-/etc/apt/sources.list.d/forky.sources
-
 ```
-Types: deb
-URIs: http://deb.debian.org/debian
-Suites: forky
-Components: main contrib non-free non-free-firmware
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-```
-
-Leave your existing trixie / trixie-security / trixie-updates entries untouched.
-
-2. Pin Forky below stable
-
-/etc/apt/preferences.d/forky
-```
-Package: *
-Pin: release n=trixie-security
-Pin-Priority: 990
-
-Package: *
-Pin: release n=trixie
-Pin-Priority: 900
-
-Package: *
-Pin: release n=forky
-Pin-Priority: 100
-```
-
-900 keeps stable as the default for everything, 100 makes testing installable only on explicit request while still allowing upgrades of packages you've already taken from it.
-
-3. Install from testing on demand
-
-```
+# sources: deb http://deb.devuan.org/merged excalibur-backports main
 sudo apt update
-sudo apt install -t forky quickshell qml6-module-qtquick-layouts qml6-module-qtquick-controls qml6-module-qtquick-shapes qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
+sudo apt install -t trixie-backports quickshell
+sudo apt install qml6-module-qtquick-shapes \
+  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
 ```
-
-Or per-package: `apt install <package>/forky`
-
-4. Verify
-
-apt policy
-
-Trixie should show priority 900, Forky 100.
-
-Same caveats apply: -t forky may pull in testing versions of dependencies (watch out when it wants to upgrade libc6, gcc runtime libs, or similar core packages — that can cascade), and Debian's security team doesn't cover testing the same way as stable, so packages from Forky rely on fixes migrating from unstable rather than DSAs. If a Forky package drags in too many dependencies, a backport from trixie-backports (if available) is often the safer alternative.
-
 
 ### Devuan Excalibur
 
-**1. Add the Freia repo** (deb822 format, since Excalibur ships APT 3): `/etc/apt/sources.list.d/freia.sources`
-```
-Types: deb
-URIs: http://deb.devuan.org/merged
-Suites: freia
-Components: main contrib non-free non-free-firmware
-Signed-By: /usr/share/keyrings/devuan-archive-keyring.gpg
-```
-
-Leave your existing `excalibur` / `excalibur-security` / `excalibur-updates` entries as they are.
-
-**2. Pin Freia below stable**
-`/etc/apt/preferences.d/freia`
-```
-Package: *
-Pin: release n=excalibur-security
-Pin-Priority: 990
-
-Package: *
-Pin: release n=excalibur
-Pin-Priority: 900
-
-Package: *
-Pin: release n=freia
-Pin-Priority: 100
-```
-
-Priority 100 means Freia packages are never chosen automatically (stable at 900 always wins), but they're available if you ask for them explicitly. Anything you already pulled from Freia will still get upgraded from Freia later, since 100 is still above the "never install" threshold.
-
-**3. Install from testing**
 
 ```
+# sources: deb http://deb.devuan.org/merged excalibur-backports main
 sudo apt update
-sudo apt install -t freia quickshell qml6-module-qtquick-layouts qml6-module-qtquick-controls qml6-module-qtquick-shapes qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
+sudo apt install -t excalibur-backports quickshell
+sudo apt install qml6-module-qtquick-shapes \
+  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
 ```
-
-Or for a one-off: `apt install <package>/freia`.
-
-**4. Verify** with `apt policy` (or `apt policy <package>`) — Excalibur should show 900 and Freia 100.
-
-Two caveats: `-t freia` will also pull Freia versions of a package's dependencies where needed, so keep an eye on the proposed changes when libc6 or other core libraries show up in the list. And per the Devuan forum, there's no -security suite for freia, so packages you take from testing won't get security updates the way stable ones do. [Dev1 Galaxy](https://dev1galaxy.org/viewtopic.php?id=7423)
 
 ---
 

@@ -1,3 +1,4 @@
+#include <QQmlListReference>
 #include <QtTest>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -117,16 +118,22 @@ QtObject {
         // The preview is mirrored by default; the button and M turn it off and on again.
         auto *live=window->findChild<QQuickItem*>("liveVideo"); QVERIFY(live);
         auto *mirror=window->findChild<QQuickItem*>("mirrorButton"); QVERIFY(mirror);
-        QVERIFY(live->property("mirrored").toBool()); QVERIFY(mirror->isVisible());
+        // Omaxian: Qt 6.8 has no VideoOutput.mirrored; a Scale transform flips the preview there.
+        auto mirrored=[&] {
+            if(const auto m=live->property("mirrored"); m.isValid()) return m.toBool();
+            QQmlListReference transforms(live,"transform");
+            return transforms.count()==1 && transforms.at(0)->property("xScale").toReal()<0;
+        };
+        QVERIFY(mirrored()); QVERIFY(mirror->isVisible());
         // Hovering explains it.
         QTest::mouseMove(window,mirror->mapToScene(QPointF(mirror->width()/2,mirror->height()/2)).toPoint());
         auto *tip=window->findChild<QObject*>("mirrorTip"); QVERIFY(tip);
         QTRY_VERIFY(tip->property("visible").toBool());
         QCOMPARE(tip->property("text").toString(),QString("Stop mirroring the preview (M)"));
         QTest::mouseClick(window,Qt::LeftButton,Qt::NoModifier,mirror->mapToScene(QPointF(mirror->width()/2,mirror->height()/2)).toPoint());
-        QVERIFY(!backend->property("mirror").toBool()); QVERIFY(!live->property("mirrored").toBool());
+        QVERIFY(!backend->property("mirror").toBool()); QVERIFY(!mirrored());
         QTRY_VERIFY(live->hasActiveFocus());
-        QTest::keyClick(window,Qt::Key_M); QVERIFY(backend->property("mirror").toBool()); QVERIFY(live->property("mirrored").toBool());
+        QTest::keyClick(window,Qt::Key_M); QVERIFY(backend->property("mirror").toBool()); QVERIFY(mirrored());
         QTest::keyClick(window,Qt::Key_Space); QCOMPARE(backend->property("state").toString(),QString("recording"));
         QTest::keyClick(window,Qt::Key_Space); QCOMPARE(backend->property("state").toString(),QString("paused"));
         QTest::keyClick(window,Qt::Key_Space); QCOMPARE(backend->property("state").toString(),QString("recording"));
@@ -287,12 +294,22 @@ QtObject {
         auto *clipVideo=window->findChild<QObject*>("clipVideo"); QVERIFY(clipVideo);
         auto *sink=clipVideo->property("videoSink").value<QVideoSink*>(); QVERIFY(sink);
         // Reaching the end of the file must not clear the picture to black.
-        QCOMPARE(clipVideo->property("endOfStreamPolicy").toInt(),1);
+        // Omaxian: Qt 6.8 has no endOfStreamPolicy; the player shows the last frame again.
+        if(const auto policy=clipVideo->property("endOfStreamPolicy"); policy.isValid()) QCOMPARE(policy.toInt(),1);
         QVideoFrame shown; connect(sink,&QVideoSink::videoFrameChanged,window,[&](const QVideoFrame &f) { shown=f; });
         backend->setProperty("state","ready"); QTest::qWait(50);
         backend->setProperty("clip",QUrl::fromLocalFile(red)); backend->setProperty("state","finished");
         QTRY_VERIFY_WITH_TIMEOUT(shown.isValid(),5000);
         QCOMPARE(shown.toImage().pixelColor(160,120).red()>180,true);
+        // Played to the end of the 1 s take, the last frame stays on screen.
+        // Omaxian: Qt 6.8 clears it at the end of the file, so the player stops short of that.
+        backend->setProperty("duration",1.0);
+        backend->setProperty("clips",QVariantList{QVariantMap{{"start",0.0},{"end",1.0}}});
+        QMetaObject::invokeMethod(window,"seekTo",Q_ARG(QVariant,0.0));
+        QMetaObject::invokeMethod(window,"togglePlayback");
+        QTRY_VERIFY_WITH_TIMEOUT(shown.isValid() && shown.startTime()>=800000,5000);
+        QTest::qWait(1000);
+        QTRY_VERIFY_WITH_TIMEOUT(shown.isValid() && shown.toImage().pixelColor(160,120).red()>180,5000);
         window->resize(640,460); QTest::qWait(100);
         auto frame=window->grabWindow(); QVERIFY(!frame.isNull());
         frame.save("/tmp/monologue-ui-minimum.png");

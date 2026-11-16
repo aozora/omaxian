@@ -33,11 +33,12 @@ GridView {
     Band {
         view: grid
         // Mirrored, the first column is on the right, flush with the edge
-        // (the columns may not fill the width exactly).
+        // (the columns may not fill the width exactly). Omaxian: the band
+        // is in the content, so shift by contentX (not 0 when mirrored).
         rectOf: (i) => {
             const c = i % grid.columns
             const x = grid.effectiveLayoutDirection === Qt.RightToLeft ? grid.width - (c + 1) * grid.cellWidth : c * grid.cellWidth
-            return Qt.rect(x + 20, Math.floor(i / grid.columns) * grid.cellHeight + 12,
+            return Qt.rect(x + grid.contentX + 20, Math.floor(i / grid.columns) * grid.cellHeight + 12,
                            grid.cellWidth - 40, grid.cellHeight - 24)
         }
     }
