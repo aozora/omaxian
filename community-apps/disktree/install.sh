@@ -72,7 +72,7 @@ install_apt() {
     return 0
   fi
   echo ">> apt packages: ${apt_runtime[*]} ${apt_build[*]}"
-  sudo apt-get install -y --no-install-recommends "${apt_runtime[@]}" "${apt_build[@]}"
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${apt_runtime[@]}" "${apt_build[@]}"
 }
 
 use_rustup_path() {

@@ -173,7 +173,7 @@ install_apt() {
     return 0
   fi
   echo ">> apt packages: ${packages[*]}"
-  sudo apt-get install -y --no-install-recommends "${packages[@]}"
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
 qt_build_ready() {

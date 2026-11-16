@@ -59,10 +59,19 @@ omaxian_done() {
 	echo "== $* =="
 }
 
+# Label the step that starts now (e.g. before a quiet loop or a slow command
+# whose output is hidden). omaxian-install.sh shows the latest step next to
+# its spinner; the "   label ..." shape is what it looks for.
+omaxian_step() {
+	echo "   $* ..."
+}
+
 # Run a long quiet command with a loader so the TUI/TTY does not look stuck.
 # Usage: omaxian_spin "label" command [args…]
 # - TTY: in-place |/-\ spinner on one line
-# - Piped (dialog --programbox): heartbeat lines every ~2s
+# - Under omaxian-install.sh's TUI (OMAXIAN_TUI_SPINNER=1): the installer
+#   draws the spinner; print only the start and end lines
+# - Otherwise piped (--yes, logs): a heartbeat line with elapsed time every ~10s
 # Command stdout/stderr go to a temp log; dumped on failure.
 omaxian_spin() {
 	local label="$1"
@@ -95,15 +104,16 @@ omaxian_spin() {
 			printf '\bfailed\n'
 		fi
 	else
-		# programbox is line-oriented; \r redraws do nothing useful there.
-		echo "   $label ..."
-		next_beat=$((SECONDS + 2))
+		# Not a TTY: \r redraws do nothing useful, so print whole lines.
+		local start=$SECONDS
+		omaxian_step "$label"
+		next_beat=$((SECONDS + 10))
 		while kill -0 "$pid" 2>/dev/null; do
 			sleep 0.5
 			now=$SECONDS
-			if (( now >= next_beat )); then
-				echo "   ... still working ($label)"
-				next_beat=$((now + 2))
+			if [[ ${OMAXIAN_TUI_SPINNER:-0} != "1" ]] && (( now >= next_beat )); then
+				printf '   ... still working (%s, %d:%02d)\n' "$label" $(( (now - start) / 60 )) $(( (now - start) % 60 ))
+				next_beat=$((now + 10))
 			fi
 		done
 		wait "$pid" || ec=$?

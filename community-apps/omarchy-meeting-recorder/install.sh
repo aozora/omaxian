@@ -100,7 +100,7 @@ install_apt() {
     fi
   fi
   echo ">> apt packages: ${pkgs[*]}"
-  sudo apt-get install -y --no-install-recommends "${pkgs[@]}"
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${pkgs[@]}"
 }
 
 # Prefer ~/.cargo/bin over Debian /usr/bin/{rustc,cargo}.

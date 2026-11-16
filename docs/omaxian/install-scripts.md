@@ -91,14 +91,35 @@ pgrep -x quickshell
 
 ## `omaxian-install.sh` (TUI)
 
-- Runs `sudo apt-get update` first (once), then ensures `whiptail` + `dialog` +
-  `git` (apt-installs them if missing).
-- Asks for the sudo password in a whiptail password box (cached for apt).
-- Streams setup/apt/install/deploy output through `dialog --programbox` so the
-  flow stays in the TUI instead of dropping to a bare terminal.
-- Quiet steps (notably `apt-get update -qq` in `setup.sh`) use `omaxian_spin`
-  from `scripts/lib/ui.sh` — a TTY spinner, or heartbeat lines inside the
-  programbox — so the install does not look frozen.
+- Preflight: requires `apt-get` / `dpkg-query` / `sudo`; warns (on the
+  Welcome screen, or on stderr with `--yes`) about an untested distribution,
+  less than 3 GB free in `$HOME`, or no DNS for `github.com`.
+- Installs `whiptail` + `dialog` + `git` only when missing, after asking on the
+  terminal. Only then does it run `apt-get update`; `setup.sh` runs its own.
+  `--yes` installs `git` only, because `setup.sh` clones upstream before it
+  installs packages.
+- Asks for the sudo password in a whiptail password box, then refreshes the
+  sudo ticket in the background until the installer exits, so long community
+  app builds do not hit a hidden sudo prompt.
+- Shows each phase (setup, install, deploy, plugins, apps) in a `dialog
+  --gauge` that redraws in place: a spinner, the current step, elapsed time,
+  a progress bar, and the last lines of output. Every phase is also appended
+  to `~/.cache/omaxian/install-<timestamp>.log`; the failure box shows the
+  last lines plus that path, and so does the final screen. Ctrl-C stops the
+  running phase and its children.
+- The step label comes from the phase's own output, using the
+  `scripts/lib/ui.sh` line shapes: `-- section` (`-- i/N section` also moves
+  the bar), `:: message`, `>> message`, and `   label ...` (`omaxian_step`,
+  printed by `omaxian_spin` too). Label a quiet loop or a slow command with
+  `omaxian_step` / `omaxian_spin` so the TUI names it.
+- `omaxian_spin` draws a terminal spinner on a TTY. Under the TUI
+  (`OMAXIAN_TUI_SPINNER=1`) it prints only start/end lines; elsewhere
+  (`--yes`, logs) it prints a heartbeat with elapsed time every ~10 s.
+- The installer's own `apt-get update` / install of `whiptail` / `dialog` /
+  `git` (before the TUI exists) uses the terminal spinner.
+- Box sizes are clamped to the terminal, so an 80×25 console still fits.
+- Package installs run with `DEBIAN_FRONTEND=noninteractive` (passed through
+  `sudo env`) so a debconf question cannot hang behind the gauge.
 - Package radiolist: recommended (default) / minimal / + optional.
 - Runs `scripts/setup.sh` (no `--deploy`), then `install.sh`, then `deploy.sh`.
 - Checks that **Quickshell** is on `PATH` after setup. If missing, shows
@@ -110,12 +131,16 @@ pgrep -x quickshell
   `scripts/install-community-plugins.sh`.
 - Asks whether to install community apps; if yes, checklist + deps confirm
   (union of each app’s `omaxian.deps.json` `apt` + `apt_build`), then
-  `scripts/install-community-apps.sh` (each app’s own `install.sh`).
+  `scripts/install-community-apps.sh` (each app’s own `install.sh`). A failed
+  plugin or app install does not abort the run; the final screen names the
+  apps that failed (`install-community-apps.sh --report FILE`).
 - `--yes` / `OMAXIAN_INSTALL_NONINTERACTIVE=1`: recommended desktop only, skip
   plugins and apps (still prints the Quickshell warning when missing).
 
 Bootstrap env: `OMAXIAN_DIR` (default `~/projects/omaxian`), `OMAXIAN_REF`,
-`OMAXIAN_REPO`.
+`OMAXIAN_REPO`. `bootstrap.sh` runs everything from a `main` call on its last
+line (a truncated download executes nothing), refreshes apt before installing
+`git`, and starts the installer with `/dev/tty` as stdin.
 
 ---
 

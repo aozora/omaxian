@@ -61,7 +61,7 @@ if [ -e "$UPSTREAM_DIR/.git" ]; then
 	omaxian_info "omarchy-quattro/ kept ($(git -C "$UPSTREAM_DIR" describe --tags --always 2>/dev/null || echo unknown))"
 else
 	command -v git >/dev/null 2>&1 || { omaxian_err "git not found — cannot fetch upstream"; exit 1; }
-	omaxian_info "cloning $UPSTREAM_REF → omarchy-quattro/"
+	omaxian_step "cloning upstream Omarchy ($UPSTREAM_REF)"
 	tmp="$UPSTREAM_DIR.tmp.$$"
 	rm -rf "$tmp"
 	if ! git clone --depth 1 --branch "$UPSTREAM_REF" "$UPSTREAM_URL" "$tmp" 2>/dev/null; then
