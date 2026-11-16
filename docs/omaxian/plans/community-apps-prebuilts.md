@@ -120,6 +120,7 @@ One small file per app, next to `.omaxian-upstream-commit`, for example
 url=https://github.com/aozora/omaxian/releases/download/apps-<tag>/<name>-<ver>-x86_64-linux.tar.gz
 sha256=<hex>
 tree=<omaxian commit the binary was built from>
+src=<hash of the app's tracked source files at that commit>
 ```
 
 - The expected sha256 lives **in the repo** and is checked before extraction.
@@ -128,6 +129,11 @@ tree=<omaxian commit the binary was built from>
 - `tree=` ties the binary to the data files. CI rebuilds an app whenever its
   directory changes and rewrites the manifest in the same change, so a new
   binary never pairs with old data files or the reverse.
+- `src=` (added after v1.2.1): a sha256 over `git ls-files -s` of the app
+  directory (minus install-only files). `tree=` alone could not be checked
+  in bootstrap's `--depth 1` clone, which then trusted the pin; v1.2.1 was
+  tagged before its pin PR merged and shallow installs got stale Folio and
+  Monologue binaries. `release-pins.yml` now fails a tag with stale pins.
 
 ## Changes
 

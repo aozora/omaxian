@@ -3,6 +3,7 @@
 url=https://github.com/aozora/omaxian/releases/download/apps-027bd66/folio-027bd66-x86_64-linux.tar.gz
 sha256=7ffa02e5a6a4c7e26b2aaaca5e028b6abe96b11f0e4823bd31f4a21aa70769e0
 tree=027bd6621e61eca2a10ae2a5d75be53810f0fabc
+src=00fe16da6ee9f1b47f577e8bb6c7a3c4444ebaa571be508215e011fa1d44b283
 bin=folio-027bd66-x86_64-linux/folio
 arch=x86_64
 qt=6.8

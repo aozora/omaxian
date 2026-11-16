@@ -1,0 +1,29 @@
+# Fail a version tag whose community-app pins are stale. CI pins new binaries
+# in a follow-up PR (ci/prebuilt-<sha7>); a tag cut before that PR merges
+# ships pins for older source, which install.sh then builds from source.
+name: Release pins
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  pins:
+    name: Pins match the tagged source
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check
+        run: |
+          stale=$(.github/scripts/prebuilt-plan.sh)
+          if [[ $stale != "[]" ]]; then
+            echo "::error::Stale pre-built pins at ${GITHUB_REF_NAME}: $stale. Merge the open ci/prebuilt-* PR and tag that commit instead."
+            exit 1
+          fi
+          echo "every community-app pin matches ${GITHUB_REF_NAME}"

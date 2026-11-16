@@ -3,6 +3,7 @@
 url=https://github.com/aozora/omaxian/releases/download/apps-93d0514/omacut-93d0514-x86_64-linux.tar.gz
 sha256=656ec4bf7bb2296f3e0c2be74dadcb02d0b2a287d8e8ccc306663a3af184822a
 tree=93d0514f23a5c21f39321668a99e7af4a10d3273
+src=6ec4915d40b07f677a34937677d6d32bf8fa5198b837ab8e97758b5b15e94c6d
 bin=omacut-93d0514-x86_64-linux/omacut
 arch=x86_64
 qt=6.8

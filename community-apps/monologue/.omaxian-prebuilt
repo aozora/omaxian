@@ -3,6 +3,7 @@
 url=https://github.com/aozora/omaxian/releases/download/apps-027bd66/monologue-027bd66-x86_64-linux.tar.gz
 sha256=c3fc4a960fdb4ee8f50d49311ea348b918528529bc2740082bd6f71b8da8e232
 tree=027bd6621e61eca2a10ae2a5d75be53810f0fabc
+src=c1577fdc5f6aeac8d717a916b14d41abc52cf0885eaa17dc86c9314e9ce490b7
 bin=monologue-027bd66-x86_64-linux/monologue
 arch=x86_64
 qt=6.8
