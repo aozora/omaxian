@@ -1,0 +1,8 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-93d0514/omawrite-93d0514-x86_64-linux.tar.gz
+sha256=ef69adfdd81ce638f05eda119fe6e0a1c9c6b6ff10c761fcaab04b31da6e6be5
+tree=93d0514f23a5c21f39321668a99e7af4a10d3273
+bin=omawrite-93d0514-x86_64-linux/omawrite
+arch=x86_64
+qt=6.8

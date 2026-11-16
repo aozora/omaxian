@@ -1,0 +1,8 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-93d0514/signed-93d0514-x86_64-linux.tar.gz
+sha256=7173f20eafea24aaaea65753ff8ba2647e721cb3c7827f0d8ae41fc7ed1fcf32
+tree=93d0514f23a5c21f39321668a99e7af4a10d3273
+bin=signed-93d0514-x86_64-linux/signed
+arch=x86_64
+qt=6.8

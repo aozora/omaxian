@@ -1,0 +1,8 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-93d0514/omacalc-93d0514-x86_64-linux.tar.gz
+sha256=699dbb96d9dbcabf17be61bcfe61b34241d3cbe5711ef1563eeeaca6e8b482e9
+tree=93d0514f23a5c21f39321668a99e7af4a10d3273
+bin=omacalc-93d0514-x86_64-linux/omacalc
+arch=x86_64
+qt=6.8
