@@ -1,7 +1,8 @@
 #!/bin/bash
 # prebuilt-verify.sh — check a packaged binary runs on a clean system that has
 # only the app's runtime packages (omaxian.deps.json "apt"). Catches a library
-# that only a -dev package pulled in during the build.
+# that only a -dev package pulled in during the build, and (Qt apps) QML that
+# needs a newer Qt than the 6.8 the binary targets.
 # Runs as root inside a fresh debian:trixie container.
 #
 #   .github/scripts/prebuilt-verify.sh <app> <dist dir>
@@ -31,3 +32,23 @@ if [[ -n $missing ]]; then
   exit 1
 fi
 echo "$APP: every library resolves with runtime packages only"
+
+# Qt apps: start the app headless and fail on a QML load error. ldd cannot
+# see QML, which only resolves imports, types and properties at runtime;
+# QML written for a newer Qt (a property 6.8 lacks) fails only here.
+qt=$(awk -F= '$1 == "qt" { print $2 }' "$DIST/$APP.env")
+if [[ -n $qt ]]; then
+  home=$(mktemp -d)
+  log="$work/start.log"
+  ec=0
+  HOME="$home" XDG_RUNTIME_DIR="$home" QT_QPA_PLATFORM=offscreen \
+    timeout 15 "$work/$bin" >"$log" 2>&1 </dev/null || ec=$?
+  # 124: still running when stopped, i.e. it started.
+  qml_errors=$(grep -E 'QQmlApplicationEngine failed|Component is not ready|is not installed|Type [A-Za-z]+ unavailable|non-existent property|is not a type|ReferenceError|TypeError|Cannot assign' "$log" || true)
+  if [[ -n $qml_errors ]] || (( ec != 124 && ec != 0 )); then
+    echo "$APP: did not start on Qt $(dpkg-query -W -f '${Version}' libqt6core6t64) (exit $ec):" >&2
+    cat "$log" >&2
+    exit 1
+  fi
+  echo "$APP: starts headless with its QML loaded (Qt $(dpkg-query -W -f '${Version}' libqt6core6t64))"
+fi

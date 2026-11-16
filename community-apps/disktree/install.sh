@@ -128,12 +128,31 @@ install_i3_rules() {
   echo "installed i3 float rules → $dest (reload with: i3-msg reload)"
 }
 
+# The Makefile's Linux `install` recipe, without make: build-essential (and
+# so make) is only installed for source builds, and a minimal Devuan has no
+# make. Keep in step with the Makefile's install target.
+install_prebuilt() {
+  local bin="$1" bindir="$PREFIX/bin" appdir="$PREFIX/share/applications"
+  local icondir="$PREFIX/share/icons/hicolor/scalable/apps" version
+  version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)
+  echo ">> install pre-built disktree $version → $PREFIX"
+  install -d "$bindir" "$appdir" "$icondir"
+  install -m 0755 "$bin" "$bindir/disktree"
+  install -m 0644 "$ROOT/assets/disktree.svg" "$icondir/disktree.svg"
+  sed -e "s|@BINDIR@|$bindir|" -e "s|@VERSION@|$version|" \
+    "$ROOT/packaging/disktree.desktop.in" > "$appdir/disktree.desktop"
+  chmod 0644 "$appdir/disktree.desktop"
+  if command -v update-desktop-database >/dev/null; then
+    update-desktop-database "$appdir" >/dev/null 2>&1 || true
+  fi
+  if command -v gtk-update-icon-cache >/dev/null; then
+    gtk-update-icon-cache -q -t -f "$PREFIX/share/icons/hicolor" >/dev/null 2>&1 || true
+  fi
+}
+
 if prebuilt_fetch disktree; then
   install_apt
-  # Same install recipe as a source build (binary, desktop entry, icon),
-  # with the downloaded binary and the build step skipped.
-  echo ">> make install PREFIX=$PREFIX (pre-built binary)"
-  make -C "$ROOT" -o build install "${MAKE_DIRS[@]}" TARGET="$PREBUILT_BIN"
+  install_prebuilt "$PREBUILT_BIN"
 else
   install_apt --build
   ensure_rustup

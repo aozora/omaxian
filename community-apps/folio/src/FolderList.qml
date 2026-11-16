@@ -47,7 +47,9 @@ ListView {
     // No cursor of its own to start with: the pane puts it back where the
     // last view had it, and one on the first item would select that instead.
     currentIndex: -1
-    acceptedButtons: Qt.NoButton
+    // Omaxian: Flickable.acceptedButtons is Qt 6.9+. Set it where it exists;
+    // on Excalibur's Qt 6.8 a mouse drag flicks the view, as 6.8 always did.
+    Component.onCompleted: if (list.acceptedButtons !== undefined) list.acceptedButtons = Qt.NoButton
     boundsBehavior: Flickable.StopAtBounds
     highlightFollowsCurrentItem: false
     model: backend.folder

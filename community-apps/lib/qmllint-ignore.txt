@@ -1,0 +1,15 @@
+# qmllint false positives for lib/qmllint-qt68.sh: properties of an app's own
+# C++ types, which qmllint cannot see. One per line: <file>|<message text>.
+# Add an entry only after checking the property exists on that C++ type.
+
+# Folio: FolderModel (src/foldermodel.h)
+folio/src/FolderColumns.qml|Property "path" does not exist
+folio/src/FolderColumns.qml|Property "showHidden" does not exist
+folio/src/FolderColumns.qml|Property "sortMode" does not exist
+
+# Signed: TextItem (C++ QQuickPaintedItem)
+signed/src/PlacedItem.qml|Property "fill" does not exist
+signed/src/PlacedItem.qml|Property "visible" does not exist
+signed/src/PlacedItem.qml|Property "text" does not exist
+signed/src/PlacedItem.qml|Property "fontSize" does not exist
+signed/src/PlacedItem.qml|Property "zoom" does not exist

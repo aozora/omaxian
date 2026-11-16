@@ -19,6 +19,7 @@ Do **not** seed these apps into stock `shell.json` or first-party
 community-apps/
   README.md
   lib/prebuilt.sh          # shared: deps lists + pinned-binary download
+  lib/qmllint-qt68.sh      # QML check against Qt 6.8 (+ qmllint-ignore.txt)
   <app-id>/
     README.md              # Omaxian port notes + install
     omaxian.deps.json      # Debian apt (+ optional apt_build / manual)
@@ -63,7 +64,7 @@ Who builds them:
 | App | Binary |
 | --- | ------ |
 | disktree | Upstream release, pinned by hand (Omaxian changes are packaging-only) |
-| Every other app | `.github/workflows/community-apps.yml`: builds in `debian:trixie`, checks the binary on a clean trixie with only `apt`, publishes release `apps-<sha7>`, and opens a PR that rewrites `.omaxian-prebuilt` |
+| Every other app | `.github/workflows/community-apps.yml`: builds in `debian:trixie`, checks the binary on a clean trixie with only `apt` (libraries resolve; Qt apps also start headless with their QML loaded, which catches QML written for a newer Qt), publishes release `apps-<sha7>`, and opens a PR that rewrites `.omaxian-prebuilt` |
 
 Until that PR lands for an app, its `install.sh` builds from source.
 Plan and rationale:
@@ -116,7 +117,16 @@ Review the tree before running it; apps run unsandboxed as your user.
    `prebuilt_fetch <name>` before building (see any existing `install.sh`).
    To have CI build it, add the dir to `CI_APPS` in
    `.github/scripts/prebuilt-plan.sh`.
-6. Add a catalog row above. Do not wire into `setup` / `install` / `deploy`
+6. Qt apps: run `lib/qmllint-qt68.sh <app>` (podman or docker) and make it
+   pass. The binary targets Qt 6.8, and QML only fails when it loads: a
+   property added after 6.8 builds fine, then the app will not start on
+   Excalibur. Set such a property from JavaScript behind a same-line check,
+   e.g. `Component.onCompleted: if (view.acceptedButtons !== undefined)
+   view.acceptedButtons = Qt.NoButton`, and record the 6.8 fallback in the
+   app's deltas table. `lib/qmllint-ignore.txt` is only for properties of the
+   app's own C++ types, which qmllint cannot see. CI's verify step (headless
+   start on Qt 6.8) is the final check.
+7. Add a catalog row above. Do not wire into `setup` / `install` / `deploy`
    (the TUI / `scripts/install-community-apps.sh` discover dirs with
    `install.sh` automatically).
 

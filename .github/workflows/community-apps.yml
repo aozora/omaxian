@@ -86,7 +86,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           .github/scripts/prebuilt-build.sh "$APP" dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: prebuilt-${{ matrix.app }}
           path: dist/
@@ -106,7 +106,7 @@ jobs:
         app: ${{ fromJSON(needs.plan.outputs.apps) }}
     steps:
       # Missing when this app's build failed; the remaining steps then skip.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         id: download
         continue-on-error: true
         with:
@@ -133,7 +133,7 @@ jobs:
           src/.github/scripts/prebuilt-verify.sh "$APP" dist
           mkdir -p verified && touch "verified/$APP"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.download.outcome == 'success'
         with:
           name: verified-${{ matrix.app }}
@@ -147,14 +147,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           pattern: prebuilt-*
           path: dist
           merge-multiple: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           pattern: verified-*
