@@ -69,7 +69,9 @@ Item {
         id: flick
         anchors.fill: parent
         clip: true
-        acceptedButtons: Qt.NoButton
+        // Omaxian: Flickable.acceptedButtons is Qt 6.9+. Set it where it exists;
+        // on Excalibur's Qt 6.8 a mouse drag flicks the view, as 6.8 always did.
+        Component.onCompleted: if (flick.acceptedButtons !== undefined) flick.acceptedButtons = Qt.NoButton
         contentWidth: Math.max(width, row.width)
         contentHeight: height
         boundsBehavior: Flickable.StopAtBounds
@@ -98,7 +100,9 @@ Item {
                         width: view.columnWidth
                         height: parent.height
                         clip: true
-                        acceptedButtons: Qt.NoButton
+                        // Omaxian: Flickable.acceptedButtons is Qt 6.9+. Set it where it exists;
+                        // on Excalibur's Qt 6.8 a mouse drag flicks the view, as 6.8 always did.
+                        Component.onCompleted: if (column.acceptedButtons !== undefined) column.acceptedButtons = Qt.NoButton
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollBar.vertical: FolioScrollBar { }
                         model: FolderModel {
@@ -150,7 +154,9 @@ Item {
                 // where the last view had it, and one on the first item would
                 // select that instead.
                 currentIndex: -1
-                acceptedButtons: Qt.NoButton
+                // Omaxian: Flickable.acceptedButtons is Qt 6.9+. Set it where it exists;
+                // on Excalibur's Qt 6.8 a mouse drag flicks the view, as 6.8 always did.
+                Component.onCompleted: if (here.acceptedButtons !== undefined) here.acceptedButtons = Qt.NoButton
                 boundsBehavior: Flickable.StopAtBounds
                 highlightFollowsCurrentItem: false
                 model: backend.folder
@@ -195,7 +201,9 @@ Item {
                 height: row.height
                 visible: view.selected.isDir === true
                 clip: true
-                acceptedButtons: Qt.NoButton
+                // Omaxian: Flickable.acceptedButtons is Qt 6.9+. Set it where it exists;
+                // on Excalibur's Qt 6.8 a mouse drag flicks the view, as 6.8 always did.
+                Component.onCompleted: if (inside.acceptedButtons !== undefined) inside.acceptedButtons = Qt.NoButton
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: FolioScrollBar { }
                 TapHandler {

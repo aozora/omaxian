@@ -58,7 +58,9 @@ GridView {
     // Pressing and dragging picks up a file (to pin it, or drop it in another
     // app) or draws a band, rather than flicking; the wheel and touchpad
     // still scroll, which turning the view's interactive off would stop too.
-    acceptedButtons: Qt.NoButton
+    // Omaxian: Flickable.acceptedButtons is Qt 6.9+. Set it where it exists;
+    // on Excalibur's Qt 6.8 a mouse drag flicks the view, as 6.8 always did.
+    Component.onCompleted: if (grid.acceptedButtons !== undefined) grid.acceptedButtons = Qt.NoButton
     boundsBehavior: Flickable.StopAtBounds
     model: backend.folder
     // Tiles grow with the zoom; the name and details under them don't. A

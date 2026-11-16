@@ -371,9 +371,20 @@ ApplicationWindow {
         Rectangle {
             Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 120
             color: "black"; clip: true
-            VideoOutput { id: liveVideo; objectName: "liveVideo"; anchors.fill: parent; visible: !win.finished; fillMode: VideoOutput.PreserveAspectFit; focus: true; mirrored: backend.mirror }
+            // Omaxian: VideoOutput.mirrored and endOfStreamPolicy are newer than Qt 6.8
+            // (Devuan Excalibur). Use them where they exist; on 6.8 a Scale transform
+            // mirrors the preview, and the clip clears at its end as 6.8 always did.
+            VideoOutput {
+                id: liveVideo; objectName: "liveVideo"; anchors.fill: parent; visible: !win.finished; fillMode: VideoOutput.PreserveAspectFit; focus: true
+                readonly property bool nativeMirror: liveVideo.mirrored !== undefined
+                Component.onCompleted: if (liveVideo.mirrored !== undefined) liveVideo.mirrored = Qt.binding(() => backend.mirror)
+                transform: Scale { origin.x: liveVideo.width / 2; xScale: !liveVideo.nativeMirror && backend.mirror ? -1 : 1 }
+            }
             // Hold the last frame at the end of the file rather than clearing to black.
-            VideoOutput { id: clipVideo; objectName: "clipVideo"; endOfStreamPolicy: VideoOutput.KeepLastFrame; anchors.fill: parent; visible: win.finished; fillMode: VideoOutput.PreserveAspectFit }
+            VideoOutput {
+                id: clipVideo; objectName: "clipVideo"; anchors.fill: parent; visible: win.finished; fillMode: VideoOutput.PreserveAspectFit
+                Component.onCompleted: if (clipVideo.endOfStreamPolicy !== undefined) clipVideo.endOfStreamPolicy = VideoOutput.KeepLastFrame
+            }
             MouseArea { anchors.fill: parent; onClicked: { liveVideo.forceActiveFocus(); if (win.finished) win.togglePlayback() } }
             Column {
                 anchors.centerIn: parent; width: Math.min(400, parent.width-40); spacing: 16
