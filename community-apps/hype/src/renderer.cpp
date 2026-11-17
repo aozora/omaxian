@@ -1,0 +1,1222 @@
+#include "renderer.h"
+#include "budget.h"
+#include "images.h"
+#include "syntax.h"
+#include <atomic>
+#include <QCoreApplication>
+#include <QAbstractTextDocumentLayout>
+#include <QCache>
+#include <QCryptographicHash>
+#include <QDataStream>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QImageReader>
+#include <QMutex>
+#include <QPainter>
+#include <QPointer>
+#include <QProcess>
+#include <QRegularExpression>
+#include <QSet>
+#include <QSvgRenderer>
+#include <QTemporaryFile>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextDocument>
+#include <QTextTable>
+#include <QTimer>
+#include <QWaitCondition>
+
+// Hype's free functions translate like its classes do; the Translator ignores the context.
+static QString tr(const char *text) { return QCoreApplication::translate("Hype", text); }
+#include <QXmlStreamReader>
+
+static QRegularExpression mediaRe(R"(!\[([^\]]*)\]\((?:<([^>]+)>|([^\s)]+))\))");
+namespace {
+class ImageCache {
+    QMutex mutex;
+    QCache<QString, QImage> images;
+  public:
+    explicit ImageCache(int kilobytes) : images(kilobytes) {}
+    QImage get(const QString &key) {
+        QMutexLocker lock(&mutex);
+        auto image = images.object(key);
+        return image ? *image : QImage();
+    }
+    void put(const QString &key, const QImage &image, int minimumEntries = 0) {
+        QMutexLocker lock(&mutex);
+        const int cost = qMax(1, int(image.sizeInBytes() / 1024));
+        // High-DPI frames are several times larger; keep room for a useful number of them.
+        if (minimumEntries && images.maxCost() < cost * minimumEntries)
+            images.setMaxCost(cost * minimumEntries);
+        images.insert(key, new QImage(image), cost);
+    }
+};
+}
+static QString outsideCode(QString source, bool maskInline = true) {
+    int position = 0, fenceLength = 0;
+    QChar fence;
+    static const QRegularExpression marker("^ {0,3}(`{3,}|~{3,})(.*)$");
+    while (position < source.size()) {
+        int end = source.indexOf('\n', position);
+        if (end < 0)
+            end = source.size();
+        QString line = source.mid(position, end - position);
+        auto match = marker.match(line);
+        bool protectedLine = fenceLength > 0;
+        if (match.hasMatch()) {
+            QString run = match.captured(1);
+            protectedLine = true;
+            if (!fenceLength) {
+                fence = run[0];
+                fenceLength = run.size();
+            } else if (run[0] == fence && run.size() >= fenceLength &&
+                       match.captured(2).trimmed().isEmpty())
+                fenceLength = 0;
+        }
+        if (protectedLine || line.startsWith("    "))
+            source.replace(position, end - position, QString(end - position, ' '));
+        position = end + 1;
+    }
+    if (!maskInline)
+        return source;
+    static const QRegularExpression inlineCode("(`+)([^`]|`(?!`))*?\\1");
+    auto matches = inlineCode.globalMatch(source);
+    QVector<QPair<int, int>> ranges;
+    while (matches.hasNext()) {
+        auto m = matches.next();
+        ranges.append({m.capturedStart(), m.capturedLength()});
+    }
+    for (auto range : ranges)
+        source.replace(range.first, range.second, QString(range.second, ' '));
+    return source;
+}
+static QString withoutComments(QString source) {
+    auto matches = QRegularExpression("<!--[\\s\\S]*?-->").globalMatch(outsideCode(source));
+    QVector<QPair<int, int>> ranges;
+    while (matches.hasNext()) {
+        auto m = matches.next();
+        ranges.append({m.capturedStart(), m.capturedLength()});
+    }
+    for (auto it = ranges.crbegin(); it != ranges.crend(); ++it)
+        source.remove(it->first, it->second);
+    return source;
+}
+QString speakerNotes(const QString &source) {
+    const QString visible = outsideCode(source);
+    auto matches = QRegularExpression("<!--[\\s\\S]*?-->").globalMatch(visible);
+    QStringList notes;
+    static const QRegularExpression directive("^hype:", QRegularExpression::CaseInsensitiveOption);
+    while (matches.hasNext()) {
+        const auto match = matches.next();
+        QString note = source.mid(match.capturedStart() + 4, match.capturedLength() - 7).trimmed();
+        if (!note.isEmpty() && !directive.match(note).hasMatch())
+            notes.append(note);
+    }
+    return notes.join("\n\n");
+}
+static bool isVideoFile(const QString &file) {
+    return QStringList{"mp4", "m4v", "mov", "webm", "mkv"}.contains(
+        QFileInfo(file).suffix().toLower());
+}
+// The one list of placed-image positions and where each pins its image.
+static const QList<std::pair<QString, Qt::Alignment>> &placements() {
+    static const QList<std::pair<QString, Qt::Alignment>> list{
+        {"top-left", Qt::AlignLeft | Qt::AlignTop},
+        {"top", Qt::AlignHCenter | Qt::AlignTop},
+        {"top-right", Qt::AlignRight | Qt::AlignTop},
+        {"left", Qt::AlignLeft | Qt::AlignVCenter},
+        {"center", Qt::AlignCenter},
+        {"right", Qt::AlignRight | Qt::AlignVCenter},
+        {"bottom-left", Qt::AlignLeft | Qt::AlignBottom},
+        {"bottom", Qt::AlignHCenter | Qt::AlignBottom},
+        {"bottom-right", Qt::AlignRight | Qt::AlignBottom}};
+    return list;
+}
+const QStringList &mediaPositions() {
+    static const QStringList names = [] {
+        QStringList result;
+        for (const auto &placement : placements())
+            result << placement.first;
+        return result;
+    }();
+    return names;
+}
+static QString assetPath(const QString &base, QString file, bool video) {
+    if (QFileInfo(file).isAbsolute())
+        return file;
+    return QDir(base).filePath(file.startsWith("images/") || file.startsWith("videos/")
+                                   ? file
+                                   : (video ? "videos/" : "images/") + file);
+}
+QString withMedia(const QString &source, const QString &reference) {
+    QString visible = outsideCode(source);
+    auto comments = QRegularExpression("<!--[\\s\\S]*?-->").globalMatch(visible);
+    while (comments.hasNext()) {
+        const auto comment = comments.next();
+        visible.replace(comment.capturedStart(), comment.capturedLength(),
+                        QString(comment.capturedLength(), ' '));
+    }
+    auto match = mediaRe.match(visible);
+    QString updated = source;
+    if (match.hasMatch())
+        updated.replace(match.capturedStart(), match.capturedLength(), reference);
+    else
+        updated += "\n" + reference + "\n";
+    return updated;
+}
+QString withReplacedMedia(const QString &source, const QString &file) {
+    // A new logo keeps the old one's corner and size; other layouts start fresh.
+    const auto current = parseMedia(source, {});
+    const QString flags =
+        current.placed() && !isVideoFile(file)
+            ? QString("position=%1 size=%2%").arg(current.position, QString::number(current.size))
+            : QString();
+    return withMedia(source, "![" + flags + "](<" + file + ">)");
+}
+QString withMediaDirectives(const QString &source, const QStringList &remove,
+                            const QStringList &add) {
+    const QString marker = "\x01HYPE_MEDIA\x01";
+    const QString marked = withMedia(source, marker);
+    const int start = marked.indexOf(marker);
+    const int length = source.size() - marked.size() + marker.size();
+    if (start < 0 || length <= 0)
+        return source;
+    QString reference = source.mid(start, length);
+    const int end = reference.indexOf("](");
+    if (end < 2)
+        return source;
+    QString flags = reference.mid(2, end - 2).trimmed();
+    static const QRegularExpression tokens(R"re(([a-z]+)(?:=("(?:[^"\\]|\\.)*"|[^\s]+))?)re");
+    const auto first = tokens.match(flags);
+    const bool directives =
+        first.hasMatch() && first.capturedStart() == 0 &&
+        (QStringList{"fit", "span", "loop", "muted"}.contains(first.captured(1)) ||
+         !first.captured(2).isEmpty());
+    QStringList kept = add;
+    if (directives) {
+        auto matches = tokens.globalMatch(flags);
+        while (matches.hasNext()) {
+            const auto token = matches.next();
+            if (!remove.contains(token.captured(1)))
+                kept << token.captured();
+        }
+    } else if (!flags.isEmpty()) {
+        kept << "alt=\"" + flags.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+    reference.replace(2, end - 2, kept.join(' '));
+    return withMedia(source, reference);
+}
+static Media readMedia(const QString &source, const QString &base) {
+    Media result;
+    result.text = withoutComments(source);
+    auto m = mediaRe.match(outsideCode(result.text));
+    if (!m.hasMatch())
+        return result;
+    result.file = m.captured(2).isEmpty() ? m.captured(3) : m.captured(2);
+    result.video = isVideoFile(result.file);
+    result.path = assetPath(base, result.file, result.video);
+    result.text.remove(m.capturedStart(), m.capturedLength());
+    result.span = !result.video &&
+                  outsideCode(result.text)
+                      .contains(QRegularExpression("^# ", QRegularExpression::MultilineOption));
+    QString flags = m.captured(1).trimmed();
+    static const QRegularExpression tokens(R"re(([a-z]+)(?:=("(?:[^"\\]|\\.)*"|[^\s]+))?)re");
+    auto first = tokens.match(flags);
+    bool directives =
+        first.hasMatch() && first.capturedStart() == 0 &&
+        (QStringList{"fit", "span", "loop", "muted"}.contains(first.captured(1)) ||
+         !first.captured(2).isEmpty());
+    QString explicitOverlay;
+    bool fit = false, span = false;
+    if (directives) {
+        auto it = tokens.globalMatch(flags);
+        int consumed = 0;
+        while (it.hasNext()) {
+            auto token = it.next();
+            if (!flags.mid(consumed, token.capturedStart() - consumed).trimmed().isEmpty())
+                result.error = tr("Invalid media directive");
+            consumed = token.capturedEnd();
+            QString key = token.captured(1), value = token.captured(2);
+            if (value.startsWith('"'))
+                value = value.mid(1, value.size() - 2).replace("\\\"", "\"").replace("\\\\", "\\");
+            if (key == "span") {
+                result.span = true;
+                span = true;
+            } else if (key == "fit") {
+                result.span = false;
+                fit = true;
+            } else if (key == "loop")
+                result.loop = value != "false";
+            else if (key == "muted")
+                result.muted = value != "false";
+            else if (key == "autoplay")
+                result.autoplay = value != "false";
+            else if (key == "overlay")
+                explicitOverlay = value;
+            else if (key == "position") {
+                // Errors name the directive, never the author's value, which may hold markup.
+                result.position = value;
+                if (!mediaPositions().contains(value))
+                    result.error = tr("Unknown position");
+            } else if (key == "size") {
+                // Plain decimals only: toDouble() would also accept "nan" and "1e1".
+                static const QRegularExpression percentage(R"(^(\d{1,3}(?:\.\d+)?)%$)");
+                const auto number = percentage.match(value);
+                result.size = number.hasMatch() ? number.captured(1).toDouble() : 0;
+                if (result.size < 1 || result.size > 100) {
+                    result.error = tr("Size must be a percentage from 1% to 100%");
+                    result.size = 0;
+                }
+                if (result.position.isEmpty())
+                    result.position = "center";
+            } else if (key == "background") {
+                result.background = value;
+                if (value != "auto" && value != "theme" && value != "blur" && !QColor(value).isValid())
+                    result.error = tr("Invalid background color");
+            } else if (key == "poster")
+                result.poster = assetPath(base, value, false);
+            else if (key != "alt")
+                result.error = tr("Unknown media directive: %1").arg(key);
+        }
+        if (!flags.mid(consumed).trimmed().isEmpty())
+            result.error = tr("Invalid media directive");
+    }
+    if (fit && span)
+        result.error = tr("Choose either span or fit");
+    if (result.placed()) {
+        if (result.video)
+            result.error = tr("Only images can be placed");
+        else if (fit || span || !result.background.isEmpty() || !explicitOverlay.isEmpty())
+            result.error = tr("A placed image cannot use fit, span, background, or overlay");
+        if (result.size == 0)
+            result.size = defaultPlacedSize;
+        for (const auto &[position, alignment] : placements())
+            if (position == result.position)
+                result.alignment = alignment;
+        // A placed image leaves the slide's own layout and colors alone.
+        result.span = false;
+        result.overlay = 0;
+        return result;
+    }
+    // A background choice implies fitting unless span was explicitly requested.
+    if (!span && (result.background == "blur" || result.background == "auto"))
+        result.span = false;
+    result.overlay = (!result.video || result.span) && !result.text.trimmed().isEmpty() ? 0.25 : 0;
+    if (!explicitOverlay.isEmpty()) {
+        bool ok;
+        double opacity = explicitOverlay.toDouble(&ok);
+        if (!ok || opacity < 0 || opacity > 1)
+            result.error = tr("Overlay must be between 0 and 1");
+        else
+            result.overlay = opacity;
+    }
+    return result;
+}
+// The first fence in this language: taken out of the text, its lines returned in body.
+static bool takeFence(QString &text, const QString &language, QString *body) {
+    static const QRegularExpression marker("^ {0,3}(`{3,}|~{3,})(.*)$");
+    int position = 0, fenceLength = 0, start = -1, content = 0;
+    QChar fence;
+    while (position < text.size()) {
+        int end = text.indexOf('\n', position);
+        if (end < 0)
+            end = text.size();
+        const auto match = marker.match(text.mid(position, end - position));
+        if (match.hasMatch()) {
+            const QString run = match.captured(1);
+            if (!fenceLength) {
+                fence = run[0];
+                fenceLength = run.size();
+                if (match.captured(2).trimmed().section(' ', 0, 0).compare(
+                        language, Qt::CaseInsensitive) == 0) {
+                    start = position;
+                    content = qMin(int(text.size()), end + 1);
+                }
+            } else if (run[0] == fence && run.size() >= fenceLength &&
+                       match.captured(2).trimmed().isEmpty()) {
+                fenceLength = 0;
+                if (start >= 0) {
+                    *body = text.mid(content, position - content);
+                    text.remove(start, qMin(int(text.size()), end + 1) - start);
+                    return true;
+                }
+            }
+        }
+        position = end + 1;
+    }
+    return false;
+}
+// The deck's colors by name, as var(--accent), and its colors and font as the SVG's defaults,
+// so a drawing follows the theme unless it says otherwise.
+static QByteArray themedSvg(const QString &svg, const QVariantMap &palette) {
+    static const QRegularExpression variable(R"(var\(\s*--([a-z_-]+)\s*\))"),
+        root("<svg\\b([^>]*)>");
+    QString themed;
+    int last = 0;
+    for (auto it = variable.globalMatch(svg); it.hasNext();) {
+        const auto m = it.next();
+        const QString value = palette.value(m.captured(1).replace('-', '_')).toString();
+        themed +=
+            svg.mid(last, m.capturedStart() - last) + (value.isEmpty() ? m.captured(0) : value);
+        last = m.capturedEnd();
+    }
+    themed += svg.mid(last);
+    if (const auto m = root.match(themed); m.hasMatch()) {
+        const QString attributes = m.captured(1), ink = palette.value("foreground").toString();
+        QString defaults;
+        if (!attributes.contains(QRegularExpression("(^|\\s)xmlns\\s*=")))
+            defaults += " xmlns=\"http://www.w3.org/2000/svg\"";
+        if (!attributes.contains(QRegularExpression("(^|\\s)color\\s*=")))
+            defaults += " color=\"" + ink + "\"";
+        if (!attributes.contains(QRegularExpression("(^|\\s)fill\\s*=")))
+            defaults += " fill=\"" + ink + "\"";
+        if (!attributes.contains(QRegularExpression("(^|\\s)font-family\\s*=")))
+            defaults += " font-family=\"" +
+                        palette.value("font", "JetBrains Mono").toString().toHtmlEscaped() + "\"";
+        themed.insert(m.capturedStart(1), defaults);
+    }
+    return themed.toUtf8();
+}
+// Why an ```svg fence can't be drawn, or empty when it can. Lines count within the fence.
+static QString svgProblem(const QString &svg) {
+    QXmlStreamReader xml(svg);
+    bool first = true;
+    while (!xml.atEnd()) {
+        if (xml.readNext() == QXmlStreamReader::StartElement && first) {
+            first = false;
+            if (xml.name() != QLatin1String("svg"))
+                return tr("An svg block holds one <svg> element");
+        }
+    }
+    if (xml.hasError())
+        return QString("SVG line %1: %2").arg(xml.lineNumber()).arg(xml.errorString());
+    static const QRegularExpression variable(R"(var\(\s*--([a-z_-]+)\s*\))");
+    static const QStringList colors{
+        "background", "foreground", "accent", "green",           "red",
+        "yellow",     "magenta",    "cyan",   "dark_foreground", "font"};
+    for (auto it = variable.globalMatch(svg); it.hasNext();) {
+        const QString name = it.next().captured(1);
+        if (!colors.contains(QString(name).replace('-', '_')))
+            return tr("Unknown theme color --%1; use --%2").arg(name, colors.mid(0, 9).join(", --").replace('_', '-'));
+    }
+    QSvgRenderer renderer(themedSvg(svg, {{"foreground", "#000000"}}));
+    if (!renderer.isValid())
+        return tr("Qt can't draw this SVG");
+    if (renderer.viewBoxF().isEmpty())
+        return tr("Give the SVG a viewBox, or a width and height");
+    return {};
+}
+static std::atomic<int> generation{0};
+int translationGeneration() { return generation.load(); }
+void retranslateSlides() { ++generation; }
+Media parseMedia(const QString &source, const QString &base) {
+    // Parsing is pure: file existence and modification checks remain at call sites. Its
+    // errors are in the window's language, so a language switch starts the cache over.
+    static thread_local QCache<QString, Media> cache(8 * 1024 * 1024);
+    const QString key = QString::number(translationGeneration()) + QChar(0) + base + QChar(0) + source;
+    if (const auto result = cache.object(key))
+        return *result;
+    auto result = readMedia(source, base);
+    result.svgBlocks = takeFence(result.text, "svg", &result.svg);
+    if (result.svgBlocks) {
+        QString remaining = result.text, extra;
+        result.svgBlocks += takeFence(remaining, "svg", &extra);
+    }
+    cache.insert(key, new Media(result), qMax(1, int((key.size() + result.text.size()) * 2)));
+    return result;
+}
+static QString createPoster(const QString &video, const QString &base) {
+    QFileInfo info(video);
+    if (!info.exists())
+        return {};
+    QFile file(video);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&file))
+        return {};
+    const QString digest = QString::fromLatin1(hash.result().toHex().left(16));
+    QString path = base + "/images/.hype-poster-" + digest + ".jpg";
+    if (QFile::exists(path))
+        return path;
+    QDir().mkpath(base + "/images");
+    QTemporaryFile poster(base + "/images/.hype-poster-XXXXXX.jpg");
+    if (!poster.open()) return {};
+    poster.close();
+    QProcess ffmpeg;
+    ffmpeg.start("ffmpeg", {"-v", "error", "-y", "-i", video, "-frames:v", "1", "-vf",
+                            "scale=1280:-2", poster.fileName()});
+    if (!ffmpeg.waitForFinished(30000) || ffmpeg.exitCode() != 0) {
+        ffmpeg.kill();
+        ffmpeg.waitForFinished();
+        return {};
+    }
+    // Parallel thumbnail/preview requests must never read a half-written poster.
+    if (!QFile::exists(path) && !QFile::rename(poster.fileName(), path) && !QFile::exists(path))
+        return {};
+    return path;
+}
+QString ensurePoster(const QString &video, const QString &base) {
+    static QMutex mutex;
+    static QWaitCondition ready;
+    static QSet<QString> pending;
+    static QCache<QString, QString> cache(1024);
+    const QFileInfo file(video);
+    const QString key = base + QChar(0) + video + ':' + QString::number(file.size()) + ':' +
+                        QString::number(file.lastModified().toMSecsSinceEpoch());
+    {
+        QMutexLocker lock(&mutex);
+        while (pending.contains(key))
+            ready.wait(&mutex);
+        if (auto path = cache.object(key); path && QFileInfo::exists(*path))
+            return *path;
+        pending.insert(key);
+    }
+    const QString result = createPoster(video, base);
+    {
+        QMutexLocker lock(&mutex);
+        if (!result.isEmpty())
+            cache.insert(key, new QString(result));
+        pending.remove(key);
+        ready.wakeAll();
+    }
+    return result;
+}
+QStringList slideProblems(const QString &source, const QString &base) {
+    QStringList errors;
+    auto media = parseMedia(source, base);
+    if (!media.error.isEmpty())
+        errors << media.error;
+    if (media.svgBlocks) {
+        if (const QString problem = svgProblem(media.svg); !problem.isEmpty())
+            errors << problem;
+    }
+    if (!media.file.isEmpty() && !QFileInfo::exists(media.path))
+        errors << tr("Missing media: %1").arg(media.file);
+    if (!media.file.isEmpty() && !media.video && QFileInfo::exists(media.path) &&
+        !QImageReader(media.path).canRead())
+        errors << tr("Cannot decode image: %1").arg(media.file);
+    if (!media.poster.isEmpty() && !QFileInfo::exists(media.poster))
+        errors << tr("Missing poster");
+    auto matches = mediaRe.globalMatch(outsideCode(withoutComments(source)));
+    int count = 0;
+    while (matches.hasNext()) {
+        matches.next();
+        ++count;
+    }
+    if (count + media.svgBlocks > 1)
+        errors << tr("Use one media item per slide (combine artwork before importing)");
+    return errors;
+}
+static QImage loadedImage(const QString &path, QSize canvas, bool span) {
+    static ImageCache cache(256 * 1024);
+    const QFileInfo info(path);
+    QString key = path + QString::number(info.lastModified().toMSecsSinceEpoch()) + ":" +
+                  QString::number(info.size()) + ":" + QString::number(canvas.width()) + "x" +
+                  QString::number(canvas.height()) + (span ? ":span" : ":fit");
+    if (const auto image = cache.get(key); !image.isNull())
+        return image;
+    QImage image = readSizedImage(path, canvas, span);
+    if (span && !image.isNull()) {
+        // Embed only the visible center crop, especially in PDF. Keep originals
+        // intact so switching between Fit and Span remains reversible.
+        QSize crop = image.size().scaled(canvas, Qt::KeepAspectRatioByExpanding);
+        const double scale = double(image.width()) / crop.width();
+        const QSize visible(qRound(canvas.width() * scale), qRound(canvas.height() * scale));
+        if (visible != image.size())
+            image = image.copy((image.width() - visible.width()) / 2,
+                               (image.height() - visible.height()) / 2,
+                               visible.width(), visible.height());
+    }
+    if (!image.isNull())
+        cache.put(key, image);
+    return image;
+}
+static QImage boxBlur(QImage image, int radius) {
+    image = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    const int width = image.width(), height = image.height(), diameter = radius * 2 + 1;
+    // Three separable box passes approximate a Gaussian. Clamp the edges and
+    // average premultiplied channels so transparent pictures keep clean edges.
+    // Sums stay exact integers; a table replaces four divisions per pixel.
+    QVector<uchar> average(255 * diameter + 1);
+    for (int sum = 0; sum < average.size(); ++sum)
+        average[sum] = uchar(sum / diameter);
+    auto pixel = [&](int sum[4]) {
+        return qRgba(average[sum[0]], average[sum[1]], average[sum[2]], average[sum[3]]);
+    };
+    auto add = [](int sum[4], QRgb color, int sign) {
+        sum[0] += sign * qRed(color); sum[1] += sign * qGreen(color);
+        sum[2] += sign * qBlue(color); sum[3] += sign * qAlpha(color);
+    };
+    QImage output(image.size(), image.format());
+    std::vector<int> columns(size_t(width) * 4);
+    for (int pass = 0; pass < 3; ++pass) {
+        for (int y = 0; y < height; ++y) {
+            const auto *in = reinterpret_cast<const QRgb *>(image.constScanLine(y));
+            auto *out = reinterpret_cast<QRgb *>(output.scanLine(y));
+            int sum[4] = {};
+            for (int i = -radius; i <= radius; ++i) add(sum, in[qBound(0, i, width - 1)], 1);
+            for (int x = 0; x < width; ++x) {
+                out[x] = pixel(sum);
+                add(sum, in[qBound(0, x - radius, width - 1)], -1);
+                add(sum, in[qBound(0, x + radius + 1, width - 1)], 1);
+            }
+        }
+        // Vertical: keep a running sum per column and walk whole rows, so the pass
+        // reads memory in order instead of striding down each column.
+        std::fill(columns.begin(), columns.end(), 0);
+        auto row = [&](int y) {
+            return reinterpret_cast<const QRgb *>(output.constScanLine(qBound(0, y, height - 1)));
+        };
+        for (int i = -radius; i <= radius; ++i)
+            for (int x = 0, *sum = columns.data(); x < width; ++x, sum += 4) add(sum, row(i)[x], 1);
+        for (int y = 0; y < height; ++y) {
+            auto *out = reinterpret_cast<QRgb *>(image.scanLine(y));
+            const QRgb *leaving = row(y - radius), *entering = row(y + radius + 1);
+            for (int x = 0, *sum = columns.data(); x < width; ++x, sum += 4) {
+                out[x] = pixel(sum);
+                add(sum, leaving[x], -1);
+                add(sum, entering[x], 1);
+            }
+        }
+    }
+    return image;
+}
+static QImage blurredBackground(const QImage &image) {
+    static ImageCache cache(16 * 1024);
+    const QString key = QString::number(image.cacheKey());
+    QImage blurred = cache.get(key);
+    if (blurred.isNull()) {
+        blurred = boxBlur(image.scaled(320, 180, Qt::IgnoreAspectRatio, Qt::SmoothTransformation), 8);
+        cache.put(key, blurred);
+    }
+    return blurred;
+}
+QImage softenedImage(const QImage &image, const QSizeF &slideSize) {
+    // A roughly two-pixel softness at 1080p, scaled with the picture at 4K.
+    // Text is painted afterwards and stays sharp. Share the cache across preview
+    // workers so changing a headline doesn't blur the same picture again.
+    if (image.isNull() || slideSize.isEmpty()) return image;
+    const int radius = qRound(2.0 * image.width() / slideSize.width());
+    if (radius == 0) return image;
+    static ImageCache cache(64 * 1024);
+    const QString key = QString::number(image.cacheKey()) + '/' + QString::number(radius);
+    QImage softened = cache.get(key);
+    if (softened.isNull()) {
+        softened = boxBlur(image, radius);
+        cache.put(key, softened);
+    }
+    return softened;
+}
+static QString slideProperty(const QString &source, const QString &key) {
+    QRegularExpression re("<!--\\s*hype:[\\s\\S]*?\\b" + key + "=\"([^\"]*)\"[\\s\\S]*?-->");
+    return re.match(source).captured(1);
+}
+static QString preserveLineBreaks(QString markdown) {
+    markdown.replace("\r\n", "\n").replace('\r', '\n');
+    const QStringList visible = outsideCode(markdown, false).split('\n');
+    QStringList lines = markdown.split('\n');
+    for (int i = 0; i + 1 < lines.size(); ++i) {
+        if (!visible[i].trimmed().isEmpty() && !lines[i].endsWith("  ") && !lines[i].endsWith('\\'))
+            lines[i] += "  ";
+    }
+    return lines.join('\n');
+}
+static const QRegularExpression &tableDelimiter() {
+    // A delimiter row, with or without outer pipes: | --- | :-: | or --- | ---:
+    static const QRegularExpression re("^ {0,3}(?=[^\\n]*\\|)\\|? *:?-+:? *(?:\\| *:?-+:? *)*\\|? *$",
+                                       QRegularExpression::MultilineOption);
+    return re;
+}
+// Markdown trims table cells. Keep the one space each side that reads as
+// separation, and turn any more into non-breaking spaces that pad the cell.
+static QString padTableCells(const QString &markdown) {
+    QStringList lines = markdown.split('\n');
+    const QStringList visible = outsideCode(markdown).split('\n');
+    auto pad = [&](int index) {
+        QString &line = lines[index];
+        const QString &mask = visible[index];
+        QList<int> pipes;
+        for (int i = 0; i < mask.size(); ++i)
+            if (mask[i] == '|' && (i == 0 || mask[i - 1] != '\\'))
+                pipes.append(i);
+        if (pipes.isEmpty())
+            return;
+        if (pipes.first() > 0 && !mask.left(pipes.first()).trimmed().isEmpty())
+            pipes.prepend(-1);
+        if (pipes.last() < mask.size() - 1 && !mask.mid(pipes.last() + 1).trimmed().isEmpty())
+            pipes.append(mask.size());
+        // Work from the end so earlier positions stay valid.
+        for (int c = pipes.size() - 1; c > 0; --c) {
+            int start = pipes[c - 1] + 1, end = pipes[c];
+            if (line.mid(start, end - start).trimmed().isEmpty())
+                continue;
+            int trailing = 0, leading = 0;
+            while (line[end - 1 - trailing] == ' ')
+                ++trailing;
+            while (line[start + leading] == ' ')
+                ++leading;
+            if (trailing > 1)
+                line.replace(end - trailing, trailing - 1, QString(trailing - 1, QChar::Nbsp));
+            if (leading > 1)
+                line.replace(start + 1, leading - 1, QString(leading - 1, QChar::Nbsp));
+        }
+    };
+    for (int i = 1; i < lines.size(); ++i) {
+        if (!tableDelimiter().match(visible[i]).hasMatch() || !visible[i - 1].contains('|'))
+            continue;
+        pad(i - 1);
+        for (int row = i + 1; row < lines.size() && visible[row].contains('|') &&
+                              !visible[row].trimmed().isEmpty(); ++row)
+            pad(row);
+    }
+    return lines.join('\n');
+}
+static void sizeSlideText(QTextDocument &doc, const QVariantMap &palette, qreal fontSize,
+                          qreal width, bool centered, bool code) {
+    // A null page size suspends layout while every format below changes; the
+    // final setTextWidth lays the document out once instead of once per run.
+    doc.setPageSize(QSizeF(0, 0));
+    QFont font(code ? QString("JetBrains Mono")
+                    : palette.value("font", "JetBrains Mono").toString());
+    font.setPixelSize(qRound(fontSize));
+    font.setHintingPreference(QFont::PreferNoHinting);
+    doc.setDefaultFont(font);
+    doc.setDocumentMargin(0);
+    QTextOption option;
+    option.setUseDesignMetrics(true);
+    option.setWrapMode(code ? QTextOption::NoWrap : QTextOption::WrapAtWordBoundaryOrAnywhere);
+    doc.setDefaultTextOption(option);
+    doc.setDefaultStyleSheet(
+        QString("body { color: %1; } a { color: %2; } pre { white-space: pre; }")
+            .arg(palette["foreground"].toString(), palette["accent"].toString()));
+    for (QTextBlock block = doc.begin(); block.isValid(); block = block.next()) {
+        QTextCursor cursor(block);
+        QTextBlockFormat bf = block.blockFormat();
+        int level = bf.headingLevel();
+        // Table cells keep the alignment their column's delimiter asked for.
+        if (!cursor.currentTable())
+            bf.setAlignment(centered ? Qt::AlignHCenter : Qt::AlignLeft);
+        bf.setTopMargin(level ? fontSize * 0.15 : 0);
+        bf.setBottomMargin(fontSize * 0.22);
+        bf.setLineHeight(115, QTextBlockFormat::ProportionalHeight);
+        if (code) {
+            bf.setBottomMargin(0);
+            bf.setTopMargin(0);
+            bf.setLineHeight(120, QTextBlockFormat::ProportionalHeight);
+        }
+        cursor.setBlockFormat(bf);
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            auto fragment = it.fragment();
+            if (!fragment.isValid())
+                continue;
+            QTextCursor text(&doc);
+            text.setPosition(fragment.position());
+            text.setPosition(fragment.position() + fragment.length(), QTextCursor::KeepAnchor);
+            QTextCharFormat cf;
+            QFont f = font;
+            f.setPixelSize(qRound(fontSize * (level == 1 ? 1.8 : level ? 1.25 : 1.0)));
+            cf.setProperty(QTextFormat::FontPixelSize, f.pixelSize());
+            cf.setFontFamilies({font.family()});
+            // Qt drops both heading weight and its relative size at inline
+            // formatting boundaries. The relative size overrides FontPixelSize
+            // during layout, so restore both to preserve the existing heading
+            // appearance, while keeping underline/italic/etc. local to each run.
+            if (level) {
+                cf.setFontWeight(QFont::Bold);
+                cf.setProperty(QTextFormat::FontSizeAdjustment, 4 - level);
+            }
+            QColor color(palette["foreground"].toString());
+            if (fragment.charFormat().fontWeight() >= QFont::Bold && !level)
+                color = QColor(palette["accent"].toString());
+            if (block.text().startsWith(QString::fromUtf8("—"))) {
+                cf.setProperty(QTextFormat::FontPixelSize, qRound(fontSize * 0.7));
+            }
+            cf.setForeground(color);
+            text.mergeCharFormat(cf);
+        }
+    }
+    for (auto it = doc.rootFrame()->begin(); !it.atEnd(); ++it)
+        if (auto table = qobject_cast<QTextTable *>(it.currentFrame())) {
+            auto fmt = table->format();
+            fmt.setBorder(0);
+            fmt.setBorderCollapse(true);
+            fmt.setCellPadding(fontSize * 0.25);
+            fmt.setCellSpacing(0);
+            // Size to the content rather than the slide, so columns stay close enough to read across.
+            fmt.setWidth(QTextLength());
+            fmt.setAlignment(centered ? Qt::AlignHCenter : Qt::AlignLeft);
+            table->setFormat(fmt);
+            // Qt aligns body cells by the delimiter row but leaves the header at the default.
+            for (int column = 0; table->rows() > 1 && column < table->columns(); ++column) {
+                QTextCursor header = table->cellAt(0, column).firstCursorPosition();
+                auto bf = header.blockFormat();
+                bf.setAlignment(table->cellAt(1, column).firstCursorPosition().blockFormat().alignment());
+                header.setBlockFormat(bf);
+            }
+            // A gap between columns, a firm rule under the header and faint ones between rows.
+            QColor rule(palette["foreground"].toString());
+            rule.setAlphaF(0.2);
+            for (int row = 0; row < table->rows(); ++row)
+                for (int column = 0; column < table->columns(); ++column) {
+                    auto cell = table->cellAt(row, column);
+                    auto cf = cell.format().toTableCellFormat();
+                    if (column)
+                        cf.setLeftPadding(fontSize * 0.8);
+                    if (column + 1 < table->columns())
+                        cf.setRightPadding(fontSize * 0.8);
+                    if (row + 1 < table->rows()) {
+                        cf.setBottomBorder(row ? fontSize * 0.03 : fontSize * 0.06);
+                        cf.setBottomBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+                        cf.setBottomBorderBrush(row ? rule : QColor(palette["accent"].toString()));
+                    }
+                    cell.setFormat(cf);
+                }
+        }
+    doc.setTextWidth(width);
+}
+void layoutSlideText(QTextDocument &doc, const QString &markdown, const QVariantMap &palette,
+                     qreal fontSize, qreal width, bool centered, bool code) {
+    doc.setUndoRedoEnabled(false);
+    doc.setMarkdown(preserveLineBreaks(padTableCells(markdown)), QTextDocument::MarkdownDialectGitHub);
+    sizeSlideText(doc, palette, fontSize, width, centered, code);
+}
+static QMutex fitMutex;
+static QCache<QString, qreal> fittedSizes(4096);
+static qreal fittedSize(const QString &key) {
+    QMutexLocker lock(&fitMutex);
+    const auto size = fittedSizes.object(key);
+    return size ? *size : -1;
+}
+static void rememberFit(const QString &key, qreal size) {
+    QMutexLocker lock(&fitMutex);
+    fittedSizes.insert(key, new qreal(size));
+}
+static QRectF alignedRect(const QSizeF &size, const QRectF &within, Qt::Alignment alignment) {
+    const qreal x = alignment & Qt::AlignLeft    ? within.left()
+                    : alignment & Qt::AlignRight ? within.right() - size.width()
+                                                 : within.center().x() - size.width() / 2;
+    const qreal y = alignment & Qt::AlignTop      ? within.top()
+                    : alignment & Qt::AlignBottom ? within.bottom() - size.height()
+                                                  : within.center().y() - size.height() / 2;
+    return QRectF(QPointF(x, y), size);
+}
+QRectF mediaRect(const Media &media) {
+    if (media.placed()) {
+        const QSizeF box(1920 * media.size / 100, 1080 * media.size / 100);
+        // The margin shrinks as the box grows, so large images stay on the slide.
+        const qreal margin = qMin(60.0, (1080 - box.height()) / 2);
+        return alignedRect(box, QRectF(0, 0, 1920, 1080).adjusted(margin, margin, -margin, -margin),
+                           media.alignment);
+    }
+    return media.span ? QRectF(0, 0, 1920, 1080)
+                      : (!media.video || media.text.trimmed().isEmpty() ? QRectF(70, 50, 1780, 980)
+                                                        : QRectF(100, 280, 1720, 730));
+}
+QRectF mediaImageRect(const Media &media, const QSizeF &image) {
+    const QRectF rect = mediaRect(media);
+    QSizeF scaled = image;
+    scaled.scale(rect.size(), media.span ? Qt::KeepAspectRatioByExpanding : Qt::KeepAspectRatio);
+    // Placed images hug their corner or edge; everything else is centered.
+    return alignedRect(scaled, rect, media.alignment);
+}
+void paintSlide(QPainter *p, const QRectF &target, const QString &source, const QString &base,
+                const QVariantMap &inputPalette, QString *warning, bool overlayOnly,
+                bool backgroundOnly) {
+    p->save();
+    p->setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing |
+                      QPainter::SmoothPixmapTransform);
+    p->translate(target.topLeft());
+    p->scale(target.width() / 1920.0, target.height() / 1080.0);
+    QVariantMap palette = inputPalette;
+    QString bg = slideProperty(source, "background"), fg = slideProperty(source, "foreground");
+    if (QColor(bg).isValid())
+        palette["background"] = bg;
+    if (QColor(fg).isValid())
+        palette["foreground"] = fg;
+    if (!overlayOnly)
+        p->fillRect(QRectF(0, 0, 1920, 1080), QColor(palette["background"].toString()));
+    auto media = parseMedia(source, base);
+    QString text = media.text.trimmed();
+    auto problems = slideProblems(source, base);
+    QRectF area(130, 90, 1660, 900);
+    if (!media.svg.isEmpty() && media.file.isEmpty()) {
+        // Like a video, a drawing under a headline leaves the headline a band at the top.
+        const QRectF rect =
+            text.isEmpty() ? QRectF(70, 50, 1780, 980) : QRectF(100, 280, 1720, 730);
+        if (!text.isEmpty())
+            area = QRectF(130, 40, 1660, 205);
+        QSvgRenderer svg(themedSvg(media.svg, palette));
+        if (!overlayOnly && !backgroundOnly && svg.isValid() && !svg.viewBoxF().isEmpty()) {
+            QSizeF size = svg.viewBoxF().size();
+            size.scale(rect.size(), Qt::KeepAspectRatio);
+            svg.setAspectRatioMode(Qt::KeepAspectRatio);
+            svg.render(p, QRectF(rect.center() - QPointF(size.width(), size.height()) / 2, size));
+        }
+    }
+    if (!media.file.isEmpty()) {
+        QString path =
+            media.video ? (media.poster.isEmpty() ? ensurePoster(media.path, base) : media.poster)
+                        : media.path;
+        const QRectF rect = mediaRect(media);
+        const QSize pixels = p->deviceTransform().mapRect(rect).size().toSize();
+        // An SVG with nothing over it is drawn as vectors, sharp at any size and in PDF. Its
+        // small raster only gives its shape and edge colors for the background.
+        const bool vector = !media.video && (text.isEmpty() || media.placed()) &&
+                            QStringList{"svg", "svgz"}.contains(QFileInfo(path).suffix().toLower());
+        QImage image = loadedImage(path, vector ? QSize(480, 270) : pixels, media.span);
+        // Video backgrounds use the first frame, even with a custom poster.
+        const QImage backdrop = media.video && !media.span && !media.poster.isEmpty() &&
+            (media.background == "blur" || media.background == "auto")
+            ? loadedImage(ensurePoster(media.path, base), QSize(320, 180), false) : image;
+        if (!overlayOnly && !media.span && media.background == "blur") {
+            if (!backdrop.isNull())
+                p->drawImage(QRectF(0, 0, 1920, 1080), blurredBackground(backdrop));
+        }
+        if ((!media.video || !media.background.isEmpty()) && !media.span && !media.placed() &&
+            media.background != "theme" && (bg.isEmpty() || !media.background.isEmpty())) {
+            QColor color(media.background);
+            if ((media.background.isEmpty() || media.background == "auto") && !backdrop.isNull()) {
+                // Quantized edge votes ignore transparent pixels and tolerate compression noise.
+                QMap<int, QVector<QColor>> votes;
+                for (int i = 0; i < 64; ++i) {
+                    int x = i * (backdrop.width() - 1) / 63, y = i * (backdrop.height() - 1) / 63;
+                    for (QPoint point : {QPoint(x, 0), QPoint(x, backdrop.height() - 1), QPoint(0, y),
+                                         QPoint(backdrop.width() - 1, y)}) {
+                        QColor c = backdrop.pixelColor(point);
+                        if (c.alpha() < 240)
+                            continue;
+                        votes[(c.red() / 16) * 256 + (c.green() / 16) * 16 + c.blue() / 16].append(
+                            c);
+                    }
+                }
+                QVector<QColor> best;
+                for (auto it = votes.cbegin(); it != votes.cend(); ++it)
+                    if (it.value().size() > best.size())
+                        best = it.value();
+                if (best.size() >= 128) {
+                    int r = 0, g = 0, b = 0;
+                    for (const QColor &c : best) {
+                        r += c.red();
+                        g += c.green();
+                        b += c.blue();
+                    }
+                    color = QColor(r / best.size(), g / best.size(), b / best.size());
+                }
+            }
+            if (color.isValid()) {
+                if (!overlayOnly)
+                    p->fillRect(QRectF(0, 0, 1920, 1080), color);
+                if (fg.isEmpty()) {
+                    QString ink = (color.redF() * 0.2126 + color.greenF() * 0.7152 +
+                                   color.blueF() * 0.0722) > .55
+                                      ? "#161616"
+                                      : "#ffffff";
+                    palette["foreground"] = ink;
+                    palette["accent"] = ink;
+                }
+            }
+        }
+
+        if (!overlayOnly && !backgroundOnly && !image.isNull()) {
+            const QRectF dest = mediaImageRect(media, image.size());
+            p->save();
+            p->setClipRect(rect);
+            QSvgRenderer svg;
+            if (vector && svg.load(path)) {
+                svg.setAspectRatioMode(Qt::KeepAspectRatio);
+                svg.render(p, dest);
+            } else
+                p->drawImage(dest, !media.video && !media.placed() && !text.isEmpty()
+                                       ? softenedImage(image, dest.size())
+                                       : image);
+            p->restore();
+        } else if (!overlayOnly && !backgroundOnly) {
+            p->setPen(QColor(palette["accent"].toString()));
+            const QString message = tr("Missing media") + "\n" + media.file;
+            QFont diagnostic("sans");
+            // Shrink the notice to fit small placed boxes, and never draw past them.
+            for (int size = 32; size >= 8; size -= 2) {
+                diagnostic.setPixelSize(size);
+                if (QRectF(QFontMetricsF(diagnostic).boundingRect(rect, Qt::AlignCenter, message))
+                        .width() <= rect.width())
+                    break;
+            }
+            p->save();
+            p->setClipRect(rect);
+            p->setFont(diagnostic);
+            p->drawText(rect, Qt::AlignCenter, message);
+            p->restore();
+        }
+        // Text beside a placed image keeps the theme's colors and full area.
+        if (!media.placed() && (!media.video || media.span)) {
+            if (!backgroundOnly)
+                p->fillRect(QRectF(0, 0, 1920, 1080), QColor(0, 0, 0, qRound(media.overlay * 255)));
+            if (fg.isEmpty() && !text.isEmpty())
+                palette["foreground"] = "#ffffff";
+        } else if (!media.placed() && !text.isEmpty())
+            area = QRectF(130, 40, 1660, 205);
+    }
+    if (backgroundOnly) {
+        p->restore();
+        return;
+    }
+    if (!text.isEmpty()) {
+        bool code = text.contains(
+            QRegularExpression("^ {0,3}(`{3,}|~{3,})", QRegularExpression::MultilineOption));
+        bool quote = text.startsWith('>');
+        bool list = text.contains(
+            QRegularExpression("^\\s*(?:[-*+] |[0-9]+[.)] )", QRegularExpression::MultilineOption));
+        bool table = text.contains(tableDelimiter());
+        // A table alone on its slide sits in the middle; beside other text it lines up with it.
+        const bool tableOnly = table && !text.split('\n').filter(QRegularExpression("^(?!.*\\|).*\\S")).size();
+        bool centered = tableOnly || !(code || quote || list || table);
+        const QString alignment = slideProperty(source, "alignment");
+        if (alignment == "left")
+            centered = false;
+        if (alignment == "center")
+            centered = true;
+        bool stack = (text.contains('\n') || text.contains('\r')) && !text.startsWith('#') &&
+                     !quote && !list && !code;
+        qreal low = 8, high = code ? 56 : quote ? 64 : list || table ? 72 : stack ? 128 : 76;
+        if (media.video && !media.span)
+            high = 48;
+        QTextDocument doc;
+        // Layout happens in 1080p slide units, so every render size, the PDF and
+        // a theme change all reuse one search. Colors never affect the fit.
+        const QString fit = QString("%1 %2 %3 %4 %5 ").arg(high).arg(area.width()).arg(area.height())
+                                .arg(centered).arg(code) + palette.value("font").toString() + '\n' + text;
+        if (const qreal fitted = fittedSize(fit); fitted > 0) {
+            low = fitted;
+            layoutSlideText(doc, text, palette, low, area.width(), centered, code);
+        } else {
+            layoutSlideText(doc, text, palette, high, area.width(), centered, code);
+            const bool fits = doc.size().height() <= area.height() && doc.idealWidth() <= area.width() + 1;
+            if (fits)
+                low = high;
+            for (int iteration = 0; !fits && iteration < 9; ++iteration) {
+                qreal size = (low + high) / 2;
+                sizeSlideText(doc, palette, size, area.width(), centered, code);
+                if (doc.size().height() <= area.height() && doc.idealWidth() <= area.width() + 1)
+                    low = size;
+                else
+                    high = size;
+            }
+            if (!fits)
+                sizeSlideText(doc, palette, low, area.width(), centered, code);
+            rememberFit(fit, low);
+        }
+        highlightCode(doc, palette);
+        if (low < 24 && warning)
+            *warning = tr("Text fits below 24px on a 1080p slide");
+        p->save();
+        p->translate(area.x(), area.y() + qMax(0.0, (area.height() - doc.size().height()) / 2));
+        QAbstractTextDocumentLayout::PaintContext context;
+        context.palette.setColor(QPalette::Text, QColor(palette["foreground"].toString()));
+        doc.documentLayout()->draw(p, context);
+        p->restore();
+    }
+    if (!problems.isEmpty()) {
+        p->setPen(Qt::white);
+        p->fillRect(QRectF(0, 1000, 1920, 80), QColor("#9b3030"));
+        QFont diagnostic("sans");
+        diagnostic.setPixelSize(21);
+        p->setFont(diagnostic);
+        p->drawText(QRectF(30, 1005, 1860, 70), Qt::AlignVCenter, problems.join(" · "));
+        if (warning)
+            *warning = problems.join("; ");
+    }
+    p->restore();
+}
+SlideItem::SlideItem(QQuickItem *parent) : QQuickPaintedItem(parent) { setAntialiasing(true); }
+void SlideItem::setDeck(Deck *deck) {
+    if (m_deck)
+        disconnect(m_deck, nullptr, this, nullptr);
+    m_deck = deck;
+    if (deck)
+        connect(deck, &Deck::selectionChanged, this, [this] { update(); });
+    emit deckChanged();
+    update();
+}
+void SlideItem::paint(QPainter *p) {
+    if (m_deck)
+        paintSlide(p, boundingRect(), m_deck->slideSource(), m_deck->baseDir(), m_deck->palette(),
+                   nullptr, m_overlayOnly);
+}
+// Qt multiplies an Image's sourceSize by the screen's scale, so a 340px thumbnail arrives as
+// 680px on a 2x display and the stage as 3840px. Classify requests against the largest one
+// seen instead of fixed pixel sizes: the stage is the big one, everything else is small.
+static std::atomic_int largestWidth{1920};
+static std::atomic_int stageWidth{1920}, stageHeight{1080};
+static bool stageSized(const QSize &dimensions) {
+    int largest = largestWidth.load();
+    while (dimensions.width() > largest && !largestWidth.compare_exchange_weak(largest, dimensions.width())) {}
+    return dimensions.width() * 2 > largestWidth.load();
+}
+static ImageCache &slideCache(const QSize &dimensions) {
+    // Full previews must not evict the much smaller sidebar and overview thumbnails.
+    static ImageCache thumbnails(96 * 1024), previews(128 * 1024);
+    return stageSized(dimensions) ? previews : thumbnails;
+}
+static QString slideCacheKey(const QString &id, const QSize &dimensions) {
+    return id + QString::number(dimensions.width()) + "x" + QString::number(dimensions.height());
+}
+static QImage renderedSlide(const QString &id, QSize *size, const QSize &requested) {
+    const QSize dimensions = requested.isValid() ? requested : QSize(320, 180);
+    auto &renders = slideCache(dimensions);
+    const QString key = slideCacheKey(id, dimensions);
+    if (const auto cached = renders.get(key); !cached.isNull()) {
+        if (size) *size = cached.size();
+        return cached;
+    }
+    QByteArray bytes =
+        QByteArray::fromBase64(id.section('/', 0, 0).toLatin1(), QByteArray::Base64UrlEncoding);
+    QDataStream stream(bytes);
+    QString source, base;
+    QVariantMap palette;
+    stream >> source >> base >> palette;
+    if (stream.status() != QDataStream::Ok)
+        return {};
+    QImage image(dimensions, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image);
+    paintSlide(&p, image.rect(), source, base, palette, nullptr, id.endsWith("/overlay"),
+               id.endsWith("/background"));
+    p.end();
+    // Room for the slides around the selection at full size, or a whole deck of thumbnails.
+    // Full-size frames reach 33 MB at 2x, so keep as many as a twentieth of free memory holds.
+    int frames = 14;
+    if (const qint64 free = budget::availableBytes(); free > 0)
+        frames = int(qBound(qint64(4), free / 20 / qMax(qint64(1), qint64(image.sizeInBytes())), qint64(14)));
+    renders.put(key, image, stageSized(dimensions) ? frames : 400);
+    if (size)
+        *size = image.size();
+    return image;
+}
+
+namespace {
+class SlideResponse : public QQuickImageResponse {
+    QImage m_image;
+    std::atomic_bool m_cancelled = false;
+  public:
+    void cancel() override { m_cancelled = true; }
+    void complete(const QImage &image) {
+        if (!m_cancelled) m_image = image;
+        emit finished();
+    }
+    void render(const QString &id, const QSize &size) {
+        if (!m_cancelled) m_image = renderedSlide(id, nullptr, size);
+        emit finished();
+    }
+    QQuickTextureFactory *textureFactory() const override {
+        return QQuickTextureFactory::textureFactoryForImage(m_image);
+    }
+};
+}
+
+Thumbnails::Thumbnails(Deck *deck) {
+    // Full-size renders are the slow ones; give the stage and its prefetches most of the cores,
+    // as far as memory allows: each full-size render holds about 100 MB while it works.
+    const int cores = QThread::idealThreadCount();
+    m_thumbnails.setMaxThreadCount(qBound(2, cores / 4, 4));
+    m_previews.setMaxThreadCount(qMin(qBound(2, cores / 2, 6), budget::workers(100LL << 20, 6, 0.2, 0, 2)));
+    m_cached.setMaxThreadCount(1);
+    m_videos.setMaxThreadCount(2);
+    auto timer = new QTimer(this);
+    timer->setInterval(60);
+    timer->setSingleShot(true);
+    connect(deck, &Deck::selectionChanged, this, [this, timer] {
+        if (m_stopping->load())
+            return;
+        ++*m_generation;
+        timer->start();
+    });
+    connect(timer, &QTimer::timeout, this, [this, deck = QPointer<Deck>(deck)] {
+        QMutexLocker submissions(&m_submissions);
+        if (!deck || m_stopping->load())
+            return;
+        const auto generation = m_generation;
+        const auto current = generation->load();
+        for (int offset : {1, -1, 2, -2, 3, -3}) {
+            const int index = deck->selected() + offset;
+            if (index < 0 || index >= deck->count())
+                continue;
+            // Do not start video decoding or animation playback speculatively.
+            const auto media = parseMedia(deck->slide(index), deck->baseDir());
+            QImageReader reader(media.path);
+            if (media.video || (!media.path.isEmpty() && reader.supportsAnimation() && reader.imageCount() > 1))
+                continue;
+            const QString id = deck->renderId(index);
+            // Prefetch at the size the stage actually asks for, or the work is never used.
+            const QSize size(stageWidth.load(), stageHeight.load());
+            m_previews.start([generation, current, id, size] {
+                if (generation->load() == current)
+                    renderedSlide(id, nullptr, size);
+            }, -1);
+        }
+    });
+    timer->start();
+}
+Thumbnails::~Thumbnails() { shutdown(); }
+void Thumbnails::shutdown() {
+    {
+        // Fence submissions before draining. Qt Quick can retain this provider
+        // after the engine dies; no later request may start touching Qt fonts.
+        QMutexLocker submissions(&m_submissions);
+        m_stopping->store(true);
+        ++*m_generation;
+    }
+    m_thumbnails.waitForDone();
+    m_previews.waitForDone();
+    m_cached.waitForDone();
+    m_videos.waitForDone();
+}
+QImage Thumbnails::requestImage(const QString &id, QSize *size, const QSize &requested) {
+    // Synchronous entry point used by rendering tests, not the QML engine.
+    QMutexLocker submissions(&m_submissions);
+    return m_stopping->load() ? QImage() : renderedSlide(id, size, requested);
+}
+QQuickImageResponse *Thumbnails::requestImageResponse(const QString &id, const QSize &requested) {
+    QMutexLocker submissions(&m_submissions);
+    auto response = new SlideResponse;
+    const auto stopping = m_stopping;
+    if (stopping->load()) {
+        // Finished responses are valid even before the loader connects its
+        // signal handler; QQuickImageResponse records its finished state.
+        response->complete({});
+        return response;
+    }
+    const QSize dimensions = requested.isValid() ? requested : QSize(320, 180);
+    const QImage cached = slideCache(dimensions).get(slideCacheKey(id, dimensions));
+    if (!cached.isNull()) {
+        // A ready image must not wait behind unrelated decoding or prefetches.
+        m_cached.start([response, cached, stopping] {
+            response->complete(stopping->load() ? QImage() : cached);
+        });
+        return response;
+    }
+    QByteArray bytes =
+        QByteArray::fromBase64(id.section('/', 0, 0).toLatin1(), QByteArray::Base64UrlEncoding);
+    QDataStream stream(bytes);
+    QString source, base;
+    stream >> source >> base;
+    // Video poster decoding cannot occupy the workers needed for ordinary slides.
+    const bool video = parseMedia(source, base).video;
+    const bool stage = stageSized(dimensions);
+    if (stage) {
+        stageWidth.store(dimensions.width());
+        stageHeight.store(dimensions.height());
+    }
+    auto &pool = video ? m_videos : stage ? m_previews : m_thumbnails;
+    pool.start(
+        [response, id, requested, stopping] {
+            if (stopping->load())
+                response->complete({});
+            else
+                response->render(id, requested);
+        },
+        1);
+    return response;
+}

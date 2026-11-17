@@ -36,13 +36,16 @@ echo "$APP: every library resolves with runtime packages only"
 # Qt apps: start the app headless and fail on a QML load error. ldd cannot
 # see QML, which only resolves imports, types and properties at runtime;
 # QML written for a newer Qt (a property 6.8 lacks) fails only here.
+# start_args (omaxian.deps.json): what opens the window, for apps that are a
+# command-line tool without arguments (hype: open).
 qt=$(awk -F= '$1 == "qt" { print $2 }' "$DIST/$APP.env")
 if [[ -n $qt ]]; then
+  mapfile -t start_args < <(jq -r '.start_args // [] | .[]' "$SRC/omaxian.deps.json")
   home=$(mktemp -d)
   log="$work/start.log"
   ec=0
   HOME="$home" XDG_RUNTIME_DIR="$home" QT_QPA_PLATFORM=offscreen \
-    timeout 15 "$work/$bin" >"$log" 2>&1 </dev/null || ec=$?
+    timeout 15 "$work/$bin" "${start_args[@]}" >"$log" 2>&1 </dev/null || ec=$?
   # 124: still running when stopped, i.e. it started.
   qml_errors=$(grep -E 'QQmlApplicationEngine failed|Component is not ready|is not installed|Type [A-Za-z]+ unavailable|non-existent property|is not a type|ReferenceError|TypeError|Cannot assign' "$log" || true)
   if [[ -n $qml_errors ]] || (( ec != 124 && ec != 0 )); then

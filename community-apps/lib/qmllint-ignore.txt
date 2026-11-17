@@ -14,3 +14,5 @@ signed/src/PlacedItem.qml|Property "visible" does not exist
 signed/src/PlacedItem.qml|Property "text" does not exist
 signed/src/PlacedItem.qml|Property "fontSize" does not exist
 signed/src/PlacedItem.qml|Property "zoom" does not exist
+# Hype: hasChecks is declared on its own Menu (Main.qml), which qmllint types as QQuickMenu.
+hype/src/Main.qml|Member "hasChecks" not found on type "QQuickMenu"

@@ -1,0 +1,4 @@
+/build/
+/trials/
+*.user
+__pycache__/

@@ -384,6 +384,7 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | [Omawrite](community-apps/omawrite/) | Markdown writing app with auto-save and Omarchy theme |
 | [Folio](community-apps/folio/) | File manager: grid/list/columns, Space previews, Omarchy theme |
 | [Omaview](community-apps/omaview/) | Picture viewer and media player (Media Viewer in the launcher) |
+| [Hype](community-apps/hype/) | Markdown presentations with a visual slide editor; export to PDF or PowerPoint |
 
 Details: [`community-apps/README.md`](community-apps/README.md).
 

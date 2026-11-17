@@ -38,6 +38,8 @@ human) should install. Extra keys used by apps:
   reachable from here: a downloaded binary gets **only** these (CI checks it).
 - `apt_build` — packages needed only to compile from this tree
 - `manual` — human follow-ups (models, agents, bar widget link)
+- `start_args` — arguments that open the window, for CI's headless start
+  check when the binary is a command-line tool without them (hype: `["open"]`)
 
 `install.sh` reads both lists from this file (`app_deps_read` in
 `lib/prebuilt.sh`), and so does the TUI. Do not repeat them in `install.sh`.
@@ -88,6 +90,7 @@ Plan and rationale:
 | [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.5` | Ported |
 | [`folio`](folio/) | Folio (Qt Quick file manager) | [omacom/folio](https://github.com/omacom/folio) `795e741` | Ported |
 | [`omaview`](omaview/) | Omaview (Qt Quick picture viewer / media player) | [omacom/omaview](https://github.com/omacom/omaview) `75bb5a0` | Ported |
+| [`hype`](hype/) | Hype (Qt Quick Markdown presentations) | [omacom/hype](https://github.com/omacom/hype) `0.7.1` (`8c347fc`) | Ported |
 
 **Not ported:** [omareel](https://github.com/omacom/omareel) — Hyprland plugin + `gpu-screen-recorder` / layer-shell capture; not viable on X11/i3.
 

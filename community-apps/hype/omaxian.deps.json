@@ -1,0 +1,44 @@
+{
+  "apt": [
+    "qml6-module-qtquick",
+    "qml6-module-qtquick-controls",
+    "qml6-module-qtquick-layouts",
+    "qml6-module-qtquick-templates",
+    "qml6-module-qtquick-effects",
+    "qml6-module-qtquick-shapes",
+    "qml6-module-qtqml",
+    "qml6-module-qtqml-workerscript",
+    "qml6-module-qtmultimedia",
+    "libqt6multimedia6",
+    "libqt6concurrent6",
+    "libqt6svg6",
+    "qt6-qpa-plugins",
+    "qt6-svg-plugins",
+    "qt6-image-formats-plugins",
+    "libwebp7",
+    "libwebpdemux2",
+    "ffmpeg",
+    "source-highlight",
+    "hicolor-icon-theme",
+    "xdg-desktop-portal",
+    "xdg-desktop-portal-gtk"
+  ],
+  "apt_build": [
+    "build-essential",
+    "cmake",
+    "pkg-config",
+    "qt6-base-dev",
+    "qt6-declarative-dev",
+    "qt6-multimedia-dev",
+    "qt6-svg-dev",
+    "libwebp-dev",
+    "zlib1g-dev"
+  ],
+  "start_args": ["open"],
+  "manual": [
+    "Build with community-apps/hype/install.sh (CMake). Stock Devuan Excalibur Qt 6.8 is enough; upstream asks for 6.9 (see README.md for what differs on 6.8).",
+    "ffmpeg exports animated slides; source-highlight colours code blocks.",
+    "Open/save dialogs use the desktop portal (xdg-desktop-portal-gtk on i3).",
+    "Tests (bin/test) also need qt6-pdf-dev, python3, fonts-noto-core and fonts-jetbrains-mono."
+  ]
+}
