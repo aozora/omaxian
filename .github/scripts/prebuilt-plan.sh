@@ -16,7 +16,7 @@ APPS_DIR="$REPO_DIR/community-apps"
 
 # Apps Omaxian builds itself. disktree pins upstream's release instead
 # (its Omaxian changes are packaging-only).
-CI_APPS=(folio monologue omacalc omacut omarchy-meeting-recorder omawrite plain signed)
+CI_APPS=(folio monologue omacalc omacut omarchy-meeting-recorder omaview omawrite plain signed)
 
 IGNORE=(
   ':(exclude).omaxian-prebuilt'

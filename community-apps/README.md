@@ -87,6 +87,7 @@ Plan and rationale:
 | [`omacut`](omacut/) | Omacut (Qt Quick video trimmer) | [omacom/omacut](https://github.com/omacom/omacut) `0.8.3` | Ported |
 | [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.5` | Ported |
 | [`folio`](folio/) | Folio (Qt Quick file manager) | [omacom/folio](https://github.com/omacom/folio) `795e741` | Ported |
+| [`omaview`](omaview/) | Omaview (Qt Quick picture viewer / media player) | [omacom/omaview](https://github.com/omacom/omaview) `75bb5a0` | Ported |
 
 **Not ported:** [omareel](https://github.com/omacom/omareel) — Hyprland plugin + `gpu-screen-recorder` / layer-shell capture; not viable on X11/i3.
 
