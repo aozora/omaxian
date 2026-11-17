@@ -127,12 +127,15 @@ install_apt() {
   fi
   local packages=() pkg
   if [[ -n $local_qt_prefix ]]; then
+    # Build against the local tree. Still pull matching *runtime* Qt packages
+    # from apt when their candidate matches libqt6core. Never apt-install a
+    # newer qt6-*-plugins candidate — that would try to upgrade the desktop Qt.
     for pkg in "${apt_runtime[@]}"; do
       case "$pkg" in
-        qt6-qpa-plugins|xdg-desktop-portal*|ffmpeg|xclip|xdg-utils|qt6-image-formats-plugins|qt6-svg-plugins)
+        xdg-desktop-portal*|ffmpeg|xclip|xdg-utils)
           packages+=("$pkg")
           ;;
-        qml6-*|libqt6*)
+        qml6-*|libqt6*|qt6-*)
           if qt_pkg_matches_installed "$pkg"; then
             packages+=("$pkg")
           else
@@ -153,7 +156,20 @@ install_apt() {
     echo ">> matching Qt headers under $local_qt_prefix; skipping apt Qt -dev packages"
   else
     (( ${#apt_build[@]} == 0 )) || refuse_qt_downgrade
-    packages=("${apt_runtime[@]}" "${apt_build[@]}")
+    for pkg in "${apt_runtime[@]}" "${apt_build[@]}"; do
+      case "$pkg" in
+        qml6-*|libqt6*|qt6-*)
+          if qt_pkg_matches_installed "$pkg"; then
+            packages+=("$pkg")
+          else
+            echo ">> skip $pkg (apt candidate does not match libqt6core)"
+          fi
+          ;;
+        *)
+          packages+=("$pkg")
+          ;;
+      esac
+    done
   fi
   if (( ${#packages[@]} == 0 )); then
     return 0
