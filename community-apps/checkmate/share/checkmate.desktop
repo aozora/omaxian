@@ -10,4 +10,5 @@ Exec=checkmate open
 Icon=checkmate
 Terminal=false
 Categories=Game;BoardGame;
+Keywords=checkmate;chess;3d;board;
 StartupWMClass=checkmate

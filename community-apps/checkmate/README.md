@@ -18,8 +18,9 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Arch package / `bin/build` pacman helpers | Debian `install.sh` → `~/.local` (apt); pacman block in `bin/build` is skipped when pacman is absent |
 | Version from the release tarball or `git describe` | From `.omaxian-upstream-version` (`git describe` here would give Omaxian's tags) |
 | Qt Test + `xvfb-run` required at CMake configure | Optional: the app builds without them; tests are added only when `libQt6Test` and `xvfb-run` are both present |
+| Needs system/apt Quick3D matching desktop Qt | If the local `omaxian-qt6-*` overlay or apt has no matching Quick3D, `install.sh` builds in `debian:trixie` and installs a private Qt 6.8 runtime under `~/.local/lib/checkmate-qt/` (wrapper sets `LD_LIBRARY_PATH` / QML / plugins). Mixing Quick3D 6.8 with a newer desktop Qt fails on private ABI |
 | `visible: parent.target` on the move marker | `visible: tile.target` (same behaviour; qmllint could not see the custom property through `parent`) |
-| Runtime dep `qt6-wayland` | Not installed. Uses XCB via `qt6-qpa-plugins` |
+| Runtime dep `qt6-wayland` | Not installed. Uses XCB via `qt6-qpa-plugins` (or the private runtime's xcb plugin) |
 | Popup corners from `hyprctl` rounding | Unchanged: without Hyprland, corners stay square on i3 |
 | Theme and language from Omarchy paths | Unchanged — Omaxian writes the same files |
 
