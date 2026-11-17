@@ -148,9 +148,34 @@ qt_build_ready() {
   exit 1
 }
 
+# QtMultimedia's QML module only under ~/.local/lib/qt6/qml (a desktop Qt
+# that apt has no matching qml6-module-qtmultimedia for): run through a
+# wrapper that adds ~/.local/lib, as Omaview and Omacut do.
+needs_qml_wrapper() {
+  [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtMultimedia && -d $HOME/.local/lib/qt6/qml/QtMultimedia ]]
+}
+
 install_files() {
   mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR"
-  install -m 0755 "$BUILT_BIN" "$BIN_DIR/hype"
+  if needs_qml_wrapper; then
+    mkdir -p "$PREFIX/libexec"
+    install -m 0755 "$BUILT_BIN" "$PREFIX/libexec/hype"
+    local lib_extra="$HOME/.local/lib"
+    cat > "$BIN_DIR/hype" <<WRAPPER
+#!/bin/bash
+export LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}$lib_extra"
+export QML_IMPORT_PATH="\${QML_IMPORT_PATH:+\$QML_IMPORT_PATH:}$lib_extra/qt6/qml"
+export QT_PLUGIN_PATH="\${QT_PLUGIN_PATH:+\$QT_PLUGIN_PATH:}$lib_extra/qt6/plugins"
+exec "$PREFIX/libexec/hype" "\$@"
+WRAPPER
+    chmod 0755 "$BIN_DIR/hype"
+    echo ">> wrapper $BIN_DIR/hype (QtMultimedia QML from $lib_extra/qt6/qml)"
+  else
+    install -m 0755 "$BUILT_BIN" "$BIN_DIR/hype"
+    if [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtMultimedia ]]; then
+      echo "warning: QML module QtMultimedia missing (qml6-module-qtmultimedia); hype will not open its window" >&2
+    fi
+  fi
   install -m 0644 "$ROOT/pkgbuild/hype.svg" "$ICON_DIR/hype.svg"
   sed -e "s|^Exec=hype open %f|Exec=$BIN_DIR/hype open %f|" \
     "$ROOT/pkgbuild/hype.desktop" > "$APP_DIR/hype.desktop"

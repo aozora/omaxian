@@ -25,7 +25,7 @@ endif()
 # Omaxian: 6.8, Devuan Excalibur's Qt (the pre-built binary's target). The
 # few newer-Qt properties are set only where they exist; see README.md.
 find_package(Qt6 6.8 REQUIRED COMPONENTS
-  Core Gui Qml Quick QuickControls2 Multimedia Concurrent DBus Svg Widgets Test)
+  Core Gui Qml Quick QuickControls2 Multimedia Concurrent DBus Svg Widgets)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WEBP REQUIRED IMPORTED_TARGET libwebp libwebpdemux)
 find_package(ZLIB REQUIRED)
@@ -69,15 +69,16 @@ enable_testing()
 
 # The tests read exports back with Qt Pdf, which ships in qt6-webengine, so
 # building the app alone doesn't need it; testing without it fails, not skips.
-find_package(Qt6 6.8 COMPONENTS Pdf)
-if(TARGET Qt6::Pdf)
+# Omaxian: Qt Test is only for the tests too, so the app builds without it.
+find_package(Qt6 6.8 COMPONENTS Pdf Test)
+if(TARGET Qt6::Pdf AND TARGET Qt6::Test)
   # The window-level tests load the same QML as the app, so they embed it too.
   add_executable(hype_tests tests/tests.cpp src/resources.qrc)
   target_link_libraries(hype_tests PRIVATE hype_core Qt6::Widgets Qt6::Pdf Qt6::Test)
   set_target_properties(hype_tests PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
   add_test(NAME hype_tests COMMAND hype_tests)
 else()
-  message(WARNING "Qt Pdf was not found, so the tests can't be built; install qt6-webengine.")
+  message(WARNING "Qt Pdf or Qt Test was not found, so the tests can't be built; install qt6-pdf-dev and qt6-base-dev.")
   add_test(NAME hype_tests COMMAND sh -c "echo 'hype_tests needs Qt Pdf, from qt6-webengine' >&2; exit 1")
 endif()
 # Hype draws its own controls, so the tests keep Qt's platform theme and style out of it.
