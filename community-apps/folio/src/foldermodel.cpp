@@ -1,7 +1,9 @@
 #include "foldermodel.h"
+#include "fileops.h"
 
 #include <QCache>
 #include <QCollator>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
 #include <QXmlStreamReader>
@@ -13,6 +15,7 @@
 #include <QMimeDatabase>
 #include <QtConcurrent>
 #include <algorithm>
+#include <tuple>
 #include <sys/stat.h>
 
 FolderModel::FolderModel(QObject *parent) : QAbstractListModel(parent) {
@@ -40,6 +43,19 @@ FolderModel::~FolderModel() {
     *m_latest = 0;
 }
 
+// Never deleted, like Places', so a dead mount can't stop Folio quitting: a listing
+// gets a second to finish, and one stuck longer may still meet destroyed statics.
+QThreadPool &FolderModel::listingPool() {
+    static QThreadPool *const pool = [] {
+        qAddPostRoutine([] { listingPool().waitForDone(1000); });
+        auto *p = new QThreadPool;
+        // Eight, not the CPU count, so a few folders stuck on dead mounts leave others listing.
+        p->setMaxThreadCount(8);
+        return p;
+    }();
+    return *pool;
+}
+
 // Recent listings, shared by every model (the window's folder and each
 // column), so stepping back and forth or opening a column for a folder just
 // seen shows it in the same frame instead of an old or empty one. Each is
@@ -51,7 +67,8 @@ static QCache<QString, QVector<FolderModel::Entry>> &recentListings() {
 
 // The language is part of it: names sort by its alphabet.
 QString FolderModel::cacheKey() const {
-    return m_path + '\n' + (m_showHidden ? "h" : "") + '\n' + m_sort + '\n' + QLocale().name();
+    return m_path + '\n' + (m_showHidden ? "h" : "") + '\n' + m_sort + '\n' + QLocale().name() + '\n'
+           + m_filter.join('\n');
 }
 
 void FolderModel::remember() {
@@ -138,6 +155,19 @@ void FolderModel::setSortMode(const QString &sort) {
     reload();
 }
 
+void FolderModel::setPath(const QString &path, const QString &sort) {
+    const bool resort = sort != m_sort && sortModes().contains(sort);
+    if (resort) {
+        m_sort = sort;
+        emit sortModeChanged();
+    }
+    const QString clean = path.isEmpty() || isView(path) ? path : QDir::cleanPath(path);
+    if (clean != m_path)
+        setPath(clean);
+    else if (resort)
+        reload();
+}
+
 void FolderModel::setQuery(const QString &query) {
     if (query == m_query)
         return;
@@ -160,6 +190,14 @@ void FolderModel::setItems(const QVariantList &items) {
     // A plugin's view follows its polls.
     if (isPluginView(m_path))
         reload();
+}
+
+void FolderModel::setFilter(const QStringList &filter) {
+    if (filter == m_filter)
+        return;
+    m_filter = filter;
+    emit filterChanged();
+    reload();
 }
 
 void FolderModel::setPath(const QString &path) {
@@ -204,6 +242,33 @@ void FolderModel::setPath(const QString &path) {
     if (!isPluginView(m_path))
         m_watcher.addPath(m_path == recentPath() ? recentFile() : m_path);
     reload();
+}
+
+bool FolderModel::fits(const QStringList &filter, const Entry &entry) {
+    if (filter.isEmpty() || entry.isDir)
+        return true;
+    // From the path: in search results the name is the path from where the
+    // search started.
+    const QString name = entry.path.section('/', -1);
+    const QMimeType type = QMimeDatabase().mimeTypeForName(entry.mime);
+    for (const QString &pattern : filter) {
+        if (!pattern.contains('/')) {
+            if (QDir::match(QStringList{pattern}, name))
+                return true;
+        } else if (pattern == "*/*") {
+            return true;
+        } else if (pattern.endsWith("/*")) {
+            const QString group = pattern.chopped(1);
+            if (entry.mime.startsWith(group))
+                return true;
+            for (const QString &parent : type.allAncestors())
+                if (parent.startsWith(group))
+                    return true;
+        } else if (type.inherits(pattern)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QString FolderModel::kindForMime(const QString &mime) {
@@ -266,6 +331,28 @@ QVector<FolderModel::Entry> FolderModel::list(const QString &path, bool showHidd
     return entries;
 }
 
+bool FolderModel::isTrash(const QString &path) {
+    return path == QDir::cleanPath(FileOps::homeTrash() + "/files");
+}
+
+QVector<FolderModel::Entry> FolderModel::listTrash(const QStringList &trashDirs, const QString &query, bool showHidden,
+                                                   const QString &sort, const std::function<bool()> &stop,
+                                                   int limit, const QLocale &locale, const QStringList &filter) {
+    // A search's limit is for every trash together, and a listing left
+    // behind stops before it reads another drive.
+    QVector<Entry> entries;
+    for (const QString &dir : trashDirs) {
+        if (stop && stop())
+            return {};
+        if (!query.isEmpty() && entries.size() >= limit)
+            break;
+        entries += query.isEmpty() ? list(dir + "/files", showHidden, sort, nullptr, stop, locale)
+                                   : search(dir + "/files", query, showHidden, sort, stop, limit - entries.size(), locale, filter);
+    }
+    sortEntries(entries, sort, locale);
+    return entries;
+}
+
 FolderModel::Entry FolderModel::entryFor(const QFileInfo &info, const QMimeDatabase &mimes) {
     Entry e;
     e.name = info.fileName();
@@ -282,7 +369,7 @@ FolderModel::Entry FolderModel::entryFor(const QFileInfo &info, const QMimeDatab
 
 QVector<FolderModel::Entry> FolderModel::search(const QString &root, const QString &query, bool showHidden,
                                                 const QString &sort, const std::function<bool()> &stop,
-                                                int limit, const QLocale &locale) {
+                                                int limit, const QLocale &locale, const QStringList &filter) {
     QVector<Entry> entries;
     struct stat top;
     if (::stat(QFile::encodeName(root).constData(), &top) != 0)
@@ -305,7 +392,9 @@ QVector<FolderModel::Entry> FolderModel::search(const QString &root, const QStri
             if (info.fileName().contains(query, Qt::CaseInsensitive) && entries.size() < limit) {
                 Entry e = entryFor(info, mimes);
                 e.name = base.relativeFilePath(e.path);
-                entries.push_back(e);
+                // Only what fits a file chooser's filter uses up the limit.
+                if (fits(filter, e))
+                    entries.push_back(e);
             }
             // Other filesystems (a mounted drive, another machine, /proc
             // from /) and symlinked folders aren't walked into.
@@ -431,10 +520,13 @@ void FolderModel::summarize(Entry &entry, bool showHidden) {
     }
 }
 
-int FolderModel::itemCount(const QString &folder, bool showHidden) {
+int FolderModel::itemCount(const QString &folder, bool showHidden, const std::function<bool()> &stop) {
     int count = 0;
-    for (QDirIterator it(folder, entryFilters(showHidden)); it.hasNext(); it.next())
+    for (QDirIterator it(folder, entryFilters(showHidden)); it.hasNext(); it.next()) {
+        if (stop && stop())
+            return -1;
         ++count;
+    }
     return count;
 }
 
@@ -450,15 +542,16 @@ void FolderModel::reload() {
     const QString query = m_query;
     const QLocale locale;
     const QVariantList items = m_items;
+    const QStringList filter = m_filter;
     *m_latest = generation;
     const auto latest = m_latest;
-    auto *watcher = new QFutureWatcher<QPair<QVector<Entry>, QString>>(this);
+    auto *watcher = new QFutureWatcher<std::tuple<QVector<Entry>, QString, QStringList>>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation] {
         watcher->deleteLater();
         if (generation != m_generation)
             return; // A newer listing replaced this one while it ran.
         m_staleClear.stop();
-        const auto [entries, error] = watcher->result();
+        const auto [entries, error, trashDirs] = watcher->result();
         // Unchanged (the usual case after showing a remembered listing):
         // leave the items alone, and only fill in folder counts still missing.
         const bool same = error == m_error && !m_entries.isEmpty() && sameListing(m_entries, entries);
@@ -474,6 +567,10 @@ void FolderModel::reload() {
                 emit selectionChanged();
             }
         }
+        // Every drive's trash is watched while the trash is shown, as the home one is.
+        for (const QString &dir : trashDirs.mid(1))
+            if (!m_watcher.directories().contains(dir + "/files"))
+                m_watcher.addPath(dir + "/files");
         setError(error);
         setLoading(false);
         emit loaded();
@@ -481,13 +578,19 @@ void FolderModel::reload() {
             remember();
         countFolders(generation);
     });
-    watcher->setFuture(QtConcurrent::run([path, showHidden, sort, query, items, latest, generation, locale] {
+    watcher->setFuture(QtConcurrent::run(&FolderModel::listingPool(), [path, showHidden, sort, query, items, filter, latest, generation, locale] {
         QString error;
         const auto overtaken = [&] { return *latest != generation; };
+        // Finding the drives' trash looks over every mount, so it's done here,
+        // off the window's thread.
+        const QStringList trashDirs = isTrash(path) ? FileOps::trashDirs() : QStringList();
         auto entries = isPluginView(path) ? listItems(items, query)
+                     : isTrash(path) ? listTrash(trashDirs, query, showHidden, sort, overtaken, 1000, locale, filter)
                      : query.isEmpty() || path == recentPath() ? list(path, showHidden, sort, &error, overtaken, locale)
-                     : search(path, query, showHidden, sort, overtaken, 1000, locale);
-        return qMakePair(entries, error);
+                     : search(path, query, showHidden, sort, overtaken, 1000, locale, filter);
+        if (!isPluginView(path))
+            entries.removeIf([&](const Entry &entry) { return !fits(filter, entry); });
+        return std::make_tuple(entries, error, trashDirs);
     }));
 }
 
@@ -527,10 +630,11 @@ void FolderModel::countFolders(quint64 generation) {
     watcher->setFuture(QtConcurrent::run([folders, showHidden, latest, generation]() mutable {
         // Overtaken (another folder, or a re-read), the counts would be
         // thrown away, so it stops instead of listing every subfolder.
+        const auto overtaken = [&] { return *latest != generation; };
         for (auto &folder : folders) {
-            if (*latest != generation)
+            if (overtaken())
                 break;
-            folder.second.itemCount = itemCount(folder.second.path, showHidden);
+            folder.second.itemCount = itemCount(folder.second.path, showHidden, overtaken);
         }
         return folders;
     }));

@@ -63,6 +63,8 @@ GridView {
     // on Excalibur's Qt 6.8 a mouse drag flicks the view, as 6.8 always did.
     Component.onCompleted: if (grid.acceptedButtons !== undefined) grid.acceptedButtons = Qt.NoButton
     boundsBehavior: Flickable.StopAtBounds
+    // No cache buffer, as in FileListView.
+    cacheBuffer: 0
     model: backend.folder
     // Tiles grow with the zoom; the name and details under them don't. A
     // narrow pane (one side of a split) caps it at a tile its width holds.

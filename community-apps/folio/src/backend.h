@@ -32,6 +32,9 @@ class Backend : public QObject {
     // picture's dimensions, a text's opening lines, or a trashed item's
     // origin and deletion time; and under `plugins`, plugins' rows about a
     // file or folder, [[label, value]...].
+    // Changes whenever an order is chosen, for what shows other folders
+    // than the one shown (the columns) to look their orders up again.
+    Q_PROPERTY(int sortsRevision READ sortsRevision NOTIFY sortsChanged)
     Q_PROPERTY(QVariantMap details READ details NOTIFY detailsChanged)
 
 public:
@@ -42,10 +45,24 @@ public:
     void setPlugins(Plugins *plugins);
 
     FolderModel *folder() { return &m_folder; }
+    // The order each folder was last put in, kept in Folio's settings: a
+    // folder without one of its own takes its nearest parent's, so sorting
+    // ~/Downloads by date sorts the folders inside it the same way.
+    // Tests keep theirs in a file of their own.
+    static QString sortFor(const QString &path);
+    static void rememberSort(const QString &path, const QString &sort);
+    static void setSettingsFile(const QString &file) { s_settingsFile = file; }
+    // The order chosen for the folder shown, from the sort menu or S:
+    // remembered even when it's the one already in use, which can free
+    // the folder to follow its parent again.
+    Q_INVOKABLE void chooseSort(const QString &sort);
+    // Each column of the columns view in its own folder's order.
+    Q_INVOKABLE QString sortOf(const QString &path) const { return sortFor(path); }
     Mounter *mounter() { return &m_mounter; }
     QString path() const { return m_folder.path(); }
     QString title() const;
     QVariantList crumbs() const;
+    int sortsRevision() const { return m_sortsRevision; }
     bool canBack() const { return m_index > 0; }
     bool canForward() const { return m_index + 1 < m_history.size(); }
     QString message() const { return m_message; }
@@ -70,7 +87,10 @@ public:
     // seconds in the accent, unlike problems, which wait to be dismissed.
     Q_INVOKABLE void showNotice(const QString &notice);
     // Selects `name` the next time the folder loads (after file work).
-    Q_INVOKABLE void expectSelection(const QString &name) { m_pendingSelection = name; }
+    Q_INVOKABLE void expectSelection(const QString &name) {
+        m_pendingSelection = name;
+        m_leftBehind = false;
+    }
     QVariantMap details() const;
     Q_INVOKABLE void describe(const QVariantMap &item, bool inTrash = false);
     // The system's own name for a type ("JPEG image"), in the language of
@@ -79,6 +99,9 @@ public:
     // The item to select once the folder has loaded (where we came from, or
     // what "Show in folder" asked for); empty means the first item.
     Q_INVOKABLE QString takeSelection();
+    // Whether that item is the folder just left, going up or back, rather
+    // than one picked to be shown.
+    Q_INVOKABLE bool leftBehind() const { return m_leftBehind; }
     // The path as it's shown for editing (~ for home), going to a typed
     // path (a folder, or a file to select in its folder; ~ works; or a
     // server's address, connecting to it), and completing the last part of
@@ -91,6 +114,10 @@ public:
     Q_INVOKABLE void togglePreview(const QString &path);
     // Ctrl+N: another window, on the folder this one shows.
     Q_INVOKABLE void newWindow();
+    // In a file chooser, opening a file picks it (chosen) rather than opening
+    // it in its app, and there are no other windows to open.
+    void setChoosing(bool choosing) { m_choosing = choosing; }
+    bool choosing() const { return m_choosing; }
     // Keeps an open preview on the item selected in the grid.
     Q_INVOKABLE void followSelection(const QString &path);
     // Omarchy's Super+Return opens a terminal in the focused window's working
@@ -102,7 +129,7 @@ public:
     // Called for org.freedesktop.FileManager1: open a folder, or open the
     // folder holding a file and select it.
     void showFolder(const QString &path);
-    void showItem(const QString &path);
+    Q_INVOKABLE void showItem(const QString &path);
 
     static QString expandTyped(const QString &text, const QString &home, const QString &current);
     static QString complete(const QString &text, const QString &home, const QString &current);
@@ -112,6 +139,7 @@ public:
     static QString serverAddress(const QString &text);
 
 signals:
+    void sortsChanged();
     void pathChanged();
     void placeChanged();
     void messageChanged();
@@ -120,6 +148,7 @@ signals:
     void previewingChanged();
     void detailsChanged();
     void newWindowRequested(const QString &path);
+    void chosen(const QString &path);
     void selectRequested(const QString &name);
     void activateRequested();
 
@@ -160,6 +189,10 @@ private:
     QTimer m_noticeTimer;
     QString m_busy;
     QString m_pendingSelection;
+    bool m_leftBehind = false;
+    static QString s_settingsFile;
+    int m_sortsRevision = 0;
+    bool m_choosing = false;
     Plugins *m_plugins = nullptr;
     Mounter m_mounter;
     // What's being connected to, as the window names it, and whether it's

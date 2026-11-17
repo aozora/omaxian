@@ -10,7 +10,9 @@
 #include <QGuiApplication>
 #include <QImageReader>
 #include <QMimeDatabase>
+#include <QLockFile>
 #include <QPointer>
+#include <QSettings>
 #include <QStorageInfo>
 #include <QUrl>
 #include <QtConcurrent>
@@ -144,6 +146,84 @@ QVariantList Backend::crumbs() const {
     return crumbs;
 }
 
+QString Backend::s_settingsFile;
+
+namespace {
+QSettings sortSettings(const QString &file) {
+    return file.isEmpty() ? QSettings() : QSettings(file, QSettings::IniFormat);
+}
+
+// The folders with an order of their own, by path.
+QHash<QString, QString> readSorts(QSettings &settings) {
+    QHash<QString, QString> sorts;
+    const int count = settings.beginReadArray("sorts");
+    for (int i = 0; i < count; ++i) {
+        settings.setArrayIndex(i);
+        sorts.insert(settings.value("path").toString(), settings.value("sort").toString());
+    }
+    settings.endArray();
+    return sorts;
+}
+
+// What `path` takes from the folders above it. Views (Recents, plugins')
+// have nothing above them.
+QString inherited(const QHash<QString, QString> &sorts, QString path) {
+    if (FolderModel::isView(path) || !path.startsWith('/'))
+        return "name";
+    while (path != "/") {
+        path = QFileInfo(path).path();
+        if (sorts.contains(path))
+            return sorts.value(path);
+    }
+    return "name";
+}
+}
+
+QString Backend::sortFor(const QString &path) {
+    QSettings settings = sortSettings(s_settingsFile);
+    const auto sorts = readSorts(settings);
+    return sorts.contains(path) ? sorts.value(path) : inherited(sorts, path);
+}
+
+void Backend::rememberSort(const QString &path, const QString &sort) {
+    QSettings settings = sortSettings(s_settingsFile);
+    // The list is read and rewritten whole: another Folio (a file chooser,
+    // say) doing the same at once would otherwise undo this one's choice.
+    QLockFile lock(settings.fileName() + ".sorts.lock");
+    if (!lock.lock())
+        return;
+    settings.sync();
+    auto sorts = readSorts(settings);
+    // An order the folder would take anyway is left to its parent, so
+    // changing the parent's later changes it too.
+    if (sort == inherited(sorts, path))
+        sorts.remove(path);
+    else
+        sorts.insert(path, sort);
+    QStringList paths = sorts.keys();
+    paths.sort();
+    // Rewritten whole, so a shorter list leaves none of the old entries.
+    settings.remove("sorts");
+    settings.beginWriteArray("sorts", paths.size());
+    for (int i = 0; i < paths.size(); ++i) {
+        settings.setArrayIndex(i);
+        settings.setValue("path", paths[i]);
+        settings.setValue("sort", sorts.value(paths[i]));
+    }
+    settings.endArray();
+    settings.sync();
+}
+
+void Backend::chooseSort(const QString &sort) {
+    if (!FolderModel::sortModes().contains(sort))
+        return;
+    m_folder.setSortMode(sort);
+    if (!path().isEmpty())
+        rememberSort(path(), sort);
+    ++m_sortsRevision;
+    emit sortsChanged();
+}
+
 void Backend::navigate(const QString &path) {
     go(path, true);
 }
@@ -172,7 +252,7 @@ bool Backend::go(const QString &path, bool record) {
         m_history << clean;
         m_index = m_history.size() - 1;
     }
-    m_folder.setPath(clean);
+    m_folder.setPath(clean, sortFor(clean));
     if (s_working == this)
         moveWorkingDirectory();
     emit pathChanged();
@@ -201,6 +281,10 @@ void Backend::open(const QString &path) {
         navigate(path);
         return;
     }
+    if (m_choosing) {
+        emit chosen(path);
+        return;
+    }
     // The desktop's default app for the type, or for the nearest type it
     // belongs to.
     if (const QString problem = FileOps::openInDefaultApp(path); !problem.isEmpty())
@@ -218,6 +302,7 @@ void Backend::goUp() {
     // Arriving back in the parent keeps the folder we came from selected, so
     // going up and down again is one keystroke each way.
     m_pendingSelection = QFileInfo(path()).fileName();
+    m_leftBehind = true;
     navigate(parent);
 }
 
@@ -227,11 +312,14 @@ void Backend::back() {
     if (!canBack())
         return;
     const QString pending = m_pendingSelection;
+    const bool leftBehind = m_leftBehind;
     m_pendingSelection = QFileInfo(path()).fileName();
+    m_leftBehind = true;
     --m_index;
     if (!go(m_history.at(m_index), false)) {
         ++m_index;
         m_pendingSelection = pending;
+        m_leftBehind = leftBehind;
     }
 }
 
@@ -392,13 +480,11 @@ void Backend::describe(const QVariantMap &item, bool inTrash) {
     });
     // Stepping through files faster than they're read queues readings; the
     // ones overtaken before they start are skipped rather than left to tie
-    // up the threads the next folder is listed on.
+    // up the global pool's threads.
     watcher->setFuture(QtConcurrent::run([path, kind, inTrash, latest = m_describing, generation] {
         QVariantMap read;
         if (*latest != generation)
             return read;
-        // A trashed item's note: finding it looks over every mounted drive,
-        // and one that's hung would hold up the window.
         if (inTrash) {
             read.insert("origin", FileOps::originalPath(path));
             read.insert("deleted", FileOps::deletedAt(path));
@@ -552,6 +638,8 @@ QString Backend::completePath(const QString &text) const {
 }
 
 void Backend::newWindow() {
+    if (m_choosing)
+        return;
     emit newWindowRequested(FolderModel::isView(path()) ? m_home : path());
 }
 
@@ -588,6 +676,7 @@ void Backend::showFolder(const QString &path) {
 void Backend::showItem(const QString &path) {
     const QFileInfo info(path);
     m_pendingSelection = info.fileName();
+    m_leftBehind = false;
     const QString parent = info.absolutePath();
     if (parent == this->path()) {
         emit selectRequested(m_pendingSelection);

@@ -16,6 +16,8 @@ BIN_DIR="$PREFIX/bin"
 APP_DIR="$PREFIX/share/applications"
 ICON_DIR="$PREFIX/share/icons/hicolor/scalable/apps"
 PLUGIN_DIR="$PREFIX/share/folio/plugins"
+PORTAL_DIR="$PREFIX/share/xdg-desktop-portal/portals"
+DBUS_DIR="$PREFIX/share/dbus-1/services"
 NAME="folio"
 
 SKIP_APT=0
@@ -230,7 +232,7 @@ install_plugins() {
 }
 
 install_files() {
-  mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR"
+  mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR" "$PORTAL_DIR" "$DBUS_DIR"
   install_plugins
   if needs_qml_wrapper; then
     mkdir -p "$PREFIX/libexec"
@@ -255,10 +257,20 @@ EOF
       echo "  install a package matching libqt6core, or place QtCore under ~/.local/lib/qt6/qml/" >&2
     fi
   fi
-  install -m 0644 "$ROOT/pkgbuild/$NAME.svg" "$ICON_DIR/$NAME.svg"
+  # Desktop / icon / chooser come from upstream share/ (pkgbuild/ mirrors the pair).
+  install -m 0644 "$ROOT/share/$NAME.svg" "$ICON_DIR/$NAME.svg"
   sed -e "s|^Exec=$NAME|Exec=$BIN_DIR/$NAME|" \
-    "$ROOT/pkgbuild/$NAME.desktop" > "$APP_DIR/$NAME.desktop"
+    "$ROOT/share/$NAME.desktop" > "$APP_DIR/$NAME.desktop"
   chmod 0644 "$APP_DIR/$NAME.desktop"
+  sed -e "s|^Exec=$NAME|Exec=$BIN_DIR/$NAME|" \
+    "$ROOT/share/folio-chooser.desktop" > "$APP_DIR/folio-chooser.desktop"
+  chmod 0644 "$APP_DIR/folio-chooser.desktop"
+  # xdg-desktop-portal FileChooser (optional; enable in portals.conf — see README).
+  install -m 0644 "$ROOT/share/folio.portal" "$PORTAL_DIR/folio.portal"
+  sed -e "s|^Exec=/usr/bin/folio|Exec=$BIN_DIR/$NAME|" \
+    "$ROOT/share/org.freedesktop.impl.portal.desktop.folio.service" \
+    > "$DBUS_DIR/org.freedesktop.impl.portal.desktop.folio.service"
+  chmod 0644 "$DBUS_DIR/org.freedesktop.impl.portal.desktop.folio.service"
   if command -v update-desktop-database >/dev/null; then
     update-desktop-database "$APP_DIR" >/dev/null 2>&1 || true
   fi
@@ -290,6 +302,9 @@ cat <<EOF
 Installed:
   binary   $BIN_DIR/$NAME
   desktop  $APP_DIR/$NAME.desktop
+  chooser  $APP_DIR/folio-chooser.desktop
+  portal   $PORTAL_DIR/folio.portal
+  dbus     $DBUS_DIR/org.freedesktop.impl.portal.desktop.folio.service
   icon     $ICON_DIR/$NAME.svg
   plugins  $PLUGIN_DIR
 
@@ -299,5 +314,9 @@ Open Folio from the launcher, or:
 
 Default folder handler (optional):
   xdg-mime default folio.desktop inode/directory
+
+Open/Save dialogs (optional): set FileChooser=folio in
+  ~/.config/xdg-desktop-portal/portals.conf
+then restart xdg-desktop-portal (see README).
 
 EOF

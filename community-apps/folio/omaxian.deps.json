@@ -40,6 +40,7 @@
     "Space preview needs qml6-module-qtmultimedia and qml6-module-qtquick-pdf; without them Folio still browses files.",
     "Hyprland corner rounding is skipped when HYPRLAND_INSTANCE_SIGNATURE is unset.",
     "Optional: xdg-mime default folio.desktop inode/directory so omarchy-launch-files opens Folio.",
+    "Optional Open/Save: set org.freedesktop.impl.portal.FileChooser=folio in ~/.config/xdg-desktop-portal/portals.conf, then restart xdg-desktop-portal.",
     "If apt cannot match libqt6core for QML modules, place them under ~/.local/lib/qt6/qml/ — install.sh wraps the binary."
   ]
 }

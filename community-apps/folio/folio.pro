@@ -8,6 +8,7 @@ TEMPLATE = app
 
 HEADERS += \
     src/backend.h \
+    src/chooser.h \
     src/disks.h \
     src/filemanager1.h \
     src/fileops.h \
@@ -23,6 +24,7 @@ HEADERS += \
 
 SOURCES += \
     src/backend.cpp \
+    src/chooser.cpp \
     src/disks.cpp \
     src/filemanager1.cpp \
     src/fileops.cpp \
