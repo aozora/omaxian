@@ -12,8 +12,11 @@ Popup {
     focus: true
     padding: 16
     Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.55) }
-    // Focused as it starts to show rather than once its animation ends, so a
-    // quick Ctrl+G 1 2 Enter lands every key in the field.
+    // There and gone at once: Plain animates nothing.
+    enter: Transition {}
+    exit: Transition {}
+    // Focused as it starts to show, so a quick Ctrl+G 1 2 Enter lands every
+    // key in the field.
     onAboutToShow: {
         field.text = ""
         field.placeholder = qsTr("1 to %1").arg(editing.lineCount())
@@ -35,9 +38,16 @@ Popup {
         }
     }
 
+    // Read as the validator reads it: in the language's own digits and
+    // grouping, so 1,000 is line 1000, not 1.
     function go() {
-        const line = parseInt(field.text)
-        if (line > 0) {
+        let line = NaN
+        try {
+            line = Number.fromLocaleString(Qt.locale(), field.text)
+        } catch (error) {
+            return
+        }
+        if (Number.isInteger(line) && line > 0) {
             close()
             accepted(line)
         }

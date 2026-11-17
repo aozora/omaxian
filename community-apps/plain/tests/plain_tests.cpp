@@ -2,11 +2,22 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonDocument>
+#include <QElapsedTimer>
 #include <QJsonObject>
+#include <QDBusConnection>
+#include <QDBusConnectionInterface>
+#include <QSemaphore>
+#include <QThread>
+#include <QLocalServer>
+#include <QLocalSocket>
 #include <QMap>
 #include <QQmlComponent>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
+#include <QQuickStyle>
+#include <QQuickView>
 #include <QQuickTextDocument>
 #include <QRegularExpression>
 #include <QSet>
@@ -20,11 +31,14 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <signal.h>
 #include <unistd.h>
 
 #include "arguments.h"
 #include "document.h"
 #include "editing.h"
+#include "filetree.h"
+#include "launcher.h"
 #include "portalfilepicker.h"
 #include "highlighter.h"
 #include "theme.h"
@@ -33,6 +47,15 @@
 namespace {
 
 // The folder of the app's sources, where its catalogs live.
+// Delete as a keyboard sends it: with the DEL character as its text,
+// which QTest::keyClick leaves out.
+void pressDelete(QWindow *window) {
+    for (QEvent::Type type : {QEvent::KeyPress, QEvent::KeyRelease}) {
+        QKeyEvent event(type, Qt::Key_Delete, Qt::NoModifier, QString(QChar(0x7f)));
+        QGuiApplication::sendEvent(window, &event);
+    }
+}
+
 QString sourceFolder() {
     return QFileInfo(QFINDTESTDATA("../src/main.cpp")).absolutePath();
 }
@@ -243,6 +266,9 @@ class PlainTests : public QObject {
     Q_OBJECT
 
 private slots:
+    // Before any QML loads, as Plain itself does.
+    void initTestCase() { QQuickStyle::setStyle("Material"); }
+
     // Decoding.
 
     void decodesLfAndCrlf()
@@ -270,6 +296,9 @@ private slots:
         QVERIFY(!Document::decode("caf\xE9\n").ok);           // Latin-1, not UTF-8
         QVERIFY(!Document::decode("a\rb\n").ok);              // lone CR
         QVERIFY(!Document::decode("a\xEF\xB7\xAF" "b").ok);   // U+FDEF, U+2029's stand-in
+        // U+FDD0 and U+FDD1, which Qt's text document saves as line breaks.
+        QVERIFY(!Document::decode("a\xEF\xB7\x90" "b\n").ok);
+        QVERIFY(!Document::decode("a\xEF\xB7\x91" "b\n").ok);
         QVERIFY(Document::decode("").ok);
         // A sequence cut off at the end, which a stateful decoder holds back
         // without an error, so saving would drop it.
@@ -856,6 +885,979 @@ private slots:
         QVERIFY(!Arguments::parse({"plain", "a", "b"}).error.isEmpty());
         QVERIFY(!Arguments::parse({"plain", "--wait", "a"}).error.isEmpty());
         QVERIFY(Arguments::parse({"plain"}).path.isEmpty());
+        // After --, even a name that looks like a URL is a filename.
+        QCOMPARE(Arguments::parse({"plain", "--", "a://b"}).path, QString("a://b"));
+        QVERIFY(Arguments::parse({"plain", "--", "a://b"}).error.isEmpty());
+    }
+
+    // The sidebar's files.
+
+    void listsFoldersFirstWithoutDotfiles()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("b-folder/inner");
+        QDir(dir.path()).mkpath("A-folder");
+        QDir(dir.path()).mkpath(".git");
+        write(dir.filePath("z.conf"), "");
+        write(dir.filePath("a.lua"), "");
+        write(dir.filePath("file10.toml"), "");
+        write(dir.filePath("file9.toml"), "");
+        write(dir.filePath(".hidden"), "");
+        write(dir.filePath("b-folder/inside.conf"), "");
+
+        FileTree tree;
+        tree.setRoot(dir.path());
+        QCOMPARE(names(tree), QStringList({"A-folder", "b-folder", "a.lua", "file9.toml", "file10.toml", "z.conf"}));
+        QVERIFY(tree.isFolder(1));
+        QVERIFY(!tree.isFolder(2));
+        QCOMPARE(tree.data(tree.index(0), FileTree::DepthRole).toInt(), 0);
+    }
+
+    void showsHiddenFilesOnAskingOrInsideAHiddenFolder()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("home/.config/hypr");
+        write(dir.filePath("home/.bashrc"), "");
+        write(dir.filePath("home/notes.md"), "");
+        write(dir.filePath("home/.config/hypr/.backup"), "");
+        write(dir.filePath("home/.config/hypr/hyprland.lua"), "");
+
+        FileTree tree;
+        tree.setRoot(dir.filePath("home"));
+        QVERIFY(!tree.showHidden());
+        QCOMPARE(names(tree), QStringList({"notes.md"}));
+        tree.setShowHidden(true);
+        QCOMPARE(names(tree), QStringList({".config", ".bashrc", "notes.md"}));
+        QVERIFY(tree.data(tree.index(0), FileTree::HiddenRole).toBool());
+        QVERIFY(!tree.data(tree.index(2), FileTree::HiddenRole).toBool());
+
+        // Started inside a hidden folder, everything shows.
+        tree.setRoot(dir.filePath("home/.config/hypr"));
+        QVERIFY(tree.showHidden());
+        QCOMPARE(names(tree), QStringList({".backup", "hyprland.lua"}));
+        tree.setRoot(dir.filePath("home"));
+        QVERIFY(!tree.showHidden());
+    }
+
+    void foldsFoldersOpenAndClosed()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("hypr/scripts");
+        write(dir.filePath("hypr/bindings.lua"), "");
+        write(dir.filePath("hypr/scripts/run.sh"), "");
+        write(dir.filePath("top.conf"), "");
+
+        FileTree tree;
+        tree.setRoot(dir.path());
+        QCOMPARE(names(tree), QStringList({"hypr", "top.conf"}));
+
+        tree.expand(0);
+        QCOMPARE(names(tree), QStringList({"hypr", "scripts", "bindings.lua", "top.conf"}));
+        QCOMPARE(tree.data(tree.index(2), FileTree::DepthRole).toInt(), 1);
+        QCOMPARE(tree.parentOf(2), 0);
+        QCOMPARE(tree.parentOf(0), -1);
+
+        tree.expand(1);
+        QCOMPARE(names(tree), QStringList({"hypr", "scripts", "run.sh", "bindings.lua", "top.conf"}));
+
+        // Closing a folder closes those inside it, too.
+        tree.toggle(0);
+        QCOMPARE(names(tree), QStringList({"hypr", "top.conf"}));
+        tree.toggle(0);
+        QCOMPARE(names(tree), QStringList({"hypr", "scripts", "bindings.lua", "top.conf"}));
+    }
+
+    void revealsAFileUnderTheRoot()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("a/b");
+        write(dir.filePath("a/b/deep.conf"), "");
+
+        FileTree tree;
+        tree.setRoot(dir.path());
+        const int row = tree.reveal(dir.filePath("a/b/deep.conf"));
+        QCOMPARE(row, 2);
+        QCOMPARE(tree.pathAt(row), QDir::cleanPath(dir.filePath("a/b/deep.conf")));
+        QCOMPARE(tree.reveal("/etc/hosts"), -1);
+        QCOMPARE(tree.reveal(dir.filePath("a/missing.conf")), -1);
+    }
+
+    void findsNamesByTheirStart()
+    {
+        QTemporaryDir dir;
+        for (const char *name : {"autostart.lua", "bindings.lua", "Bluetooth.conf", "input.lua"})
+            write(dir.filePath(name), "");
+        FileTree tree;
+        tree.setRoot(dir.path());
+        QCOMPARE(tree.find("b", 0), 1);
+        QCOMPARE(tree.find("b", 2), 2);
+        // Around past the end, and in any case.
+        QCOMPARE(tree.find("B", 3), 1);
+        QCOMPARE(tree.find("blu", 0), 2);
+        QCOMPARE(tree.find("z", 0), -1);
+    }
+
+    void followsTheFolderOnDisk()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("sub");
+        write(dir.filePath("one.conf"), "");
+
+        FileTree tree;
+        tree.setRoot(dir.path());
+        tree.expand(0);
+        QCOMPARE(names(tree), QStringList({"sub", "one.conf"}));
+
+        write(dir.filePath("sub/new.conf"), "");
+        QTRY_COMPARE(names(tree), QStringList({"sub", "new.conf", "one.conf"}));
+        QFile::remove(dir.filePath("one.conf"));
+        QTRY_COMPARE(names(tree), QStringList({"sub", "new.conf"}));
+    }
+
+    void deletesToTheTrash()
+    {
+        // The trash lives under XDG_DATA_HOME; a temporary one keeps the
+        // test out of the user's.
+        QTemporaryDir dir;
+        const QByteArray dataHome = qgetenv("XDG_DATA_HOME");
+        qputenv("XDG_DATA_HOME", QFile::encodeName(dir.filePath("data")));
+        QDir(dir.path()).mkpath("data");
+        QDir(dir.path()).mkpath("root/folder");
+        write(dir.filePath("root/a.conf"), "a\n");
+        write(dir.filePath("root/folder/b.conf"), "b\n");
+
+        FileTree tree;
+        tree.setRoot(dir.filePath("root"));
+        QCOMPARE(names(tree), QStringList({"folder", "a.conf"}));
+        QCOMPARE(tree.trash(dir.filePath("root/a.conf")), QString());
+        QVERIFY(!QFileInfo::exists(dir.filePath("root/a.conf")));
+        QCOMPARE(read(dir.filePath("data/Trash/files/a.conf")), QByteArray("a\n"));
+        QCOMPARE(names(tree), QStringList({"folder"}));
+
+        // A folder goes whole.
+        QCOMPARE(tree.trash(dir.filePath("root/folder")), QString());
+        QVERIFY(QFileInfo::exists(dir.filePath("data/Trash/files/folder/b.conf")));
+        QCOMPARE(tree.rowCount(), 0);
+        QVERIFY(!tree.trash(dir.filePath("root/folder")).isEmpty());
+        // Nothing outside the tree, and never the top folder itself.
+        write(dir.filePath("outside.conf"), "");
+        QVERIFY(!tree.trash(dir.filePath("outside.conf")).isEmpty());
+        QVERIFY(!tree.trash(dir.filePath("root")).isEmpty());
+        QVERIFY(QFileInfo::exists(dir.filePath("outside.conf")));
+
+        if (dataHome.isNull())
+            qunsetenv("XDG_DATA_HOME");
+        else
+            qputenv("XDG_DATA_HOME", dataHome);
+    }
+
+    void movesIntoFolders()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("a/inner");
+        QDir(dir.path()).mkpath("b");
+        write(dir.filePath("x.conf"), "x\n");
+        write(dir.filePath("b/x.conf"), "other\n");
+        write(dir.filePath("y.conf"), "y\n");
+
+        FileTree tree;
+        tree.setRoot(dir.path());
+        QCOMPARE(names(tree), QStringList({"a", "b", "x.conf", "y.conf"}));
+
+        // Into a folder, which opens to show it.
+        QCOMPARE(tree.move(dir.filePath("y.conf"), dir.filePath("a")).value("path").toString(), QDir::cleanPath(dir.filePath("a/y.conf")));
+        QCOMPARE(read(dir.filePath("a/y.conf")), QByteArray("y\n"));
+        QCOMPARE(names(tree), QStringList({"a", "inner", "y.conf", "b", "x.conf"}));
+
+        // Never over something with the same name, or a folder into itself.
+        QVERIFY(tree.move(dir.filePath("x.conf"), dir.filePath("b")).contains("error"));
+        QCOMPARE(read(dir.filePath("x.conf")), QByteArray("x\n"));
+        QVERIFY(tree.move(dir.filePath("a"), dir.filePath("a/inner")).contains("error"));
+        QVERIFY(tree.move(dir.filePath("a"), dir.filePath("a")).contains("error"));
+
+        // A whole folder moves, staying open.
+        QCOMPARE(tree.move(dir.filePath("a"), dir.filePath("b")).value("path").toString(), QDir::cleanPath(dir.filePath("b/a")));
+        QVERIFY(QFileInfo::exists(dir.filePath("b/a/y.conf")));
+        QCOMPARE(names(tree), QStringList({"b", "a", "inner", "y.conf", "x.conf", "x.conf"}));
+    }
+
+    void createsFilesAndFolders()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("conf");
+        write(dir.filePath("conf/a.conf"), "a\n");
+        write(dir.filePath("top.lua"), "");
+
+        FileTree tree;
+        tree.setRoot(dir.path());
+        tree.expand(0);
+        QCOMPARE(names(tree), QStringList({"conf", "a.conf", "top.lua"}));
+        // Into a folder, beside a file, or at the top with no row.
+        const QString conf = QDir::cleanPath(dir.filePath("conf"));
+        QCOMPARE(tree.folderAt(0), conf);
+        QCOMPARE(tree.folderAt(1), conf);
+        QCOMPARE(tree.folderAt(2), QDir::cleanPath(dir.path()));
+        QCOMPARE(tree.folderAt(-1), QDir::cleanPath(dir.path()));
+
+        // Never over what's there, and only a plain name.
+        QVERIFY(tree.create(conf, "a.conf", false).contains("error"));
+        QCOMPARE(read(dir.filePath("conf/a.conf")), QByteArray("a\n"));
+        QVERIFY(tree.create(conf, "", false).contains("error"));
+        QVERIFY(tree.create(conf, "x/y", false).contains("error"));
+        QVERIFY(tree.create(conf, "..", true).contains("error"));
+
+        QCOMPARE(tree.create(conf, "new.conf", false).value("path").toString(), conf + "/new.conf");
+        QVERIFY(QFileInfo(dir.filePath("conf/new.conf")).isFile());
+        QCOMPARE(tree.create(conf, "sub", true).value("path").toString(), conf + "/sub");
+        QVERIFY(QFileInfo(dir.filePath("conf/sub")).isDir());
+        QCOMPARE(names(tree), QStringList({"conf", "sub", "a.conf", "new.conf", "top.lua"}));
+    }
+
+    void renamesAndDuplicates()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("conf/inner");
+        write(dir.filePath("conf/a.conf"), "a\n");
+        write(dir.filePath("conf/inner/x.lua"), "x\n");
+        write(dir.filePath("b.lua"), "b\n");
+        write(dir.filePath(".zshrc"), "z\n");
+
+        FileTree tree;
+        tree.setRoot(dir.path());
+        tree.expand(0);
+        tree.expand(1);
+        QCOMPARE(names(tree), QStringList({"conf", "inner", "x.lua", "a.conf", "b.lua"}));
+
+        // A folder keeps its open folders under the new name.
+        const QString conf = QDir::cleanPath(dir.filePath("conf"));
+        QCOMPARE(tree.rename(conf, "configs").value("path").toString(), QDir::cleanPath(dir.filePath("configs")));
+        QCOMPARE(names(tree), QStringList({"configs", "inner", "x.lua", "a.conf", "b.lua"}));
+        // Never over another, and only a plain name.
+        QVERIFY(tree.rename(dir.filePath("b.lua"), "configs").contains("error"));
+        QVERIFY(tree.rename(dir.filePath("b.lua"), "x/y").contains("error"));
+        QCOMPARE(tree.rename(dir.filePath("b.lua"), "b.lua").value("path").toString(), QDir::cleanPath(dir.filePath("b.lua")));
+
+        // Copies beside it, numbered past the first.
+        QCOMPARE(tree.duplicate(dir.filePath("b.lua")).value("path").toString(), QDir::cleanPath(dir.filePath("b copy.lua")));
+        QCOMPARE(tree.duplicate(dir.filePath("b.lua")).value("path").toString(), QDir::cleanPath(dir.filePath("b copy 2.lua")));
+        QCOMPARE(read(dir.filePath("b copy 2.lua")), QByteArray("b\n"));
+        QCOMPARE(tree.duplicate(dir.filePath(".zshrc")).value("path").toString(), QDir::cleanPath(dir.filePath(".zshrc copy")));
+        // A folder whole.
+        QCOMPARE(tree.duplicate(dir.filePath("configs")).value("path").toString(), QDir::cleanPath(dir.filePath("configs copy")));
+        QCOMPARE(read(dir.filePath("configs copy/inner/x.lua")), QByteArray("x\n"));
+        QCOMPARE(read(dir.filePath("configs/inner/x.lua")), QByteArray("x\n"));
+        QVERIFY(tree.duplicate(dir.filePath("missing")).contains("error"));
+    }
+
+    // A link duplicates as a copy of its file, so editing the copy can't
+    // change the original.
+    void duplicatesALinksFileNotTheLink()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("root");
+        write(dir.filePath("real.lua"), "real\n");
+        QVERIFY(QFile::link(dir.filePath("real.lua"), dir.filePath("root/linked.lua")));
+        QVERIFY(QFile::link(dir.filePath("gone.lua"), dir.filePath("root/dangling.lua")));
+        FileTree tree;
+        tree.setRoot(dir.filePath("root"));
+        const QString copy = tree.duplicate(dir.filePath("root/linked.lua")).value("path").toString();
+        QCOMPARE(copy, QDir::cleanPath(dir.filePath("root/linked copy.lua")));
+        QVERIFY(!QFileInfo(copy).isSymLink());
+        QCOMPARE(read(copy), QByteArray("real\n"));
+        QVERIFY(tree.duplicate(dir.filePath("root/dangling.lua")).contains("error"));
+        // A link to a folder the copy would land in can't copy itself.
+        QVERIFY(QFile::link(dir.filePath("root"), dir.filePath("root/up")));
+        QVERIFY(tree.duplicate(dir.filePath("root/up")).contains("error"));
+        QVERIFY(!QFileInfo::exists(dir.filePath("root/up copy")));
+    }
+
+    // Another file never brings the last one's edits back with Ctrl+Z, even
+    // when its text is the same.
+    void openingAnotherFileForgetsTheUndoHistory()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nTextEdit { textFormat: TextEdit.PlainText }", {});
+        std::unique_ptr<QQuickItem> edit(qobject_cast<QQuickItem *>(component.create()));
+        QVERIFY(edit);
+        QTemporaryDir dir;
+        write(dir.filePath("a.conf"), "a");
+        write(dir.filePath("b.lua"), "xa");
+        Document doc;
+        doc.attach(edit.get());
+        QVERIFY(doc.open(dir.filePath("a.conf")));
+        QTextDocument *text = edit->property("textDocument").value<QQuickTextDocument *>()->textDocument();
+        QTextCursor cursor(text);
+        cursor.insertText("x");
+        QCOMPARE(text->toPlainText(), QString("xa"));
+        QVERIFY(doc.open(dir.filePath("b.lua")));
+        QVERIFY(!text->isUndoAvailable());
+        undo(edit.get());
+        QCOMPARE(text->toPlainText(), QString("xa"));
+        QCOMPARE(doc.commentPrefix(), QString("--"));
+    }
+
+    // Escape on "deleted on disk" lets the file go as the banner's close
+    // does: the next save recreates it.
+    void dismissingADeletedFileLetsItGo()
+    {
+        QTemporaryDir dir;
+        write(dir.filePath("x.conf"), "x\n");
+        QTextDocument text;
+        Document doc;
+        doc.attachDocument(&text);
+        QVERIFY(doc.open(dir.filePath("x.conf")));
+        QFile::remove(dir.filePath("x.conf"));
+        QTRY_COMPARE(doc.problem(), QString("DeletedOnDisk"));
+        doc.dismissProblem();
+        QCOMPARE(doc.problem(), QString("None"));
+        append(&text, "y\n");
+        QVERIFY(doc.save());
+        QCOMPARE(read(dir.filePath("x.conf")), QByteArray("x\ny\n"));
+    }
+
+    void followsAMovedFile()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("into");
+        write(dir.filePath("x.lua"), "-- x\n");
+        QTextDocument text;
+        Document doc;
+        doc.attachDocument(&text);
+        QVERIFY(doc.open(dir.filePath("x.lua")));
+        append(&text, "edit\n");
+
+        QVERIFY(QDir().rename(dir.filePath("x.lua"), dir.filePath("into/x.lua")));
+        doc.relocate(dir.filePath("x.lua"), dir.filePath("into/x.lua"));
+        QCOMPARE(doc.path(), dir.filePath("into/x.lua"));
+        QVERIFY(doc.modified());
+        QCOMPARE(doc.commentPrefix(), QString("--"));
+
+        // A new extension, a new language.
+        QVERIFY(QDir().rename(dir.filePath("into/x.lua"), dir.filePath("into/x.conf")));
+        doc.relocate(dir.filePath("into/x.lua"), dir.filePath("into/x.conf"));
+        QCOMPARE(doc.commentPrefix(), QString("#"));
+        QVERIFY(QDir().rename(dir.filePath("into/x.conf"), dir.filePath("into/x.lua")));
+        doc.relocate(dir.filePath("into/x.conf"), dir.filePath("into/x.lua"));
+        QVERIFY(doc.save());
+        QCOMPARE(read(dir.filePath("into/x.lua")), QByteArray("-- x\nedit\n"));
+        QVERIFY(!QFileInfo::exists(dir.filePath("x.lua")));
+    }
+
+    // The sidebar itself, offscreen: a row dragged onto a folder moves into
+    // it, and the open file follows with its edits.
+    void dragsFilesIntoFolders()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("root/folder");
+        write(dir.filePath("root/a.conf"), "a\n");
+        write(dir.filePath("root/b.conf"), "b\n");
+        write(dir.filePath("Harness.qml"),
+              "import QtQuick\nimport \"file://" + QFile::encodeName(sourceFolder()) + "\"\n"
+              "Item { id: win; width: 300; height: 400\n"
+              "  function tint(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }\n"
+              "  Sidebar { objectName: \"sidebar\"; anchors.fill: parent } }\n");
+
+        Theme theme(dir.path());
+        FileTree tree;
+        tree.setRoot(dir.filePath("root"));
+        QTextDocument text;
+        Document doc;
+        doc.attachDocument(&text);
+        QVERIFY(doc.open(dir.filePath("root/a.conf")));
+        append(&text, "edit\n");
+
+        QQuickView view;
+        view.engine()->rootContext()->setContextProperty("theme", &theme);
+        view.engine()->rootContext()->setContextProperty("doc", &doc);
+        view.engine()->rootContext()->setContextProperty("files", &tree);
+        view.setSource(QUrl::fromLocalFile(dir.filePath("Harness.qml")));
+        QVERIFY2(view.status() == QQuickView::Ready, qPrintable(view.errors().isEmpty() ? QString() : view.errors().first().toString()));
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        QCOMPARE(names(tree), QStringList({"folder", "a.conf", "b.conf"}));
+
+        // Rows start 13px down, each twice the text size high.
+        const int rowHeight = qRound(theme.textSize() * 2.0);
+        auto centerOf = [&](int row) { return QPoint(60, 13 + row * rowHeight + rowHeight / 2); };
+        QTest::mousePress(&view, Qt::LeftButton, {}, centerOf(1));
+        for (int step = 1; step <= 10; ++step) {
+            const QPoint at = centerOf(1) + (centerOf(0) - centerOf(1)) * step / 10;
+            QMouseEvent move(QEvent::MouseMove, at, view.mapToGlobal(at), Qt::NoButton, Qt::LeftButton, {});
+            QGuiApplication::sendEvent(&view, &move);
+            QTest::qWait(10);
+            // Another program adds a file mid-drag: the list refreshes
+            // under it, and the drag carries on.
+            if (step == 5) {
+                write(dir.filePath("root/z.conf"), "");
+                QTRY_COMPARE(names(tree), QStringList({"folder", "a.conf", "b.conf", "z.conf"}));
+            }
+        }
+        QTest::mouseRelease(&view, Qt::LeftButton, {}, centerOf(0));
+
+        QTRY_VERIFY(QFileInfo::exists(dir.filePath("root/folder/a.conf")));
+        QVERIFY(!QFileInfo::exists(dir.filePath("root/a.conf")));
+        QCOMPARE(doc.path(), dir.filePath("root/folder/a.conf"));
+        QVERIFY(doc.modified());
+        QCOMPARE(names(tree), QStringList({"folder", "a.conf", "b.conf", "z.conf"}));
+        QCOMPARE(tree.pathAt(1), QDir::cleanPath(dir.filePath("root/folder/a.conf")));
+    }
+
+    // The sidebar's keys, offscreen: typing jumps, and Delete asks.
+    void sidebarKeys()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("root");
+        for (const char *name : {"autostart.lua", "bindings.lua", "bluetooth.conf", "input.lua"})
+            write(dir.filePath(QString("root/") + name), "");
+        write(dir.filePath("Harness.qml"),
+              "import QtQuick\nimport \"file://" + QFile::encodeName(sourceFolder()) + "\"\n"
+              "Item { id: win; width: 300; height: 400; property string asked\n"
+              "  function tint(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }\n"
+              "  Sidebar { id: bar; objectName: \"sidebar\"; anchors.fill: parent\n"
+              "    onDeleteRequested: function(path) { win.asked = path } }\n"
+              "  Component.onCompleted: bar.focusTree() }\n");
+
+        Theme theme(dir.path());
+        FileTree tree;
+        tree.setRoot(dir.filePath("root"));
+        QTextDocument text;
+        Document doc;
+        doc.attachDocument(&text);
+
+        QQuickView view;
+        view.engine()->rootContext()->setContextProperty("theme", &theme);
+        view.engine()->rootContext()->setContextProperty("doc", &doc);
+        view.engine()->rootContext()->setContextProperty("files", &tree);
+        view.setSource(QUrl::fromLocalFile(dir.filePath("Harness.qml")));
+        QVERIFY(view.status() == QQuickView::Ready);
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        QObject *sidebar = view.rootObject()->findChild<QObject *>("sidebar");
+        QVERIFY(sidebar);
+        QTRY_VERIFY(sidebar->property("treeFocused").toBool());
+
+        // The same letter again steps to the next name it starts.
+        QTest::keyClick(&view, Qt::Key_B);
+        QCOMPARE(sidebar->property("currentPath").toString(), QDir::cleanPath(dir.filePath("root/bindings.lua")));
+        QTest::keyClick(&view, Qt::Key_B);
+        QCOMPARE(sidebar->property("currentPath").toString(), QDir::cleanPath(dir.filePath("root/bluetooth.conf")));
+        QTest::qWait(900);
+        QTest::keyClick(&view, Qt::Key_I);
+        QTRY_COMPARE(sidebar->property("currentPath").toString(), QDir::cleanPath(dir.filePath("root/input.lua")));
+        pressDelete(&view);
+        QCOMPARE(view.rootObject()->property("asked").toString(), QDir::cleanPath(dir.filePath("root/input.lua")));
+        QVERIFY(QFileInfo::exists(dir.filePath("root/input.lua")));
+    }
+
+    // A moved relative link points somewhere else: Save asks rather than
+    // writing to that other file.
+    void aMovedLinkStillAsksBeforeSaving()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("into");
+        write(dir.filePath("real.conf"), "same\n");
+        write(dir.filePath("into/real.conf"), "same\n");
+        QVERIFY(QFile::link("real.conf", dir.filePath("link.conf")));
+        QTextDocument text;
+        Document doc;
+        doc.attachDocument(&text);
+        QVERIFY(doc.open(dir.filePath("link.conf")));
+        append(&text, "edit\n");
+
+        QVERIFY(QDir().rename(dir.filePath("link.conf"), dir.filePath("into/link.conf")));
+        doc.relocate(dir.filePath("link.conf"), dir.filePath("into/link.conf"));
+        QVERIFY(!doc.save());
+        QCOMPARE(doc.problem(), QString("Retargeted"));
+        QCOMPARE(read(dir.filePath("into/real.conf")), QByteArray("same\n"));
+        QCOMPARE(read(dir.filePath("real.conf")), QByteArray("same\n"));
+    }
+
+    // A folder moved with both a link and its file in it: still the same
+    // file, so Save writes it without asking.
+    void aLinkMovedWithItsFileStillSaves()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("configs");
+        QDir(dir.path()).mkpath("into");
+        write(dir.filePath("configs/real.conf"), "a\n");
+        QVERIFY(QFile::link("real.conf", dir.filePath("configs/link.conf")));
+        QTextDocument text;
+        Document doc;
+        doc.attachDocument(&text);
+        QVERIFY(doc.open(dir.filePath("configs/link.conf")));
+        append(&text, "b\n");
+
+        QVERIFY(QDir().rename(dir.filePath("configs"), dir.filePath("into/configs")));
+        doc.relocate(dir.filePath("configs"), dir.filePath("into/configs"));
+        QCOMPARE(doc.path(), dir.filePath("into/configs/link.conf"));
+        QVERIFY2(doc.save(), qPrintable(doc.problem()));
+        QCOMPARE(read(dir.filePath("into/configs/real.conf")), QByteArray("a\nb\n"));
+        QVERIFY(QFileInfo(dir.filePath("into/configs/link.conf")).isSymLink());
+    }
+
+    void revealsUnderTheRootFolder()
+    {
+        FileTree tree;
+        tree.setRoot("/");
+        QVERIFY(tree.reveal("/etc/hostname") >= 0 || !QFileInfo::exists("/etc/hostname"));
+        QVERIFY(tree.indexOf("/etc") >= 0);
+        QCOMPARE(tree.folderAt(tree.indexOf("/etc")), QString("/etc"));
+    }
+
+    // The whole window, offscreen, as main.cpp sets it up: the flows across
+    // the editor, the sidebar and the dialogs.
+
+    void openingAFolderShowsItsFilesWithTheKeysInThem()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("", "root"));
+        QVERIFY(plain.window->property("sidebarVisible").toBool());
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        QVERIFY(plain.item("pickAFile")->property("visible").toBool());
+    }
+
+    void ctrlBAndCtrlTabMoveTheKeys()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("root/b.conf", ""));
+        QVERIFY(!plain.window->property("sidebarVisible").toBool());
+
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QVERIFY(plain.window->property("sidebarVisible").toBool());
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        // On the open file.
+        QCOMPARE(plain.sidebar()->property("currentPath").toString(), plain.path("root/b.conf"));
+        QVERIFY(!plain.item("pickAFile")->property("visible").toBool());
+
+        plain.key(Qt::Key_Tab, Qt::ControlModifier);
+        QTRY_VERIFY(!plain.sidebar()->property("treeFocused").toBool());
+        QVERIFY(plain.editorFocused());
+        plain.key(Qt::Key_Tab, Qt::ControlModifier);
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QVERIFY(!plain.window->property("sidebarVisible").toBool());
+        QTRY_VERIFY(plain.editorFocused());
+        // Without the files, Ctrl+Tab leaves the keys where they are.
+        plain.key(Qt::Key_Tab, Qt::ControlModifier);
+        QVERIFY(!plain.window->property("sidebarVisible").toBool());
+        QVERIFY(plain.editorFocused());
+    }
+
+    // Opening another file from the files asks about unsaved changes
+    // first, and the question has the keys.
+    void openingFromTheFilesAsksAboutUnsavedChanges()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("root/b.conf", ""));
+        plain.type("x");
+        QVERIFY(plain.doc.modified());
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        plain.key(Qt::Key_A);
+        plain.key(Qt::Key_Return);
+        QTRY_VERIFY(plain.item("unsaved")->property("opened").toBool());
+        // Enter saves.
+        plain.key(Qt::Key_Return);
+        QTRY_COMPARE(plain.doc.path(), plain.path("root/a.conf"));
+        QCOMPARE(read(plain.path("root/b.conf")), QByteArray("xb\n"));
+        QTRY_VERIFY(plain.editorFocused());
+    }
+
+    // Ctrl+H: hidden files in the files, find and replace in the text.
+    void ctrlHDependsOnWhereTheKeysAre()
+    {
+        PlainWindow plain;
+        write(plain.path("root/.hidden"), "");
+        QVERIFY(plain.load("root/b.conf", ""));
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        QVERIFY(!plain.files.showHidden());
+        plain.key(Qt::Key_H, Qt::ControlModifier);
+        QVERIFY(plain.files.showHidden());
+        QVERIFY(plain.files.indexOf(plain.path("root/.hidden")) >= 0);
+        QVERIFY(!plain.item("findBar")->property("visible").toBool());
+
+        plain.key(Qt::Key_Tab, Qt::ControlModifier);
+        QTRY_VERIFY(plain.editorFocused());
+        plain.key(Qt::Key_H, Qt::ControlModifier);
+        QVERIFY(plain.files.showHidden());
+        QTRY_VERIFY(plain.item("findBar")->property("visible").toBool());
+    }
+
+    // F2 renames, and the open file follows with its edits.
+    void f2RenamesAndTheOpenFileFollows()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("root/b.conf", ""));
+        plain.type("x");
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        plain.key(Qt::Key_F2);
+        QTRY_VERIFY(plain.item("namePrompt")->property("opened").toBool());
+        // Typing replaces the name before the extension.
+        plain.type("c");
+        plain.key(Qt::Key_Return);
+        QTRY_COMPARE(plain.doc.path(), plain.path("root/c.conf"));
+        QVERIFY(!QFileInfo::exists(plain.path("root/b.conf")));
+        QVERIFY(plain.doc.modified());
+        plain.key(Qt::Key_S, Qt::ControlModifier);
+        QTRY_COMPARE(read(plain.path("root/c.conf")), QByteArray("xb\n"));
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+    }
+
+    // Alt+Enter opens the row's menu: Rename, Duplicate, Delete.
+    void altEnterOpensTheRowMenu()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("", "root"));
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        plain.key(Qt::Key_A);
+        plain.key(Qt::Key_Return, Qt::AltModifier);
+        QTRY_VERIFY(plain.item("rowMenu")->property("opened").toBool());
+        // Rename is already picked; Down to Duplicate.
+        QCOMPARE(plain.item("rowMenu")->property("currentIndex").toInt(), 0);
+        plain.key(Qt::Key_Down);
+        plain.key(Qt::Key_Return);
+        QTRY_VERIFY(QFileInfo::exists(plain.path("root/a copy.conf")));
+        QTRY_VERIFY(!plain.item("rowMenu")->property("opened").toBool());
+        QTRY_COMPARE(plain.sidebar()->property("currentPath").toString(), plain.path("root/a copy.conf"));
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+    }
+
+    // Ctrl+F and Ctrl+H open the find bar in their mode, switch it, or
+    // close it when it's already what's open.
+    void ctrlFAndCtrlHToggleTheFindBar()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("root/b.conf", ""));
+        QObject *bar = plain.item("findBar");
+        plain.key(Qt::Key_F, Qt::ControlModifier);
+        QVERIFY(bar->property("visible").toBool());
+        QVERIFY(!bar->property("replacing").toBool());
+        plain.key(Qt::Key_F, Qt::ControlModifier);
+        QVERIFY(!bar->property("visible").toBool());
+        QTRY_VERIFY(plain.editorFocused());
+
+        plain.key(Qt::Key_H, Qt::ControlModifier);
+        QVERIFY(bar->property("visible").toBool());
+        QVERIFY(bar->property("replacing").toBool());
+        // Ctrl+F from replace narrows to find; Ctrl+H again widens.
+        plain.key(Qt::Key_F, Qt::ControlModifier);
+        QVERIFY(bar->property("visible").toBool());
+        QVERIFY(!bar->property("replacing").toBool());
+        plain.key(Qt::Key_H, Qt::ControlModifier);
+        QVERIFY(bar->property("replacing").toBool());
+        plain.key(Qt::Key_H, Qt::ControlModifier);
+        QVERIFY(!bar->property("visible").toBool());
+        QTRY_VERIFY(plain.editorFocused());
+    }
+
+    // Page Up and Page Down, in the text and in the files.
+    void pageUpAndDownMoveAScreenful()
+    {
+        PlainWindow plain;
+        QByteArray lines;
+        for (int i = 1; i <= 400; ++i)
+            lines += "line " + QByteArray::number(i) + "\n";
+        write(plain.path("root/long.conf"), lines);
+        for (int i = 0; i < 60; ++i)
+            write(plain.path(QString("root/file%1.conf").arg(i, 2, 10, QChar('0'))), "");
+        QVERIFY(plain.load("root/long.conf", ""));
+        QObject *editor = plain.item("editorView");
+        QCOMPARE(editor->property("currentLine").toInt(), 1);
+
+        plain.key(Qt::Key_PageDown);
+        const int afterOne = editor->property("currentLine").toInt();
+        QVERIFY2(afterOne > 10, qPrintable(QString::number(afterOne)));
+        plain.key(Qt::Key_PageDown);
+        QVERIFY(editor->property("currentLine").toInt() > afterOne);
+        QVERIFY(editor->property("firstLine").toInt() > 1);
+        plain.key(Qt::Key_PageUp);
+        QCOMPARE(editor->property("currentLine").toInt(), afterOne);
+        plain.key(Qt::Key_PageUp);
+        QCOMPARE(editor->property("currentLine").toInt(), 1);
+        QVERIFY(!plain.doc.modified());
+
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        // Laid out a frame after it shows.
+        QTRY_VERIFY(plain.item("fileList")->property("height").toReal() > 200);
+        plain.key(Qt::Key_Home);
+        const QString top = plain.sidebar()->property("currentPath").toString();
+        plain.key(Qt::Key_PageDown);
+        const QString paged = plain.sidebar()->property("currentPath").toString();
+        QVERIFY(paged != top);
+        QVERIFY(plain.files.indexOf(paged) > 5);
+        plain.key(Qt::Key_PageUp);
+        QCOMPARE(plain.sidebar()->property("currentPath").toString(), top);
+    }
+
+    // The line numbers are a fixed set, re-used as the text scrolls, rather
+    // than rebuilt whenever the count of lines on screen changes.
+    void lineNumbersAreReusedWhileScrolling()
+    {
+        PlainWindow plain;
+        QByteArray lines;
+        for (int i = 0; i < 400; ++i)
+            lines += i % 3 ? "short\n" : QByteArray(400, 'w') + "\n";
+        write(plain.path("root/long.conf"), lines);
+        QVERIFY(plain.load("root/long.conf", ""));
+        QObject *numbers = plain.item("lineNumbers");
+        QObject *editor = plain.item("editorView");
+        const int count = numbers->property("count").toInt();
+        QVERIFY(count > 5);
+        QSignalSpy rebuilt(numbers, SIGNAL(countChanged()));
+        for (int i = 0; i < 6; ++i) {
+            plain.key(Qt::Key_PageDown);
+            // The first number is the first line on screen.
+            QQuickItem *first = nullptr;
+            QVERIFY(QMetaObject::invokeMethod(numbers, "itemAt", Q_RETURN_ARG(QQuickItem *, first), Q_ARG(int, 0)));
+            QCOMPARE(first->property("text").toString(), QString::number(editor->property("firstLine").toInt()));
+        }
+        QCOMPARE(rebuilt.count(), 0);
+        QCOMPARE(numbers->property("count").toInt(), count);
+        QVERIFY(editor->property("firstLine").toInt() > 1);
+    }
+
+    // Paging keeps its column across a short line, and its place on screen.
+    void pagingKeepsItsColumnAndPlace()
+    {
+        PlainWindow plain;
+        // Every line but the first empty, so a page always lands on one.
+        QByteArray lines = "0123456789\n" + QByteArray(300, '\n');
+        write(plain.path("root/long.conf"), lines);
+        QVERIFY(plain.load("root/long.conf", ""));
+        QObject *editor = plain.item("editorView");
+        auto *area = qobject_cast<QQuickItem *>(editor->property("area").value<QObject *>());
+        for (int i = 0; i < 8; ++i)
+            plain.key(Qt::Key_Right);
+        QCOMPARE(area->property("cursorPosition").toInt(), 8);
+
+        // Down twice, then up twice: back to the same column, wherever the
+        // pages landed on the way.
+        QObject *flick = plain.item("editorFlick");
+        auto onScreen = [&] { return area->property("cursorRectangle").toRectF().y() - flick->property("contentY").toReal(); };
+        plain.key(Qt::Key_PageDown);
+        const int line = editor->property("currentLine").toInt();
+        const qreal place = onScreen();
+        // The cursor keeps its place on screen, page after page.
+        for (int i = 0; i < 3; ++i) {
+            plain.key(Qt::Key_PageDown);
+            QCOMPARE(onScreen(), place);
+        }
+        QVERIFY(editor->property("currentLine").toInt() > line);
+        plain.key(Qt::Key_PageUp);
+        plain.key(Qt::Key_PageUp);
+        plain.key(Qt::Key_PageUp);
+        plain.key(Qt::Key_PageUp);
+        QCOMPARE(area->property("cursorPosition").toInt(), 8);
+    }
+
+    // F3 and Shift+F3 step through matches.
+    void f3FindsTheNextMatch()
+    {
+        PlainWindow plain;
+        write(plain.path("root/m.conf"), "x one x two x\n");
+        QVERIFY(plain.load("root/m.conf", ""));
+        auto *area = qobject_cast<QQuickItem *>(plain.item("editorView")->property("area").value<QObject *>());
+        plain.key(Qt::Key_F, Qt::ControlModifier);
+        plain.type("x");
+        plain.key(Qt::Key_Escape);
+        QTRY_VERIFY(plain.editorFocused());
+        area->setProperty("cursorPosition", 0);
+        plain.key(Qt::Key_F3);
+        QCOMPARE(area->property("selectionStart").toInt(), 0);
+        plain.key(Qt::Key_F3);
+        QCOMPARE(area->property("selectionStart").toInt(), 6);
+        plain.key(Qt::Key_F3, Qt::ShiftModifier);
+        QCOMPARE(area->property("selectionStart").toInt(), 0);
+    }
+
+    // A change in a shown folder, like saving the open file, keeps the
+    // files where they were scrolled to.
+    void savingKeepsTheFilesScrolled()
+    {
+        PlainWindow plain;
+        for (int i = 0; i < 80; ++i)
+            write(plain.path(QString("root/f%1.conf").arg(i, 2, 10, QChar('0'))), "");
+        QVERIFY(plain.load("root/f79.conf", ""));
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QTRY_VERIFY(plain.item("fileList")->property("height").toReal() > 200);
+        QObject *list = plain.item("fileList");
+        // Scrolled down to the open file, the last of 82 rows.
+        auto top = [&] { return list->property("originY").toReal() - list->property("topMargin").toReal(); };
+        QTRY_VERIFY(list->property("contentY").toReal() > top() + 500);
+        const qreal scrolled = list->property("contentY").toReal();
+        plain.key(Qt::Key_Tab, Qt::ControlModifier);
+        plain.type("x");
+        plain.key(Qt::Key_S, Qt::ControlModifier);
+        QTRY_COMPARE(read(plain.path("root/f79.conf")), QByteArray("x"));
+        // Past the watcher's pause, the rows refresh in place.
+        QTest::qWait(400);
+        QCOMPARE(list->property("contentY").toReal(), scrolled);
+        QCOMPARE(plain.sidebar()->property("currentPath").toString(), plain.path("root/f79.conf"));
+    }
+
+    // A reload from disk doesn't reopen folders or move the keys.
+    void aReloadLeavesTheFilesAlone()
+    {
+        PlainWindow plain;
+        QDir(plain.path("root")).mkpath("sub");
+        write(plain.path("root/sub/c.conf"), "c\n");
+        // Opened from the files, a folder up: sub, a.conf, b.conf.
+        QVERIFY(plain.load("", "root"));
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        plain.key(Qt::Key_Right);
+        plain.key(Qt::Key_Down);
+        plain.key(Qt::Key_Return);
+        QTRY_COMPARE(plain.doc.path(), plain.path("root/sub/c.conf"));
+        const int sub = plain.files.indexOf(plain.path("root/sub"));
+        QVERIFY(plain.files.isExpanded(sub));
+        plain.key(Qt::Key_Tab, Qt::ControlModifier);
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        plain.key(Qt::Key_Left);
+        plain.key(Qt::Key_Left);
+        QVERIFY(!plain.files.isExpanded(sub));
+        replace(plain.path("root/sub/c.conf"), "changed\n");
+        QTRY_COMPARE(plain.doc.textDocument()->toPlainText(), QString("changed\n"));
+        QTest::qWait(300);
+        QVERIFY(!plain.files.isExpanded(plain.files.indexOf(plain.path("root/sub"))));
+        QCOMPARE(plain.sidebar()->property("currentPath").toString(), plain.path("root/sub"));
+    }
+
+    // The shortcuts take the keys while they show: typing changes nothing.
+    void theShortcutsTakeTheKeys()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("root/b.conf", ""));
+        plain.key(Qt::Key_F1);
+        QVERIFY(plain.item("help")->property("visible").toBool());
+        plain.type("q");
+        plain.key(Qt::Key_PageDown);
+        QVERIFY(!plain.doc.modified());
+        plain.key(Qt::Key_F1);
+        QVERIFY(!plain.item("help")->property("visible").toBool());
+        QTRY_VERIFY(plain.editorFocused());
+
+        // A shortcut that takes the keys elsewhere closes it, rather than
+        // leaving it up with typing reaching the text behind.
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        plain.key(Qt::Key_F1);
+        QVERIFY(plain.item("help")->property("visible").toBool());
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QTRY_VERIFY(plain.editorFocused());
+        QVERIFY(!plain.item("help")->property("visible").toBool());
+        plain.type("q");
+        QVERIFY(plain.doc.modified());
+    }
+
+    // Go to line reads numbers as the language writes them.
+    void goToLineReadsGroupedNumbers()
+    {
+        PlainWindow plain;
+        write(plain.path("root/long.conf"), QByteArray(1200, '\n'));
+        QVERIFY(plain.load("root/long.conf", ""));
+        plain.key(Qt::Key_G, Qt::ControlModifier);
+        plain.type("1,000");
+        plain.key(Qt::Key_Return);
+        QTRY_COMPARE(plain.item("editorView")->property("currentLine").toInt(), 1000);
+    }
+
+    // Cancelling the unsaved question gives the keys back to the files when
+    // a file was picked there.
+    void cancellingTheUnsavedQuestionGoesBack()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("root/b.conf", ""));
+        plain.type("x");
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        plain.key(Qt::Key_A);
+        plain.key(Qt::Key_Return);
+        QTRY_VERIFY(plain.item("unsaved")->property("opened").toBool());
+        plain.key(Qt::Key_Escape);
+        QTRY_VERIFY(!plain.item("unsaved")->property("opened").toBool());
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        QCOMPARE(plain.doc.path(), plain.path("root/b.conf"));
+    }
+
+    void anUntitledDocumentNeverAsksForAFile()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("", ""));
+        plain.key(Qt::Key_B, Qt::ControlModifier);
+        QVERIFY(plain.window->property("sidebarVisible").toBool());
+        QVERIFY(!plain.item("pickAFile")->property("visible").toBool());
+    }
+
+    void deleteAsksThenMovesToTheTrash()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("", "root"));
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        plain.key(Qt::Key_A);
+        QCOMPARE(plain.sidebar()->property("currentPath").toString(), plain.path("root/a.conf"));
+        pressDelete(plain.window);
+        QTRY_VERIFY(plain.item("deleteConfirm")->property("opened").toBool());
+        QVERIFY(QFileInfo::exists(plain.path("root/a.conf")));
+        plain.key(Qt::Key_Return);
+        QTRY_VERIFY(!QFileInfo::exists(plain.path("root/a.conf")));
+        QVERIFY(QFileInfo::exists(plain.path("data/Trash/files/a.conf")));
+
+        // Escape keeps it.
+        plain.key(Qt::Key_B);
+        pressDelete(plain.window);
+        QTRY_VERIFY(plain.item("deleteConfirm")->property("opened").toBool());
+        plain.key(Qt::Key_Escape);
+        QTRY_VERIFY(!plain.item("deleteConfirm")->property("opened").toBool());
+        QVERIFY(QFileInfo::exists(plain.path("root/b.conf")));
+    }
+
+    void ctrlNNamesANewFileAndOpensIt()
+    {
+        PlainWindow plain;
+        QVERIFY(plain.load("", "root"));
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+        plain.key(Qt::Key_N, Qt::ControlModifier);
+        QTRY_VERIFY(plain.item("namePrompt")->property("opened").toBool());
+        plain.type("new.conf");
+        plain.key(Qt::Key_Return);
+        QTRY_COMPARE(plain.doc.path(), plain.path("root/new.conf"));
+        QVERIFY(QFileInfo(plain.path("root/new.conf")).isFile());
+        QTRY_VERIFY(plain.editorFocused());
+
+        // And a folder, which the keys go to.
+        plain.key(Qt::Key_N, Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(plain.item("namePrompt")->property("opened").toBool());
+        plain.type("themes");
+        plain.key(Qt::Key_Return);
+        QTRY_VERIFY(QFileInfo(plain.path("root/themes")).isDir());
+        QTRY_COMPARE(plain.sidebar()->property("currentPath").toString(), plain.path("root/themes"));
+        QTRY_VERIFY(plain.sidebar()->property("treeFocused").toBool());
+    }
+
+    void closesToAnEmptyDocument()
+    {
+        QTemporaryDir dir;
+        write(dir.filePath("x.lua"), "-- x\n");
+        QTextDocument text;
+        Document doc;
+        doc.attachDocument(&text);
+        QVERIFY(doc.open(dir.filePath("x.lua")));
+        append(&text, "more\n");
+        QVERIFY(doc.modified());
+
+        QSignalSpy changed(&doc, &Document::fileChanged);
+        doc.close();
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(doc.path().isEmpty());
+        QVERIFY(text.toPlainText().isEmpty());
+        QVERIFY(!doc.modified());
+        QVERIFY(doc.editable());
+        QCOMPARE(doc.problem(), QString("None"));
     }
 
     // Languages and highlighting.
@@ -971,6 +1973,29 @@ private slots:
         undo();
         QCOMPARE(text(), QString("a = 1\n    b = 2\n"));
 
+        // In CSS, a line that only opens with an inline comment isn't
+        // commented: it's wrapped whole, and unwrapped back.
+        {
+            const QString css = dir.filePath("t.css");
+            write(css, "/* bar */ .bar { color: red; }\n");
+            QVERIFY(doc.open(css));
+            editing.toggleComment(0, 0);
+            // The */ inside is escaped, so the whole line is one comment.
+            QCOMPARE(text(), QString("/* /* bar *\\/ .bar { color: red; } */\n"));
+            const QString commented = text().trimmed();
+            QCOMPARE(Highlighter::tokens("css", {commented}), QString(commented.size(), 'c'));
+            editing.toggleComment(0, 0);
+            QCOMPARE(text(), QString("/* bar */ .bar { color: red; }\n"));
+            // A *\/ that was already there comes back as it was.
+            write(css, ".x::after { content: \"*\\/ and */\"; }\n");
+            QVERIFY(doc.open(css));
+            editing.toggleComment(0, 0);
+            QCOMPARE(Highlighter::tokens("css", {text().trimmed()}), QString(text().trimmed().size(), 'c'));
+            editing.toggleComment(0, 0);
+            QCOMPARE(text(), QString(".x::after { content: \"*\\/ and */\"; }\n"));
+            QVERIFY(doc.open(path));
+        }
+
         // Enter keeps the indentation.
         const int end = text().indexOf("2") + 1;
         QCOMPARE(editing.newline(end, end), end + 5);
@@ -989,6 +2014,57 @@ private slots:
     }
 
     // QML calls these from Ctrl+O and Ctrl+S; plain C++ methods it can't.
+    // A portal that owns its name but never answers can't freeze Plain:
+    // asking it, and asking again, return at once.
+    void aHungPortalDoesntFreeze()
+    {
+        if (QStandardPaths::findExecutable("dbus-daemon").isEmpty())
+            QSKIP("needs dbus-daemon for a private bus");
+        QProcess daemon;
+        daemon.start("dbus-daemon", {"--session", "--print-address", "--nofork"});
+        QVERIFY(daemon.waitForReadyRead(5000));
+        const QString address = QString::fromUtf8(daemon.readLine()).trimmed();
+        QDBusConnection bus = QDBusConnection::connectToBus(address, "plain-test");
+        QVERIFY(bus.isConnected());
+
+        // A copy of this test program takes the portal's name, then is
+        // stopped outright, so nothing on its side answers anything.
+        QProcess portal;
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        environment.insert("PLAIN_HUNG_PORTAL_BUS", address);
+        portal.setProcessEnvironment(environment);
+        portal.start(QCoreApplication::applicationFilePath(), {"hungPortal"});
+        QTRY_VERIFY_WITH_TIMEOUT(bus.interface()->isServiceRegistered("org.freedesktop.portal.Desktop"), 10000);
+        ::kill(portal.processId(), SIGSTOP);
+
+        PortalFilePicker picker(nullptr, bus);
+        QElapsedTimer clock;
+        clock.start();
+        picker.openFile(QDir::tempPath());
+        QVERIFY2(clock.elapsed() < 1000, qPrintable(QString::number(clock.elapsed())));
+        // Asking again replaces the stuck request, promptly too.
+        clock.restart();
+        picker.saveFile(QDir::tempPath() + "/x.conf");
+        QVERIFY2(clock.elapsed() < 1000, qPrintable(QString::number(clock.elapsed())));
+
+        portal.kill();
+        portal.waitForFinished();
+        QDBusConnection::disconnectFromBus("plain-test");
+        daemon.kill();
+        daemon.waitForFinished();
+    }
+
+    // The portal aHungPortalDoesntFreeze stops: run only as its helper.
+    void hungPortal()
+    {
+        const QString address = qEnvironmentVariable("PLAIN_HUNG_PORTAL_BUS");
+        if (address.isEmpty())
+            QSKIP("the hung portal's helper, run by aHungPortalDoesntFreeze");
+        QDBusConnection portal = QDBusConnection::connectToBus(address, "hung-portal");
+        QVERIFY(portal.registerService("org.freedesktop.portal.Desktop"));
+        QThread::sleep(60);
+    }
+
     void filePickerIsCallableFromQml()
     {
         QVERIFY(PortalFilePicker::staticMetaObject.indexOfMethod("openFile(QString)") >= 0);
@@ -1003,6 +2079,63 @@ private slots:
         Theme theme(dir.path());
         QCOMPARE(theme.accent(), QColor("#FFD60A"));
         QCOMPARE(theme.textSize(), 12);
+    }
+
+    // Rounding follows Hyprland: asked at start and on each config reload
+    // Hyprland announces, never on a timer.
+    void themeFollowsHyprlandRounding()
+    {
+        QTemporaryDir dir;
+        write(dir.filePath("rounding"), "4");
+        write(dir.filePath("hyprctl"), "#!/bin/sh\necho \"{\\\"int\\\": $(cat '" + QFile::encodeName(dir.filePath("rounding")) + "')}\"\n");
+        QFile::setPermissions(dir.filePath("hyprctl"), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        QLocalServer hyprland;
+        QVERIFY(hyprland.listen(dir.filePath("events.sock")));
+
+        // The theme's folder apart from the fakes: a theme change asks too.
+        QDir(dir.path()).mkpath("state");
+        Theme theme(dir.filePath("state"), nullptr, dir.filePath("hyprctl"), dir.filePath("events.sock"));
+        QTRY_COMPARE(theme.radius(), 4);
+        QTRY_VERIFY(hyprland.hasPendingConnections());
+        QLocalSocket *events = hyprland.nextPendingConnection();
+
+        // Changed without telling anyone: nothing asks again.
+        write(dir.filePath("rounding"), "8");
+        QTest::qWait(1500);
+        QCOMPARE(theme.radius(), 4);
+
+        // Other events don't ask either; a config reload does.
+        events->write("workspace>>2\n");
+        events->flush();
+        QTest::qWait(300);
+        QCOMPARE(theme.radius(), 4);
+        events->write("configreloaded>>\n");
+        events->flush();
+        QTRY_COMPARE(theme.radius(), 8);
+    }
+
+    // A reload announced while hyprctl is still answering isn't lost: it
+    // may have read the rounding from before.
+    void aReloadDuringARoundingReadIsKept()
+    {
+        QTemporaryDir dir;
+        write(dir.filePath("rounding"), "4");
+        // Reads the rounding, then takes its time answering.
+        write(dir.filePath("hyprctl"), "#!/bin/sh\nv=$(cat '" + QFile::encodeName(dir.filePath("rounding"))
+                                           + "')\nsleep 0.25\necho \"{\\\"int\\\": $v}\"\n");
+        QFile::setPermissions(dir.filePath("hyprctl"), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        QLocalServer hyprland;
+        QVERIFY(hyprland.listen(dir.filePath("events.sock")));
+        QDir(dir.path()).mkpath("state");
+        Theme theme(dir.filePath("state"), nullptr, dir.filePath("hyprctl"), dir.filePath("events.sock"));
+        QTRY_VERIFY(hyprland.hasPendingConnections());
+        QLocalSocket *events = hyprland.nextPendingConnection();
+        // While the first read sleeps on the old value.
+        QTest::qWait(100);
+        write(dir.filePath("rounding"), "8");
+        events->write("configreloaded>>\n");
+        events->flush();
+        QTRY_COMPARE_WITH_TIMEOUT(theme.radius(), 8, 3000);
     }
 
     // The display panel's Text size: the user's override, else the theme's.
@@ -1174,6 +2307,113 @@ private:
     {
         write(path + ".tmp", contents);
         QVERIFY(::rename(QFile::encodeName(path + ".tmp").constData(), QFile::encodeName(path).constData()) == 0);
+    }
+
+    // Main.qml as main.cpp loads it, over a folder with a.conf and b.conf
+    // in root/, with settings and the trash kept in the temporary folder.
+    struct PlainWindow {
+        QTemporaryDir dir;
+        QByteArray config = qgetenv("XDG_CONFIG_HOME"), data = qgetenv("XDG_DATA_HOME");
+        Theme theme{dir.path()};
+        Document doc;
+        Editing editing{&doc};
+        PortalFilePicker picker;
+        FileTree files;
+        Launcher launcher;
+        QQmlApplicationEngine engine;
+        QQuickWindow *window = nullptr;
+
+        PlainWindow()
+        {
+            QDir(dir.path()).mkpath("root");
+            QDir(dir.path()).mkpath("data");
+            write(path("root/a.conf"), "a\n");
+            write(path("root/b.conf"), "b\n");
+            qputenv("XDG_CONFIG_HOME", QFile::encodeName(path("config")));
+            qputenv("XDG_DATA_HOME", QFile::encodeName(path("data")));
+            doc.setTheme(&theme);
+        }
+        ~PlainWindow()
+        {
+            delete window;
+            restore("XDG_CONFIG_HOME", config);
+            restore("XDG_DATA_HOME", data);
+        }
+        static void restore(const char *name, const QByteArray &value)
+        {
+            if (value.isNull())
+                qunsetenv(name);
+            else
+                qputenv(name, value);
+        }
+
+        QString path(const QString &relative) const { return QDir::cleanPath(dir.filePath(relative)); }
+
+        bool load(const QString &file, const QString &folder)
+        {
+            QQmlContext *context = engine.rootContext();
+            context->setContextProperty("theme", &theme);
+            context->setContextProperty("doc", &doc);
+            context->setContextProperty("editing", &editing);
+            context->setContextProperty("picker", &picker);
+            context->setContextProperty("files", &files);
+            context->setContextProperty("launcher", &launcher);
+            context->setContextProperty("startPath", file.isEmpty() ? QString() : path(file));
+            context->setContextProperty("startLine", 0);
+            context->setContextProperty("startFolder", folder.isEmpty() ? QString() : path(folder));
+            context->setContextProperty("homePath", QDir::homePath());
+            engine.load(QUrl::fromLocalFile(sourceFolder() + "/Main.qml"));
+            if (engine.rootObjects().isEmpty())
+                return false;
+            window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+            window->requestActivate();
+            return window && QTest::qWaitForWindowActive(window);
+        }
+
+        // By objectName, through both the object and the item trees: an
+        // ApplicationWindow's items aren't all its QObject children.
+        QObject *item(const char *name) const
+        {
+            QList<QObject *> queue{window};
+            QSet<QObject *> seen;
+            while (!queue.isEmpty()) {
+                QObject *object = queue.takeFirst();
+                if (!object || seen.contains(object))
+                    continue;
+                seen.insert(object);
+                if (object->objectName() == QLatin1String(name))
+                    return object;
+                queue << object->children();
+                if (auto *quick = qobject_cast<QQuickItem *>(object))
+                    for (QQuickItem *child : quick->childItems())
+                        queue << child;
+                if (object == window)
+                    queue << window->contentItem();
+            }
+            qWarning("no %s in the window", name);
+            return nullptr;
+        }
+        QObject *sidebar() const { return item("sidebar"); }
+        bool editorFocused() const
+        {
+            QQuickItem *focus = window->activeFocusItem();
+            auto *editor = qobject_cast<QQuickItem *>(item("editorView"));
+            return focus && editor && editor->isAncestorOf(focus);
+        }
+        void key(Qt::Key key, Qt::KeyboardModifiers modifiers = {}) { QTest::keyClick(window, key, modifiers); }
+        void type(const char *text)
+        {
+            for (const char *c = text; *c; ++c)
+                QTest::keyClick(window, *c);
+        }
+    };
+
+    static QStringList names(const FileTree &tree)
+    {
+        QStringList names;
+        for (int i = 0; i < tree.rowCount(); ++i)
+            names << tree.data(tree.index(i), FileTree::NameRole).toString();
+        return names;
     }
 
     static QByteArray read(const QString &path)

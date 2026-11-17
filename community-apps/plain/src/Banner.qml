@@ -101,18 +101,13 @@ Rectangle {
             text: qsTr("Save as…")
             onClicked: banner.saveAsRequested()
         }
-        ToolButton {
+        BarButton {
             text: "✕"
-            flat: true
+            tooltip: qsTr("Dismiss (Escape)")
             onClicked: {
-                if (banner.problem === "DeletedOnDisk")
-                    doc.keepMine()
-                else
-                    doc.dismissProblem()
+                doc.dismissProblem()
                 banner.done()
             }
-            ToolTip.visible: hovered
-            ToolTip.text: qsTr("Dismiss (Escape)")
         }
     }
 }

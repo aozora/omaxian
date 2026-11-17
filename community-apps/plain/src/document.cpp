@@ -97,7 +97,10 @@ Document::Decoded Document::decode(const QByteArray &input) {
     QStringDecoder decoder(QStringConverter::Utf8,
                            QStringConverter::Flag::Stateless | QStringConverter::Flag::ConvertInitialBom);
     QString text = decoder.decode(bytes);
-    if (decoder.hasError() || text.contains(ParagraphStandIn))
+    // Qt's text document reads U+FDD0 and U+FDD1 as frame markers and saves
+    // them as line breaks, so a file holding them couldn't come back whole.
+    if (decoder.hasError() || text.contains(ParagraphStandIn) || text.contains(QChar(0xFDD0))
+        || text.contains(QChar(0xFDD1)))
         return result;
     text.replace(QChar::ParagraphSeparator, ParagraphStandIn);
 
@@ -230,6 +233,61 @@ bool Document::open(const QString &path) {
     return load(false);
 }
 
+void Document::close() {
+    m_debounce.stop();
+    m_path.clear();
+    m_target.clear();
+    forgetDisk();
+    m_bom = m_crlf = false;
+    m_allowLarge = false;
+    m_locked = false;
+    m_editable = true;
+    if (m_document)
+        setText({}, false);
+    m_indentUnit = "    ";
+    watch();
+    setProblem(Problem::None);
+    emit fileChanged();
+    emit modifiedChanged();
+}
+
+// `from` as it was before the move, through any links in its folder.
+static QString canonicalBefore(const QString &from) {
+    const QFileInfo info(from);
+    const QString folder = QFileInfo(info.absolutePath()).canonicalFilePath();
+    return folder.isEmpty() ? QString() : QDir::cleanPath(folder + "/" + info.fileName());
+}
+
+void Document::relocate(const QString &from, const QString &to) {
+    if (m_path.isEmpty())
+        return;
+    const QString oldFrom = canonicalBefore(from);
+    const QString newFrom = QFileInfo(to).canonicalFilePath();
+    auto moved = [](const QString &path, const QString &before, const QString &after) {
+        if (path == before)
+            return after;
+        if (!before.isEmpty() && path.startsWith(before + "/"))
+            return after + path.mid(before.size());
+        return QString();
+    };
+    const QString path = moved(m_path, QFileInfo(from).absoluteFilePath(), QFileInfo(to).absoluteFilePath());
+    if (path.isEmpty())
+        return;
+    m_path = path;
+    // The file Save writes to follows only if it was itself what moved, or
+    // inside it. A link moved away from its file may point somewhere else
+    // now (a relative one does), so its file stays the target and Save asks,
+    // as for any retargeted link. The version seen keeps its stamp: a rename
+    // keeps the file's, so a change made just before the move still shows.
+    if (const QString target = moved(m_target, oldFrom, newFrom); !target.isEmpty())
+        m_target = target;
+    // A new name can mean a new language, as with Save As.
+    if (m_document)
+        setLanguageFor(m_path, m_document->firstBlock().text());
+    watch();
+    emit fileChanged();
+}
+
 // After a reload refused the file, the editor still holds the text and its
 // undo history, so opening it anyway is an undoable reload too.
 void Document::openAnyway() {
@@ -261,7 +319,10 @@ bool Document::tooLarge(qint64 size, const QString &text) {
 // it arrives. Opening goes through the TextEdit (see attach()); a reload is
 // one undoable replacement.
 void Document::setText(const QString &text, bool undoably) {
-    setLanguageFor(m_path, text.left(text.indexOf(QChar(u'\n'))), false);
+    // The same text as before isn't set again, so nothing recolors it for a
+    // new language: recolor here instead.
+    const bool unchanged = !undoably && m_document && m_document->toPlainText() == text;
+    setLanguageFor(m_path, text.left(text.indexOf(QChar(u'\n'))), unchanged);
     if (undoably) {
         QTextCursor cursor(m_document);
         cursor.beginEditBlock();
@@ -278,6 +339,10 @@ void Document::setText(const QString &text, bool undoably) {
     } else {
         m_document->setPlainText(text);
     }
+    // Another file's edits never come back with Ctrl+Z, even when its text
+    // was the same and setting it again changed nothing.
+    if (!undoably)
+        m_document->clearUndoRedoStacks();
     m_document->setModified(false);
 }
 
@@ -463,7 +528,11 @@ void Document::keepMine() {
     setProblem(Problem::None);
 }
 
+// Escape and the banner's close alike. A file deleted on disk is let go of
+// as Keep mine would: saving recreates it rather than asking again.
 void Document::dismissProblem() {
+    if (m_problem == Problem::DeletedOnDisk)
+        acknowledgeDisk();
     setProblem(Problem::None);
 }
 

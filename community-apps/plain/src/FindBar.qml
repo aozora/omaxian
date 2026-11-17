@@ -40,6 +40,15 @@ Rectangle {
         recount()
     }
 
+    // Ctrl+F and Ctrl+H: open in that mode, or switch to it, or close
+    // when it's already what's open.
+    function toggle(replace) {
+        if (visible && replacing === replace)
+            hide()
+        else
+            show(replace)
+    }
+
     function hide() {
         visible = false
         editor.focusText()

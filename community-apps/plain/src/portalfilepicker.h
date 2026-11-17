@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDBusConnection>
 #include <QObject>
 #include <QUrl>
 #include <QVariantMap>
@@ -12,7 +13,9 @@ class PortalFilePicker : public QObject {
     Q_OBJECT
 
 public:
-    explicit PortalFilePicker(QObject *parent = nullptr) : QObject(parent) {}
+    // The session bus; tests pass a private one.
+    explicit PortalFilePicker(QObject *parent = nullptr, const QDBusConnection &bus = QDBusConnection::sessionBus())
+        : QObject(parent), m_bus(bus) {}
 
     // Invokable, since QML's Ctrl+O and Ctrl+S call them.
     Q_INVOKABLE void openFile(const QString &folder);
@@ -37,6 +40,7 @@ private:
     // Best-effort Close of the pending portal request, if there is one.
     void closePendingRequest();
 
+    QDBusConnection m_bus;
     QString m_pendingPath;
     Action m_pendingAction = Action::None;
     // Bumped per request, so a late reply for a replaced request is ignored.

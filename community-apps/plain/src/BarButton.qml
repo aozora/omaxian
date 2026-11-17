@@ -17,8 +17,10 @@ Item {
     implicitHeight: label.implicitHeight + 10
     opacity: enabled ? 1 : 0.4
 
-    ToolTip.visible: area.containsMouse && tooltip.length > 0
-    ToolTip.text: tooltip
+    Tip {
+        visible: area.containsMouse && button.tooltip.length > 0
+        text: button.tooltip
+    }
 
     Rectangle {
         anchors.fill: parent
