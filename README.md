@@ -385,6 +385,8 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | [Folio](community-apps/folio/) | File manager: grid/list/columns, Space previews, Omarchy theme |
 | [Omaview](community-apps/omaview/) | Picture viewer and media player (Media Viewer in the launcher) |
 | [Hype](community-apps/hype/) | Markdown presentations with a visual slide editor; export to PDF or PowerPoint |
+| [Cards](community-apps/cards/) | Klondike solitaire in four card series |
+| [Checkmate](community-apps/checkmate/) | 3D chess for one or two players |
 
 Details: [`community-apps/README.md`](community-apps/README.md).
 

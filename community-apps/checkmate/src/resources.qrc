@@ -1,0 +1,15 @@
+<RCC>
+  <qresource prefix="/">
+    <file>Main.qml</file>
+    <file>BoardView.qml</file>
+    <file>ChessPiece.qml</file>
+    <file alias="checkmate.svg">../share/checkmate.svg</file>
+    <file>i18n/en.json</file>
+    <file>i18n/da.json</file>
+    <file>i18n/ar.json</file>
+    <file alias="scenes/orbital.png">../share/scenes/orbital.png</file>
+    <file alias="scenes/atelier.png">../share/scenes/atelier.png</file>
+    <file alias="scenes/candy.png">../share/scenes/candy.png</file>
+    <file alias="scenes/woodland.png">../share/scenes/woodland.png</file>
+  </qresource>
+</RCC>

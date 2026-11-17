@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Cards
+Name[da]=Cards
+Name[ar]=Cards
+Comment=Klondike solitaire in four card series
+Comment[da]=Klondike-kabale i fire kortserier
+Comment[ar]=سوليتير كلوندايك بأربع سلاسل من الأوراق
+Exec=cards open
+Icon=cards
+Terminal=false
+Categories=Game;CardGame;
+StartupWMClass=cards

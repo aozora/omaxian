@@ -16,3 +16,8 @@ signed/src/PlacedItem.qml|Property "fontSize" does not exist
 signed/src/PlacedItem.qml|Property "zoom" does not exist
 # Hype: hasChecks is declared on its own Menu (Main.qml), which qmllint types as QQuickMenu.
 hype/src/Main.qml|Member "hasChecks" not found on type "QQuickMenu"
+
+# Checkmate: SurfaceTexture (src/surfacetexture.h)
+checkmate/src/BoardView.qml|Property "style" does not exist
+# Checkmate: Repeater3D.objectAt returns QQuick3DObject; fidget() is on ChessPiece.qml
+checkmate/src/BoardView.qml|Member "fidget" not found on type "QQuick3DObject"
