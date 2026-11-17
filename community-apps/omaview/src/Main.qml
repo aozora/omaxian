@@ -252,9 +252,9 @@ ApplicationWindow {
         function onVideoSizeChanged() { win.sizeToMedia() }
         function onDurationChanged() { win.sizeToMedia() }
         function onStatusChanged() { win.sizeToMedia() }
+        // Omaxian: clearOutput() is Qt 6.9+; on 6.8 the backend's empty frame clears it.
         function onPictureCleared() {
-            if (videoLoader.item)
-                videoLoader.item.clearOutput()
+            if (videoLoader.item && videoLoader.item.clearOutput !== undefined) videoLoader.item.clearOutput()
         }
         function onFolderOpened() {
             win.gridShown = true
@@ -451,12 +451,14 @@ ApplicationWindow {
             visible: !backend.isPicture && !win.reshaping
             active: backend.playerReady
             sourceComponent: VideoOutput {
+                id: video
                 objectName: "video"
                 fillMode: VideoOutput.PreserveAspectFit
                 // endOfStreamPolicy is Qt 6.9+; on 6.8 the last frame already stays.
+                // Omaxian: read through the id. A bare name that 6.8 lacks throws a
+                // ReferenceError, which also skipped setVideoSink (no picture).
                 Component.onCompleted: {
-                    if (endOfStreamPolicy !== undefined)
-                        endOfStreamPolicy = VideoOutput.KeepLastFrame
+                    if (video.endOfStreamPolicy !== undefined) video.endOfStreamPolicy = VideoOutput.KeepLastFrame
                     backend.setVideoSink(videoSink)
                 }
                 // Detached as destruction begins, before the sink is torn

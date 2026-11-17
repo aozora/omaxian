@@ -23,7 +23,10 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Theme / language from Omarchy paths | Unchanged — Omaxian writes the same files |
 | CMake requires `wayland-client` / `wayland-protocols` | Dropped; CMake/qmake build without Wayland |
 | CMake-only build | Same CMake path when `qt6-*-dev` works; `omaview.pro` + qmake fallback for `~/.local/opt/omaxian-qt6-<mm>/` |
-| `VideoOutput.endOfStreamPolicy: KeepLastFrame` (Qt 6.9+) | Set from `Component.onCompleted` only where the property exists; on Qt 6.8 the last frame already stays |
+| `VideoOutput.endOfStreamPolicy: KeepLastFrame` (Qt 6.9+) | Set from `Component.onCompleted` (through the item's id) only where the property exists; on Qt 6.8 the last frame already stays |
+| `VideoOutput.clearOutput()` (Qt 6.9+) to drop the last file's frame | Called where it exists; the backend also hands the sink an empty frame, which clears it on Qt 6.8 |
+| `QMediaPlayer` pitch compensation (Qt 6.10+) | Compiled in only against Qt ≥ 6.10. The pre-built binary targets Qt 6.8, so sped-up playback changes pitch |
+| Cover art from `QMediaMetaData::CoverArtImage` | Falls back to `ThumbnailImage`, where Qt 6.8's FFmpeg backend puts an attached picture |
 | Floating expected under Hyprland | i3 rule floats `omaview` (deployed `05_rules.conf`) |
 
 ## Requirements

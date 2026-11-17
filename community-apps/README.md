@@ -129,8 +129,12 @@ Review the tree before running it; apps run unsandboxed as your user.
    e.g. `Component.onCompleted: if (view.acceptedButtons !== undefined)
    view.acceptedButtons = Qt.NoButton`, and record the 6.8 fallback in the
    app's deltas table. `lib/qmllint-ignore.txt` is only for properties of the
-   app's own C++ types, which qmllint cannot see. CI's verify step (headless
-   start on Qt 6.8) is the final check.
+   app's own C++ types, which qmllint cannot see. Read the property through an
+   id: a bare name 6.8 lacks throws instead of giving `undefined` (the lint
+   flags that). Neither the lint nor CI's headless start sees a newer-Qt
+   method called on a `Loader.item`, or code that runs only once a file is
+   open, so also run the app's tests on Qt 6.8 (a `debian:trixie`
+   container, as a normal user, in a UTF-8 locale).
 7. Add a catalog row above. Do not wire into `setup` / `install` / `deploy`
    (the TUI / `scripts/install-community-apps.sh` discover dirs with
    `install.sh` automatically).

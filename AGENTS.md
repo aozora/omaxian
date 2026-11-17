@@ -132,7 +132,7 @@ This port has no `./test/all`, CLI harness, or graphical acceptance VM. After a 
 
 - Run `omarchy-shell shell ping` (expect `ok`) and `omarchy-shell shell listPlugins` if the shell is involved
 - For a community plugin, run `omarchy-plugin-check <dir-or-url>`
-- For a community app's QML (`community-apps/<app>/src/*.qml`), run `community-apps/lib/qmllint-qt68.sh <app>` (podman or docker); it must pass. Pre-built apps run on Excalibur's Qt 6.8, and QML using a newer-Qt property builds fine but will not start there. Use such a property only from JavaScript behind `obj.prop !== undefined` on the same line; never add an ignore entry for a real Qt property
+- For a community app's QML (`community-apps/<app>/src/*.qml`), run `community-apps/lib/qmllint-qt68.sh <app>` (podman or docker); it must pass. Pre-built apps run on Excalibur's Qt 6.8, and QML using a newer-Qt property builds fine but will not start there. Use such a property only from JavaScript behind `obj.prop !== undefined` on the same line, reading it through an id (`view.acceptedButtons`, never bare `acceptedButtons`: a bare name 6.8 lacks throws a ReferenceError); never add an ignore entry for a real Qt property
 - Visual changes must be verified in the running UI; follow [`agents/skills/visual-verification.md`](agents/skills/visual-verification.md)
 - **Never** run `omarchy-restart-shell` (or kill picom / Quickshell) from an agent session to apply QML — that has crashed the desktop. Use `./scripts/deploy.sh` then **log out / log in**.
 

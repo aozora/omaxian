@@ -15,6 +15,7 @@
     "ffmpeg",
     "xclip",
     "libqt6multimedia6",
+    "libqt6concurrent6",
     "qml6-module-qtmultimedia"
   ],
   "apt_build": [

@@ -381,8 +381,12 @@ void Backend::ensurePlayer() {
                  : error == QMediaPlayer::AccessDeniedError  ? Problem::Access
                                                              : Problem::Unplayable);
     });
+    // Omaxian: pitch compensation is Qt 6.10+. Pre-built binaries target
+    // Excalibur's Qt 6.8, where sped-up playback changes pitch.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
     if (m_player->pitchCompensationAvailability() != QMediaPlayer::PitchCompensationAvailability::Unavailable)
         m_player->setPitchCompensation(true);
+#endif
     emit playerReadyChanged();
 }
 
@@ -509,6 +513,13 @@ void Backend::resetFile() {
         ++m_generation;
         m_frame = QVideoFrame();
         m_frameSize = QSize();
+    }
+    // Omaxian: on Qt 6.8 (no KeepLastFrame) an empty frame clears the
+    // picture. On 6.9+ KeepLastFrame ignores it, so the window clears it too.
+    {
+        QMutexLocker locker(&m_outputLock);
+        if (m_output)
+            m_output->setVideoFrame(QVideoFrame());
     }
     // KeepLastFrame ignores an empty frame, so the window clears it itself.
     emit pictureCleared();
@@ -1040,6 +1051,10 @@ void Backend::updateMetadata() {
     if (!artist.isEmpty())
         m_artist = artist;
     QImage cover = metadata.value(QMediaMetaData::CoverArtImage).value<QImage>();
+    // Omaxian: Qt 6.8's FFmpeg backend gives an attached picture as the
+    // thumbnail instead.
+    if (cover.isNull())
+        cover = metadata.value(QMediaMetaData::ThumbnailImage).value<QImage>();
     if (!cover.isNull()) {
         // Small enough to hand QML as a data URL, which needs no provider
         // whose lifetime has to outlast the engine's.

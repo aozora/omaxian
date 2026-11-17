@@ -5,10 +5,12 @@ import QtQuick.Controls
 // them: clipped to its edges, scrolled by the wheel but not dragged, with
 // Folio's scroll bar.
 ListView {
+    id: view
     clip: true
-    // Omaxian: Flickable.acceptedButtons is Qt 6.9+. Set it where it exists;
-    // on Excalibur's Qt 6.8 a mouse drag flicks the view, as 6.8 always did.
-    Component.onCompleted: if (acceptedButtons !== undefined) acceptedButtons = Qt.NoButton
+    // Omaxian: Flickable.acceptedButtons is Qt 6.9+. Set it where it exists
+    // (through the id: a bare name 6.8 lacks throws). On 6.8 the rubber band
+    // keeps a drag on empty space from flicking (Band.qml, preventStealing).
+    Component.onCompleted: if (view.acceptedButtons !== undefined) view.acceptedButtons = Qt.NoButton
     boundsBehavior: Flickable.StopAtBounds
     // No cache buffer, here or in the grid: Qt's 16 ms pause before filling
     // one can leave an idle window drawing every refresh.

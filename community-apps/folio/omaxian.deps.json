@@ -10,6 +10,7 @@
     "qml6-module-qtqml",
     "qml6-module-qtqml-workerscript",
     "qt6-qpa-plugins",
+    "qt6-svg-plugins",
     "xdg-desktop-portal",
     "xdg-desktop-portal-gtk",
     "xdg-terminal-exec",
