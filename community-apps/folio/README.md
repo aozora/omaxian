@@ -1,11 +1,11 @@
 # Folio (Omaxian port)
 
-Omarchy's file manager: grid / list / columns, Space previews, trash, drives,
+Omarchy's file manager: columns / list tree / grid, Space previews, trash, drives,
 and keyboard-first browsing that follows the Omarchy theme. Can also be other
 apps' Open and Save dialogs via `folio chooser` (xdg-desktop-portal).
 
 Port of [omacom/folio](https://github.com/omacom/folio) (upstream commit
-`795e741`, pinned in `.omaxian-upstream-commit`). Full upstream docs:
+`36af8a0`, v0.6.1 + 7, pinned in `.omaxian-upstream-commit`). Full upstream docs:
 [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
@@ -65,7 +65,8 @@ builds as described below. See
 `install.sh` refuses to apt-install Qt when the `qt6-base-dev` candidate's
 major.minor does not match the already-installed `libqt6core6t64`. If you keep
 matching headers under `~/.local/opt/omaxian-qt6-<mm>/usr`, it uses that prefix
-via `CMAKE_PREFIX_PATH`.
+via `CMAKE_PREFIX_PATH` and skips Qt runtime packages (QML modules,
+`qt6-qpa-plugins`, `qt6-svg-plugins`) whose apt candidate is a different Qt.
 
 | Path | Role |
 | ---- | ---- |
@@ -105,7 +106,7 @@ floats and centers `folio-chooser` windows (deployed `05_rules.conf`).
 ## Smoke check
 
 1. `folio --help` / opening `folio` shows a window on the home folder.
-2. Ctrl+1/2/3 switches grid / list / columns; Space opens a preview.
+2. Ctrl+1/2/3 switches columns / list / grid; Space opens a preview.
 3. Switch theme (`omarchy-theme-set …`). The accent should follow. Corners stay square on i3.
 4. Delete a file → Trash; restore from the sidebar Trash place.
 5. Open Terminal on a folder needs `xdg-terminal-exec` on PATH.

@@ -14,9 +14,12 @@ GridView {
     // Where the keyboard's menu (Alt+Return) opens: beside the cursor's item.
     function menuAnchor() { return currentItem }
 
-    Selecting { id: selecting; view: grid }
+    // A page is the rows in sight, less one, a whole row at a time.
+    Selecting { id: selecting; view: grid; pageStep: Math.max(1, Math.floor(grid.height / grid.cellHeight) - 1) * Math.max(1, grid.columns) }
     onCurrentIndexChanged: selecting.cursorMoved()
     Keys.onPressed: (event) => {
+        if (selecting.page(event))
+            return
         // With no cursor (after a click on empty space), Down starts at the
         // first item, not a row's width on from before it.
         if (event.key === Qt.Key_Down && currentIndex < 0 && count > 0) {
@@ -106,8 +109,11 @@ GridView {
 
     Text {
         anchors.centerIn: parent
-        visible: grid.count === 0 && !backend.folder.loading && backend.folder.error.length === 0
-        text: backend.folder.query ? qsTr("Nothing matches “%1”").arg(backend.folder.query)
+        // A search says it's looking until it finds something, or is done.
+        readonly property bool searching: backend.folder.loading && backend.folder.query.length > 0
+        visible: grid.count === 0 && (!backend.folder.loading || searching) && backend.folder.error.length === 0
+        text: searching ? qsTr("Searching…")
+            : backend.folder.query ? qsTr("Nothing matches “%1”").arg(backend.folder.query)
             : plugins.views[backend.path] ? plugins.views[backend.path].empty : qsTr("This folder is empty")
         color: theme.secondaryForeground
     }

@@ -1,5 +1,5 @@
 # Omaxian qmake build (fallback). Upstream's primary build is CMake.
-QT += core gui qml quick quickcontrols2 dbus concurrent
+QT += core gui network qml quick quickcontrols2 dbus concurrent
 
 CONFIG += c++17 release link_pkgconfig
 PKGCONFIG += gio-2.0 gio-unix-2.0 zlib

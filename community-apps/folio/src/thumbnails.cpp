@@ -1,4 +1,5 @@
 #include "thumbnails.h"
+#include "mounter.h"
 
 #include <QBuffer>
 #include <QCryptographicHash>
@@ -81,10 +82,12 @@ QStringList expandCommand(const QString &command, const QString &input, const QS
 
 } // namespace
 
-Thumbnails::Thumbnails(const QString &cacheDirectory, const QStringList &thumbnailerDirectories)
+Thumbnails::Thumbnails(const QString &cacheDirectory, const QStringList &thumbnailerDirectories,
+                       const QString &remoteRoot)
     : m_cache(cacheDirectory.isEmpty()
                   ? QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/thumbnails"
-                  : cacheDirectory) {
+                  : cacheDirectory),
+      m_remoteRoot(remoteRoot.isEmpty() ? Mounter::root() : remoteRoot) {
     QStringList directories = thumbnailerDirectories;
     if (directories.isEmpty()) {
         // Later directories win, so the user's own thumbnailers override the
@@ -145,6 +148,66 @@ QString Thumbnails::cachePath(const QString &path, int size) const {
 
 QString Thumbnails::failPath(const QString &path) const {
     return m_cache + "/fail/folio/" + cacheKey(path);
+}
+
+// Kept apart from the shared thumbnails, whose sizes stop at 1024: in
+// ~/.cache/folio/sharp/<pixels>/, as a JPEG (a PNG when it's transparent),
+// which reads back in a few milliseconds where the picture itself, a large
+// PNG, takes half a second. Each has the picture's own modification time,
+// so a changed picture is made again.
+QString Thumbnails::sharpPath(const QString &path, int pixels, bool alpha) const {
+    QString key = cacheKey(path);
+    key.chop(4);
+    return QFileInfo(m_cache).absolutePath() + "/folio/sharp/" + QString::number(pixels) + "/" + key + (alpha ? ".png" : ".jpg");
+}
+
+QImage Thumbnails::sharp(const QString &path, const QString &mime, int pixels, bool *fresh, QDateTime *read) const {
+    *fresh = false;
+    const QFileInfo info(path);
+    if (!info.isFile())
+        return {};
+    const QDateTime modified = info.lastModified();
+    *read = modified;
+    for (const bool alpha : {false, true}) {
+        const QFileInfo cached(sharpPath(path, pixels, alpha));
+        if (cached.exists() && cached.lastModified() == modified)
+            if (QImage image(cached.filePath()); !image.isNull())
+                return image;
+    }
+    QImageReader reader(path);
+    reader.setAutoTransform(true);
+    if (!reader.canRead())
+        return load(path, mime, 1024);
+    const QSize full = reader.size();
+    // Small enough already: read as it is, quickly, and not kept.
+    const bool small = full.isValid() && full.width() <= pixels && full.height() <= pixels;
+    if (full.isValid() && !small)
+        reader.setScaledSize(full.scaled(pixels, pixels, Qt::KeepAspectRatio));
+    const QImage image = reader.read();
+    if (image.isNull())
+        return load(path, mime, 1024);
+    *fresh = !small;
+    return image;
+}
+
+void Thumbnails::keep(const QImage &image, const QString &path, int pixels, const QDateTime &modified) const {
+    const QString target = sharpPath(path, pixels, image.hasAlphaChannel());
+    // Copies of private pictures: only their owner may read them, as with
+    // the thumbnails (see save()).
+    const QString folder = QFileInfo(target).absolutePath();
+    QDir().mkpath(folder);
+    const auto ownerOnly = QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner;
+    for (const QString &dir : {QFileInfo(folder).absolutePath(), folder})
+        QFile::setPermissions(dir, ownerOnly);
+    QSaveFile file(target);
+    if (!file.open(QIODevice::WriteOnly) || !image.save(&file, image.hasAlphaChannel() ? "PNG" : "JPG", image.hasAlphaChannel() ? 10 : 90))
+        return;
+    file.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+    if (file.commit()) {
+        QFile written(target);
+        if (written.open(QIODevice::ReadWrite))
+            written.setFileTime(modified, QFileDevice::FileModificationTime);
+    }
 }
 
 QImage Thumbnails::load(const QString &path, const QString &mime, int size) const {
@@ -282,7 +345,18 @@ QImage Thumbnails::runThumbnailer(const QString &command, const QString &path, i
     if (!scratch.isValid())
         return {};
     const QString output = scratch.filePath("thumbnail.png");
-    QStringList args = expandCommand(command, path, output, pixels);
+    // A thumbnailer given a URI asks GIO for the file, and GIO turns one on
+    // a GVfs mount (another machine's) back into its network address,
+    // sftp://…, which most can't open, Papers' among them. A link here reads
+    // through the mount the same, and GIO leaves it a file.
+    QString input = path;
+    if (path.startsWith(m_remoteRoot + "/")) {
+        const QString suffix = QFileInfo(path).suffix();
+        const QString link = scratch.filePath(suffix.isEmpty() ? "input" : "input." + suffix);
+        if (QFile::link(path, link))
+            input = link;
+    }
+    QStringList args = expandCommand(command, input, output, pixels);
     if (args.isEmpty())
         return {};
     const QString program = args.takeFirst();
@@ -310,14 +384,20 @@ void Thumbnails::remember(QImage image, const QString &path, int size, const QDa
     save(std::move(image), cachePath(path, size), path, modified);
 }
 
+// Markers say which round of thumbnailing failed: ones from before a fix
+// (round 2: files on other machines) are tried again once.
+static const QString failedRound = QStringLiteral("2");
+
 void Thumbnails::rememberFailure(const QString &path, const QDateTime &modified) const {
     QImage marker(1, 1, QImage::Format_ARGB32);
     marker.fill(Qt::transparent);
+    marker.setText("X-Folio::Round", failedRound);
     save(std::move(marker), failPath(path), path, modified);
 }
 
 bool Thumbnails::failedBefore(const QString &path, const QDateTime &modified) const {
-    return madeFor(QImage(failPath(path)), modified);
+    const QImage marker(failPath(path));
+    return madeFor(marker, modified) && marker.text("X-Folio::Round") == failedRound;
 }
 
 // Whether a cached thumbnail (or failure marker) was made from the file as it
@@ -369,6 +449,25 @@ public:
         const QStringList parts = m_id.split('/');
         // A tile scrolled away before its turn came shouldn't keep the pool
         // from the ones on screen.
+        if (!m_cancelled && parts.size() >= 5 && parts.at(0) == "sharp") {
+            const int pixels = qBound(256, parts.at(1).toInt(), 8192);
+            const QString mime = QUrl::fromPercentEncoding(parts.at(3).toUtf8());
+            const QString path = QUrl::fromPercentEncoding(parts.mid(4).join('/').toUtf8());
+            bool fresh = false;
+            QDateTime modified;
+            m_image = m_thumbnails->sharp(path, mime, pixels, &fresh, &modified);
+            // Shown first, kept after: writing it shouldn't hold it up. Qt
+            // may delete the response once it's finished, so nothing of it
+            // is used after.
+            const QImage made = fresh ? m_image : QImage();
+            const Thumbnails *thumbnails = m_thumbnails;
+            if (m_image.isNull())
+                m_error = QStringLiteral("No picture");
+            emit finished();
+            if (!made.isNull())
+                thumbnails->keep(made, path, pixels, modified);
+            return;
+        }
         if (!m_cancelled && parts.size() >= 6 && parts.at(0) == "page") {
             const QString path = QUrl::fromPercentEncoding(parts.mid(5).join('/').toUtf8());
             m_image = Thumbnails::textPage(path, qBound(64, parts.at(1).toInt(), 1024),
