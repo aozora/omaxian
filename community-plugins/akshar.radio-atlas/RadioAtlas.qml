@@ -136,6 +136,12 @@ Item {
   property color dim: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.56)
   property color faint: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.12)
   property color favoriteColor: lightTheme ? "#8a6100" : "#f2c94c"
+  // Andale Mono and Courier New claim Font Awesome's BMP stars (U+F005,
+  // U+F006) ahead of any Nerd Font, so those code points paint as a few
+  // stray pixels. Material Design stars sit outside the BMP.
+  readonly property string favoriteOnIcon: "\uDB81\uDCCE"
+  readonly property string favoriteOffIcon: "\uDB81\uDCD2"
+  readonly property string iconFontFamily: "JetBrainsMono Nerd Font"
   property color mapBackground: lightTheme ? "#e7e6e1" : "#090a0c"
   property color mapSphere: lightTheme ? "#d2d0ca" : "#11151a"
   property color mapLand: lightTheme ? "#a9aaa6" : "#283039"
@@ -2048,7 +2054,8 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: root.edgeInset
                 anchors.verticalCenter: parent.verticalCenter
-                iconText: root.isFavorite(stationRow.modelData.uuid) ? "\uf005" : "\uf006"
+                iconText: root.isFavorite(stationRow.modelData.uuid) ? root.favoriteOnIcon : root.favoriteOffIcon
+                fontFamily: root.iconFontFamily
                 tooltipText: root.isFavorite(stationRow.modelData.uuid) ? "Remove favorite" : "Add favorite"
                 foreground: root.isFavorite(stationRow.modelData.uuid)
                   ? root.favoriteColor : root.foreground
@@ -2234,7 +2241,8 @@ Item {
               anchors.top: parent.top
               anchors.topMargin: root.edgeInset * 2
               visible: root.playerRunning && root.playingStationUuid !== ""
-              iconText: root.isFavorite(root.playingStationUuid) ? "\uf005" : "\uf006"
+              iconText: root.isFavorite(root.playingStationUuid) ? root.favoriteOnIcon : root.favoriteOffIcon
+              fontFamily: root.iconFontFamily
               tooltipText: root.isFavorite(root.playingStationUuid)
                 ? "Remove playing station from favorites"
                 : "Add playing station to favorites"
