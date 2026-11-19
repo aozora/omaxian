@@ -244,6 +244,9 @@ run_slideshow() {
   export XSECURELOCK_IMAGE_DURATION_SECONDS=$INTERVAL
   # Fill each monitor (crop) instead of letterboxing.
   : "${XSECURELOCK_VIDEOS_FLAGS:=--panscan=1.0}"
+  # Ignore the user's mpv.conf (osd-playing-msg, resume/watch-later) and keep
+  # the OSD off so no filename or status text is drawn over the slideshow.
+  XSECURELOCK_VIDEOS_FLAGS="--no-config --osd-level=0 --osd-playing-msg= $XSECURELOCK_VIDEOS_FLAGS"
   : "${XSECURELOCK_AUTH_BACKGROUND_COLOR:=$COLOR_BG}"
   : "${XSECURELOCK_AUTH_FOREGROUND_COLOR:=$COLOR_FG}"
   : "${XSECURELOCK_AUTH_WARNING_COLOR:=$COLOR_RED}"
