@@ -32,6 +32,10 @@ QQuick3DGeometry *Sculptures::geometry(int design,int kind,int part,int tone) {
     // QML only borrows it: a geometry returned from a method would otherwise be the garbage collector's to free.
     QQmlEngine::setObjectOwnership(made,QQmlEngine::CppOwnership);
     made->shape(design,kind,part,tone);
+  } else {
+    // When the last piece wearing a mesh lets go of it, as when every piece changes set, Qt drops its copy on the GPU
+    // and does not send it again on its own. Handing it out sends it again, from the sculpture already made.
+    made->rebuild();
   }
   return made;
 }

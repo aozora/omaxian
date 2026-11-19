@@ -87,12 +87,12 @@ Plan and rationale:
 | [`plain`](plain/) | Plain (Qt Quick config/text editor) | [omacom/plain](https://github.com/omacom/plain) `0.4.1` | Ported |
 | [`omacalc`](omacalc/) | Omacalc (Qt Quick calculator) | [omacom/omacalc](https://github.com/omacom/omacalc) `0.4.2` | Ported |
 | [`omacut`](omacut/) | Omacut (Qt Quick video trimmer) | [omacom/omacut](https://github.com/omacom/omacut) `0.8.3` | Ported |
-| [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.5` | Ported |
+| [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.6` | Ported |
 | [`folio`](folio/) | Folio (Qt Quick file manager) | [omacom/folio](https://github.com/omacom/folio) `0.6.1+` (`36af8a0`) | Ported |
 | [`omaview`](omaview/) | Omaview (Qt Quick picture viewer / media player) | [omacom/omaview](https://github.com/omacom/omaview) `75bb5a0` | Ported |
 | [`hype`](hype/) | Hype (Qt Quick Markdown presentations) | [omacom/hype](https://github.com/omacom/hype) `0.7.1` (`8c347fc`) | Ported |
 | [`cards`](cards/) | Cards (Qt Quick Klondike solitaire) | [omacom/cards](https://github.com/omacom/cards) `0.1.0` (`e1a01bf`) | Ported |
-| [`checkmate`](checkmate/) | Checkmate (Qt Quick 3D chess) | [omacom/checkmate](https://github.com/omacom/checkmate) `0.1.2` (`2e69784`) | Ported |
+| [`checkmate`](checkmate/) | Checkmate (Qt Quick 3D chess) | [omacom/checkmate](https://github.com/omacom/checkmate) `0.1.3` (`b4e6a86`) | Ported |
 
 **Not ported:** [omareel](https://github.com/omacom/omareel) — Hyprland plugin + `gpu-screen-recorder` / layer-shell capture; not viable on X11/i3.
 

@@ -867,6 +867,40 @@ private slots:
         QVERIFY(variation>.01f);
     }
 
+    void piecesComeBackWithTheirSet() {
+        QTemporaryDir dir;
+        Translator translator(dir.path() + "/language");
+        Theme theme(dir.path());
+        Backend backend(":memory:");
+        backend.newGame(false,0);
+        backend.setReducedMotion(true);
+        Sculptures sculptures;
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("translator",&translator);
+        engine.rootContext()->setContextProperty("theme",&theme);
+        engine.rootContext()->setContextProperty("backend",&backend);
+        engine.rootContext()->setContextProperty("sculptures",&sculptures);
+        engine.load(QUrl("qrc:/Main.qml"));
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window=qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        // How much of the frame differs from the bare board: an empty board has nothing standing on it.
+        QTest::qWait(400);
+        const QImage first=window->grabWindow();
+        auto differs=[&](const QImage &other) {
+            qint64 changed=0;
+            for (int y=0;y<first.height();y+=4) for (int x=0;x<first.width();x+=4) {
+                const QColor a=first.pixelColor(x,y),b=other.pixelColor(x,y);
+                if (std::abs(a.red()-b.red())+std::abs(a.green()-b.green())+std::abs(a.blue()-b.blue())>30) ++changed;
+            }
+            return double(changed)/((first.width()/4)*(first.height()/4));
+        };
+        // Every set in turn and back to the first: its pieces stand where they stood.
+        for (int set : {1,2,3,0}) { backend.setPieceSet(set); QTest::qWait(400); }
+        const double away=differs(window->grabWindow());
+        QVERIFY2(away<.01,qPrintable(QString("%1 of the frame changed after a round of sets").arg(away)));
+    }
+
     void windowLoadsAndAnswersTheKeyboard() {
         QTemporaryDir dir;
         Translator translator(dir.path() + "/language");

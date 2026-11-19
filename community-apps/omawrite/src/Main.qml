@@ -317,6 +317,12 @@ ApplicationWindow {
                 win.completePendingAction();
         }
 
+        // Inserting the file leaves the caret at its end; start at the top.
+        function onFileOpened() {
+            editor.cursorPosition = 0;
+            editorFlick.scrollTo(0);
+        }
+
         function onSaveFailed() {
             // A failed save leaves the document as it was, so the close or
             // open it was for is off; a later save must not carry it out.
@@ -970,12 +976,10 @@ ApplicationWindow {
                     } else if (!commandModifier && event.key === Qt.Key_Backspace
                                && deleteParagraphBreakBehindCursor()) {
                         event.accepted = true;
-                    } else if (!commandModifier && !(event.modifiers & Qt.ShiftModifier)
-                               && event.key === Qt.Key_Right) {
+                    } else if (event.matches(StandardKey.MoveToNextChar)) {
                         moveCursorVisibly(1);
                         event.accepted = true;
-                    } else if (!commandModifier && !(event.modifiers & Qt.ShiftModifier)
-                               && event.key === Qt.Key_Left) {
+                    } else if (event.matches(StandardKey.MoveToPreviousChar)) {
                         moveCursorVisibly(-1);
                         event.accepted = true;
                     } else if (!commandModifier

@@ -4,8 +4,8 @@
 opponent, on four sculpted sets. Full upstream docs:
 [`README.upstream.md`](README.upstream.md).
 
-Port of [omacom/checkmate](https://github.com/omacom/checkmate) **0.1.2**
-(upstream commit `2e69784`, full SHA in `.omaxian-upstream-commit`; version in
+Port of [omacom/checkmate](https://github.com/omacom/checkmate) **0.1.3**
+(upstream commit `b4e6a86`, full SHA in `.omaxian-upstream-commit`; version in
 `.omaxian-upstream-version`).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
@@ -61,7 +61,7 @@ major.minor does not match the already-installed `libqt6core6t64`.
 1. Open Checkmate from the launcher; a board appears with Moss & Myth (or the last set).
 2. New game → computer or two players; click a piece, then a highlighted square.
 3. Right-drag orbits; scroll zooms; keys 1–4 switch sets; theme switch recolours the UI.
-4. `checkmate --version` prints `Checkmate 0.1.2` without a display.
+4. `checkmate --version` prints `Checkmate 0.1.3` without a display.
 
 ## License
 

@@ -27,6 +27,7 @@ public:
 signals:
   void changed();
 private:
+  friend class Sculptures;
   void rebuild();
   int m_kind = 1, m_design = 0, m_part = 0, m_tone = 0;
   bool m_declared = false, m_built = false;

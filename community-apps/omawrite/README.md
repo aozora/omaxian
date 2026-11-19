@@ -2,8 +2,8 @@
 
 Markdown writing app with auto-save, find/replace, print, and Omarchy theme/language.
 
-Port of [omacom/omawrite](https://github.com/omacom/omawrite) 0.7.5
-(upstream commit `8ee488b`, pinned in `.omaxian-upstream-commit`). Full upstream
+Port of [omacom/omawrite](https://github.com/omacom/omawrite) 0.7.6
+(upstream commit `9d713b9`, pinned in `.omaxian-upstream-commit`). Full upstream
 docs: [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
@@ -19,6 +19,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Bundled IBM Plex Mono | Unchanged (embedded via resources.qrc, SIL OFL) |
 | Runtime dep `qt6-wayland` | Not installed. Uses XCB via `qt6-qpa-plugins` |
 | CMake-only build | Same CMake path when `qt6-*-dev` works; `omawrite.pro` + qmake fallback for `~/.local/opt/omaxian-qt6-<mm>/` |
+| CMake requires `GuiPrivate` (Qt 6.9+ package) for the tests | Not required: Debian's Qt 6.8 has no `Qt6GuiPrivate` package. `omawrite_tests` builds only when `qt6-base-private-dev` is installed; the app never needs it |
 
 ## Requirements
 

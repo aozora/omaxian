@@ -14,6 +14,19 @@ endif()
 find_package(Qt6 REQUIRED COMPONENTS
   Core Gui Concurrent Widgets PrintSupport Qml Quick QuickControls2 QuickDialogs2 DBus Test)
 
+# Omaxian: the tests need Qt's private Gui headers; the app does not. Qt 6.9+
+# ships GuiPrivate as its own package, while Debian's Qt 6.8 defines the target
+# with Gui and puts the headers in qt6-base-private-dev. Requiring it would fail
+# to configure on trixie, so the tests build only when the headers are there.
+if(NOT TARGET Qt6::GuiPrivate)
+  find_package(Qt6 QUIET COMPONENTS GuiPrivate)
+endif()
+set(omawrite_build_tests OFF)
+if(TARGET Qt6::GuiPrivate AND EXISTS
+   "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_HEADERS}/QtGui/${Qt6Gui_VERSION}/QtGui/private/qguiapplication_p.h")
+  set(omawrite_build_tests ON)
+endif()
+
 # Everything but main.cpp, shared by the app and the tests, so each source
 # compiles once and a new file in src/ needs no line here.
 file(GLOB omawrite_sources CONFIGURE_DEPENDS src/*.cpp src/*.h)
@@ -29,9 +42,13 @@ add_executable(omawrite src/main.cpp src/resources.qrc)
 target_link_libraries(omawrite PRIVATE omawrite_core)
 
 # The tests read the QML they drive straight from src/.
+if(NOT omawrite_build_tests)
+  message(STATUS "Qt private Gui headers not found (qt6-base-private-dev); skipping omawrite_tests")
+  return()
+endif()
 enable_testing()
 add_executable(omawrite_tests tests/omawrite_tests.cpp)
-target_link_libraries(omawrite_tests PRIVATE omawrite_core Qt6::Test)
+target_link_libraries(omawrite_tests PRIVATE omawrite_core Qt6::Test Qt6::GuiPrivate)
 add_test(NAME omawrite_tests COMMAND omawrite_tests)
 # An empty platform theme keeps file dialogs in the offscreen window instead
 # of opening the real desktop chooser.
