@@ -14,7 +14,7 @@ First-time install: `./omaxian-install.sh` or `curl …/bootstrap.sh | bash`. Se
 
 **Recommended packages:** `upower`, `light`, `pactl` (pulseaudio-utils or pipewire-pulse), `playerctl`, `bluez`, `python3-gi` + NetworkManager, `papirus-icon-theme`, `fonts-jetbrains-mono`, `maim`, `xclip`, `dunst`, `gpick` (color picker; replaces Arch `xcolor`), `imagemagick` (compose for shipped `i3lock-omaxian`), `i3lock-fancy` (fallback locker), `mate-polkit` or `xfce-polkit`.
 
-**Lock / idle (from `scripts/setup.sh`):** `i3lock` and `xss-lock` are required. Shipped `i3lock-omaxian` needs `i3lock` + `imagemagick` (`maim` preferred for screenshots; `convert`/`import` also work). Without `i3lock`, preview still works; locking falls through to `i3lock-fancy` / `slock` / notify. Idle auto-lock (Settings → Lock screen) uses `xss-lock` + `xset` via `omarchy-idle-lock-apply`.
+**Lock / idle (from `scripts/setup.sh`):** `i3lock` and `xss-lock` are required. Shipped `i3lock-omaxian` needs `i3lock` + `imagemagick` (`magick` or `convert`; `maim` preferred for screenshots, `import` also works). Its `slideshow` mode needs `xsecurelock` + `mpv` and falls back to `random` without them. Without `i3lock`, preview still works; locking falls through to `i3lock-fancy` / `slock` / notify. Idle auto-lock (Settings → Lock screen) uses `xss-lock` + `xset` via `omarchy-idle-lock-apply`.
 
 # Task Guides
 

@@ -28,6 +28,9 @@ Item {
   property string folder: ""
   property string effect: "blur"
   property bool greyscale: false
+  property int interval: 30
+  // null until probed; slideshow locks need xsecurelock + mpv.
+  property var slideshowAvailable: null
   property bool pickingFolder: false
   property bool pickingFile: false
   property bool previewVisible: false
@@ -74,6 +77,7 @@ Item {
     root.folder = parsed.folder
     root.effect = parsed.effect
     root.greyscale = parsed.greyscale
+    root.interval = parsed.interval
   }
 
   function persistAppearance(next) {
@@ -82,7 +86,8 @@ Item {
       image: next && next.image !== undefined ? next.image : root.image,
       folder: next && next.folder !== undefined ? next.folder : root.folder,
       effect: next && next.effect !== undefined ? next.effect : root.effect,
-      greyscale: next && next.greyscale !== undefined ? next.greyscale : root.greyscale
+      greyscale: next && next.greyscale !== undefined ? next.greyscale : root.greyscale,
+      interval: next && next.interval !== undefined ? next.interval : root.interval
     })
     var parsed = Model.parseLockSettings(payload)
     root.applyLockState(parsed)
@@ -214,7 +219,16 @@ Item {
     }
   }
 
-  Component.onCompleted: root.reloadLockFile()
+  Process {
+    id: slideshowProbeProc
+    command: ["omarchy-cmd-present", "xsecurelock", "mpv"]
+    onExited: function(exitCode) { root.slideshowAvailable = exitCode === 0 }
+  }
+
+  Component.onCompleted: {
+    root.reloadLockFile()
+    slideshowProbeProc.running = true
+  }
 
   FolderPicker {
     anchors.fill: parent
@@ -226,7 +240,10 @@ Item {
     foreground: root.foreground
     onChosen: function(path) {
       root.pickingFolder = false
-      root.persistAppearance({ mode: "random", folder: path })
+      root.persistAppearance({
+        mode: root.mode === "slideshow" ? "slideshow" : "random",
+        folder: path
+      })
     }
     onCancelled: root.pickingFolder = false
   }
@@ -331,6 +348,7 @@ Item {
 
       Dropdown {
         width: parent.width
+        visible: root.mode !== "slideshow"
         label: "Effect"
         value: root.effect
         options: Model.lockEffectOptions()
@@ -341,6 +359,7 @@ Item {
 
       Toggle {
         width: parent.width
+        visible: root.mode !== "slideshow"
         label: "Greyscale"
         description: "Desaturate the lock background"
         checked: root.greyscale
@@ -393,7 +412,7 @@ Item {
 
       Text {
         textFormat: Text.PlainText
-        visible: root.mode === "random"
+        visible: root.mode === "random" || root.mode === "slideshow"
         width: parent.width
         wrapMode: Text.Wrap
         elide: Text.ElideMiddle
@@ -405,7 +424,7 @@ Item {
 
       Row {
         spacing: Style.space(8)
-        visible: root.mode === "random"
+        visible: root.mode === "random" || root.mode === "slideshow"
 
         Button {
           text: "Choose folder"
@@ -432,6 +451,34 @@ Item {
         wrapMode: Text.Wrap
         text: "Random preview picks one image; the next real lock may differ."
         color: Qt.darker(root.foreground, 1.5)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
+      NumberField {
+        width: parent.width
+        visible: root.mode === "slideshow"
+        label: "Change image every (seconds)"
+        value: root.interval
+        from: 5
+        to: 3600
+        stepSize: 5
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onModified: function(v) { root.persistAppearance({ interval: v }) }
+      }
+
+      Text {
+        textFormat: Text.PlainText
+        visible: root.mode === "slideshow"
+        width: parent.width
+        wrapMode: Text.Wrap
+        text: root.slideshowAvailable === false
+          ? "Install xsecurelock and mpv for the slideshow; until then locks fall back to Random from folder."
+          : "Rotates shuffled images on every monitor while locked (xsecurelock). Preview shows one frame without the password prompt."
+        color: root.slideshowAvailable === false
+          ? Commons.Color.urgent
+          : Qt.darker(root.foreground, 1.5)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
       }

@@ -80,8 +80,9 @@ Plugin id `omaxian.dock`. Disable by adding it to `disabledPlugins` in
 ## Idle and lock
 
 Lock appearance: shipped `i3lock-omaxian` reads `~/.config/omarchy/lock-settings.json`
-(screenshot / fixed image / random folder; effect none/blur/pixelate). Prefer
-Settings → Lock screen (Preview / Test lock).
+(screenshot / fixed image / random folder / slideshow; effect none/blur/pixelate).
+Slideshow locks with `xsecurelock` + `mpv` (falls back to random without them).
+Prefer Settings → Lock screen (Preview / Test lock).
 
 **Deps:** `i3lock` + `xss-lock` (required via `setup.sh`); `imagemagick` for
 compose/preview; `maim` preferred for screenshot mode (else ImageMagick

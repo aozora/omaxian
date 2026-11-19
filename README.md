@@ -231,7 +231,8 @@ work differently or are missing:
   keybind, or a re-summon.
 - **Lock screen is `i3lock-omaxian`, not Omarchy’s Wayland session-lock plugin.**
   Settings → Lock screen sets appearance (screenshot / image / random, blur
-  effects) and optional idle auto-lock via `xss-lock` + `xset`. Manual lock
+  effects, or a rotating slideshow locked by `xsecurelock`) and optional idle
+  auto-lock via `xss-lock` + `xset`. Manual lock
   remains Super+Ctrl+L. There is no in-shell password UI or fingerprint PAM.
   Lid close / suspend locking is owned by `xss-lock -l` (not
   `xfce4-power-manager` / `xfce4-screensaver`), so you should not see a second
@@ -270,7 +271,8 @@ The full skip list is in [`docs/omarchy-port/deltas.md`](docs/omarchy-port/delta
   the bundled fonts (otherwise the bar shows tofu). A display manager is **not**
   packaged; use whatever already starts your X session.
 - **Recommended (default `setup.sh`):** `imagemagick` + `maim` (lock compose /
-  screenshots for `i3lock-omaxian`), `i3lock-fancy` (fallback locker),
+  screenshots for `i3lock-omaxian`), `xsecurelock` + `mpv` (slideshow lock),
+  `i3lock-fancy` (fallback locker),
   `fastfetch`, plus the other screenshot / media / Bluetooth tools in that script.
 - **`python3-xlib`:** without it, typing in the Omarchy menu does nothing.
 - **`python3-i3ipc`:** alternating split layout (`alternating_layouts.py`).
