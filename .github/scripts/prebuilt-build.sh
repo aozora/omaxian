@@ -43,6 +43,13 @@ if [[ -f $SRC/Cargo.toml ]]; then
   echo "::endgroup::"
   BIN="$SRC/target/release/$APP"
   QT=""
+elif [[ -f $SRC/go.mod ]]; then
+  # Go (Wails) apps: bin/build builds the frontend and the binary; no Qt.
+  echo "::group::bin/build"
+  "$SRC/bin/build"
+  echo "::endgroup::"
+  BIN="$SRC/build/$APP"
+  QT=""
 else
   echo "::group::bin/build"
   "$SRC/bin/build"
