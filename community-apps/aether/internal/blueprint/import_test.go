@@ -1,0 +1,347 @@
+package blueprint
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestImportJSONRemovesLegacyGTKState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.json")
+	content := `{
+		"name": "Legacy",
+		"palette": {"colors": ["#000", "#111", "#222", "#333", "#444", "#555", "#666", "#777", "#888", "#999", "#aaa", "#bbb", "#ccc", "#ddd", "#eee", "#fff"]},
+		"settings": {"includeGtk": true},
+		"appOverrides": {"gtk": {"background": "#000"}, "kitty": {"background": "#111"}}
+	}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bp, err := ImportJSON(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := bp.AppOverrides["gtk"]; ok {
+		t.Fatal("legacy GTK override was retained")
+	}
+	if _, ok := bp.AppOverrides["kitty"]; !ok {
+		t.Fatal("supported override was removed")
+	}
+
+	data, err := json.Marshal(bp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("includeGtk")) {
+		t.Fatal("legacy GTK setting was re-exported")
+	}
+}
+
+func TestValidateBlueprintRejectsReservedNativeColor(t *testing.T) {
+	colors := make([]string, 16)
+	for i := range colors {
+		colors[i] = "#112233"
+	}
+	bp := &Blueprint{Palette: PaletteData{
+		Colors:       colors,
+		NativeColors: map[string]string{"background": "#445566"},
+	}}
+	if err := validateBlueprint(bp); err == nil {
+		t.Fatal("validateBlueprint() accepted a reserved native color")
+	}
+}
+
+func TestImportCurrentColorsTomlPrefersActiveOmarchyTheme(t *testing.T) {
+	home := t.TempDir()
+	binDir := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("PATH", binDir)
+	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestColorsToml(t, filepath.Join(home, ".local", "state", "omarchy", "current", "theme", "colors.toml"), "#111111")
+	writeTestColorsToml(t, filepath.Join(home, ".config", "aether", "theme", "colors.toml"), "#eeeeee")
+
+	bp, err := ImportCurrentColorsToml()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bp.Palette.Colors[1]; got != "#111111" {
+		t.Fatalf("active red = %q, want native #111111", got)
+	}
+}
+
+func writeTestColorsToml(t *testing.T, path, red string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var content strings.Builder
+	for i := 0; i < 16; i++ {
+		value := "#222222"
+		if i == 1 {
+			value = red
+		}
+		fmt.Fprintf(&content, "color%d = %q\n", i, value)
+	}
+	if err := os.WriteFile(path, []byte(content.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestImportColorsToml(t *testing.T) {
+	// Write a test file
+	dir := t.TempDir()
+	path := filepath.Join(dir, "colors.toml")
+
+	content := `# UI Colors (extended)
+accent = "#7aa2f7"
+cursor = "#a9b1d6"
+
+# Primary colors
+foreground = "#a9b1d6"
+background = "#1a1b26"
+
+# Normal colors (ANSI 0-7)
+color0 = "#15161e"
+color1 = "#f7768e"
+color2 = "#9ece6a"
+color3 = "#e0af68"
+color4 = "#7aa2f7"
+color5 = "#bb9af7"
+color6 = "#7dcfff"
+color7 = "#a9b1d6"
+
+# Bright colors (ANSI 8-15)
+color8 = "#414868"
+color9 = "#f7768e"
+color10 = "#9ece6a"
+color11 = "#e0af68"
+color12 = "#7aa2f7"
+color13 = "#bb9af7"
+color14 = "#7dcfff"
+color15 = "#c0caf5"
+`
+	os.WriteFile(path, []byte(content), 0644)
+
+	bp, err := ImportColorsToml(path)
+	if err != nil {
+		t.Fatalf("ImportColorsToml failed: %v", err)
+	}
+
+	t.Logf("Name: %s", bp.Name)
+	t.Logf("Colors count: %d", len(bp.Palette.Colors))
+
+	for i, c := range bp.Palette.Colors {
+		t.Logf("  color%d = %q", i, c)
+	}
+
+	if len(bp.Palette.Colors) < 16 {
+		t.Errorf("expected 16 colors, got %d", len(bp.Palette.Colors))
+	}
+
+	if bp.Palette.Colors[0] != "#1a1b26" {
+		t.Errorf("color0 = %q, want #1a1b26", bp.Palette.Colors[0])
+	}
+}
+
+func TestImportColorsTomlFromThemeDir(t *testing.T) {
+	// Try importing from actual aether theme dir
+	home, _ := os.UserHomeDir()
+	path := filepath.Join(home, ".config", "aether", "theme", "colors.toml")
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Skipf("No colors.toml at %s", path)
+	}
+
+	data, _ := os.ReadFile(path)
+	t.Logf("File contents (first 300 bytes):\n%s", string(data)[:min(300, len(data))])
+
+	bp, err := ImportColorsToml(path)
+	if err != nil {
+		t.Fatalf("ImportColorsToml failed: %v", err)
+	}
+
+	t.Logf("Name: %s", bp.Name)
+	t.Logf("Colors count: %d", len(bp.Palette.Colors))
+	for i, c := range bp.Palette.Colors {
+		if c == "" {
+			t.Errorf("  color%d is EMPTY", i)
+		} else {
+			t.Logf("  color%d = %s", i, c)
+		}
+	}
+}
+
+func TestImportColorsTomlPreservesExplicitAccent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "colors.toml")
+	content := `mode = "dark"
+accent = "#0fdfaf"
+background = "#072626"
+foreground = "#d3b58d"
+red = "#504038"
+green = "#3fdf1f"
+yellow = "#d3b58d"
+blue = "#000080"
+magenta = "#add8e6"
+cyan = "#0fdfaf"
+bright_red = "#d3b58d"
+bright_green = "#90ee90"
+bright_yellow = "#b4eeb4"
+bright_blue = "#0000ff"
+bright_magenta = "#ffffff"
+bright_cyan = "#add8e6"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bp, err := ImportColorsToml(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bp.Palette.ExtendedColors["accent"]; got != "#0fdfaf" {
+		t.Errorf("accent = %q, want #0fdfaf", got)
+	}
+	if bp.Palette.Colors[4] != "#000080" {
+		t.Errorf("blue = %q, want #000080", bp.Palette.Colors[4])
+	}
+}
+
+func TestImportJSON_BoolLockedColors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	// This is the format that was failing: lockedColors as []bool
+	content := `{
+		"palette": {
+			"colors": ["#040C13","#3268f6","#5cdb86","#60e6a5","#638df2","#709ef5","#6FFCFD","#89F3DB",
+			            "#5581a7","#85a6ff","#a4efbd","#acf6d2","#b4cafc","#c3d7fe","#c9ffff","#dbfdf5"],
+			"lockedColors": [false, true, false, false, false, false, false, false,
+			                 false, false, false, false, false, false, true, false]
+		},
+		"name": "Test Bool Locked"
+	}`
+	os.WriteFile(path, []byte(content), 0644)
+
+	bp, err := ImportJSON(path)
+	if err != nil {
+		t.Fatalf("ImportJSON failed: %v", err)
+	}
+
+	if bp.Name != "Test Bool Locked" {
+		t.Errorf("name = %q, want %q", bp.Name, "Test Bool Locked")
+	}
+
+	// Booleans at indices 1 and 14 are true, so LockedColors should be [1, 14]
+	if len(bp.Palette.LockedColors) != 2 {
+		t.Fatalf("LockedColors length = %d, want 2, got %v", len(bp.Palette.LockedColors), bp.Palette.LockedColors)
+	}
+	if bp.Palette.LockedColors[0] != 1 || bp.Palette.LockedColors[1] != 14 {
+		t.Errorf("LockedColors = %v, want [1, 14]", bp.Palette.LockedColors)
+	}
+}
+
+func TestImportJSON_IntLockedColors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	content := `{
+		"palette": {
+			"colors": ["#000","#111","#222","#333","#444","#555","#666","#777",
+			            "#888","#999","#aaa","#bbb","#ccc","#ddd","#eee","#fff"],
+			"lockedColors": [0, 15]
+		},
+		"name": "Test Int Locked"
+	}`
+	os.WriteFile(path, []byte(content), 0644)
+
+	bp, err := ImportJSON(path)
+	if err != nil {
+		t.Fatalf("ImportJSON failed: %v", err)
+	}
+
+	if len(bp.Palette.LockedColors) != 2 {
+		t.Fatalf("LockedColors length = %d, want 2", len(bp.Palette.LockedColors))
+	}
+	if bp.Palette.LockedColors[0] != 0 || bp.Palette.LockedColors[1] != 15 {
+		t.Errorf("LockedColors = %v, want [0, 15]", bp.Palette.LockedColors)
+	}
+}
+
+func TestImportJSON_AllFalseLockedColors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	content := `{
+		"palette": {
+			"colors": ["#000","#111","#222","#333","#444","#555","#666","#777",
+			            "#888","#999","#aaa","#bbb","#ccc","#ddd","#eee","#fff"],
+			"lockedColors": [false, false, false, false, false, false, false, false,
+			                 false, false, false, false, false, false, false, false]
+		},
+		"name": "All Unlocked"
+	}`
+	os.WriteFile(path, []byte(content), 0644)
+
+	bp, err := ImportJSON(path)
+	if err != nil {
+		t.Fatalf("ImportJSON failed: %v", err)
+	}
+
+	if len(bp.Palette.LockedColors) != 0 {
+		t.Errorf("LockedColors = %v, want empty (all false)", bp.Palette.LockedColors)
+	}
+}
+
+func TestImportJSON_NullLockedColors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	content := `{
+		"palette": {
+			"colors": ["#000","#111","#222","#333","#444","#555","#666","#777",
+			            "#888","#999","#aaa","#bbb","#ccc","#ddd","#eee","#fff"],
+			"lockedColors": null
+		},
+		"name": "Null Locked"
+	}`
+	os.WriteFile(path, []byte(content), 0644)
+
+	bp, err := ImportJSON(path)
+	if err != nil {
+		t.Fatalf("ImportJSON failed: %v", err)
+	}
+
+	if len(bp.Palette.LockedColors) != 0 {
+		t.Errorf("LockedColors = %v, want empty/nil", bp.Palette.LockedColors)
+	}
+}
+
+func TestImportJSONRejectsTemplateInjection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "malicious.json")
+	colors := []string{
+		"#000000", `#ff0000"; os.execute("touch /tmp/pwned"); --`, "#00ff00", "#ffff00",
+		"#0000ff", "#ff00ff", "#00ffff", "#ffffff",
+		"#111111", "#ff0000", "#00ff00", "#ffff00",
+		"#0000ff", "#ff00ff", "#00ffff", "#ffffff",
+	}
+	data, err := json.Marshal(Blueprint{Palette: PaletteData{Colors: colors}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ImportJSON(path); err == nil {
+		t.Fatal("ImportJSON() accepted a non-color template payload")
+	}
+}

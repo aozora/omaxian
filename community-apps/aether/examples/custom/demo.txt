@@ -1,0 +1,106 @@
+# Aether Template Variables Demo
+# This file demonstrates all available template variables and modifiers
+
+# =====================================================
+# BASIC COLOR VARIABLES
+# =====================================================
+
+# Direct hex colors (includes # prefix)
+background = {background}
+foreground = {foreground}
+
+# Semantic color names (recommended)
+black         = {black}         # ANSI 0
+red           = {red}           # ANSI 1
+green         = {green}         # ANSI 2
+yellow        = {yellow}        # ANSI 3
+blue          = {blue}          # ANSI 4
+magenta       = {magenta}       # ANSI 5
+cyan          = {cyan}          # ANSI 6
+white         = {white}         # ANSI 7
+bright_black  = {bright_black}  # ANSI 8
+bright_red    = {bright_red}    # ANSI 9
+bright_green  = {bright_green}  # ANSI 10
+bright_yellow = {bright_yellow} # ANSI 11
+bright_blue   = {bright_blue}   # ANSI 12
+bright_magenta = {bright_magenta} # ANSI 13
+bright_cyan   = {bright_cyan}   # ANSI 14
+bright_white  = {bright_white}  # ANSI 15
+
+# =====================================================
+# FORMAT MODIFIERS
+# =====================================================
+
+# .strip - Removes the # prefix
+# Output: RRGGBB (e.g., 1e1e2e)
+stripped_bg = {background.strip}
+stripped_accent = {magenta.strip}
+
+# .rgb - Decimal RGB format
+# Output: R, G, B (e.g., 30, 30, 46)
+rgb_background = {background.rgb}
+rgb_foreground = {foreground.rgb}
+rgb_red = {red.rgb}
+
+# .rgba - RGBA format with default alpha (1.0)
+# Output: rgba(R, G, B, 1)
+rgba_background = {background.rgba}
+rgba_accent = {magenta.rgba}
+
+# .rgba:VALUE - RGBA with custom alpha
+# Output: rgba(R, G, B, VALUE)
+rgba_transparent_bg = {background.rgba:0.5}
+rgba_semi_accent = {magenta.rgba:0.8}
+rgba_subtle = {foreground.rgba:0.3}
+rgba_glass = {background.rgba:0.85}
+
+# .yaru - Maps to Yaru icon theme variant
+# Output: Yaru, Yaru-blue, Yaru-red, etc.
+yaru_theme = {magenta.yaru}
+
+# =====================================================
+# OTHER VARIABLES
+# =====================================================
+
+# Theme type (light or dark)
+theme_type = {theme_type}
+
+# Wallpaper path
+wallpaper_path = {wallpaper}
+
+# =====================================================
+# REAL-WORLD EXAMPLES
+# =====================================================
+
+# CSS Example
+/*
+.container {
+    background-color: {background};
+    color: {foreground};
+    border: 1px solid {bright_black};
+}
+
+.button {
+    background: {magenta};
+    color: {background};
+}
+
+.overlay {
+    background: {background.rgba:0.9};
+}
+*/
+
+# Hyprland/Hyprlock Example
+# $bg_color = {background.rgba}
+# $accent = {magenta.rgba:0.8}
+# $text = {foreground.rgba}
+
+# Alacritty/Terminal Example (uses stripped hex)
+# [colors.primary]
+# background = "0x{background.strip}"
+# foreground = "0x{foreground.strip}"
+
+# Kitty Example (uses RGB format)
+# background {background.rgb}
+# foreground {foreground.rgb}
+# black {black.rgb}

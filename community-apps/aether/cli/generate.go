@@ -1,0 +1,184 @@
+package cli
+
+import (
+	"embed"
+	"fmt"
+	"os"
+	"strings"
+
+	"aether/internal/extraction"
+	"aether/internal/icontheme"
+	"aether/internal/theme"
+)
+
+func parseIconThemeOption(args []string) (icontheme.Selection, []string, error) {
+	selection := icontheme.Automatic()
+	remaining := make([]string, 0, len(args))
+	found := false
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg != "--icon-theme" {
+			remaining = append(remaining, arg)
+			continue
+		}
+		if found {
+			return icontheme.Selection{}, args, fmt.Errorf("--icon-theme may only be specified once")
+		}
+		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+			return icontheme.Selection{}, args, fmt.Errorf("--icon-theme requires automatic or a theme ID")
+		}
+
+		value := args[i+1]
+		if value != "automatic" {
+			var err error
+			selection, err = icontheme.NormalizeSelection(icontheme.Selection{
+				Mode: icontheme.SelectionExplicit,
+				ID:   value,
+			})
+			if err != nil {
+				return icontheme.Selection{}, args, err
+			}
+		}
+
+		found = true
+		i++
+	}
+
+	return selection, remaining, nil
+}
+
+func runGenerate(args []string, templatesFS embed.FS) int {
+	for _, arg := range args {
+		if arg == "--gtk" || arg == "--no-gtk" {
+			fmt.Fprintf(os.Stderr, "Error: Unknown option: %s\n", arg)
+			return 1
+		}
+	}
+	iconTheme, args, err := parseIconThemeOption(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Invalid icon theme: %v\n", err)
+		return 1
+	}
+
+	// Parse flags
+	mode, args := parseFlag(args, "--extract-mode")
+	if mode == "" {
+		mode = "normal"
+	}
+	lightMode, args := hasFlag(args, "--light-mode")
+	noApply, args := hasFlag(args, "--no-apply")
+	outputPath, args := parseFlag(args, "--output")
+
+	// Editor integrations are opt-out and match the GUI defaults.
+	noZed, args := hasFlag(args, "--no-zed")
+	noVscode, args := hasFlag(args, "--no-vscode")
+	noNeovim, args := hasFlag(args, "--no-neovim")
+
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: Wallpaper path is required")
+		fmt.Fprintln(os.Stderr, "Usage: aether --generate <wallpaper> [--extract-mode <mode>] [--light-mode] [--no-apply] [--output <path>] [--icon-theme automatic|<ID>] [--no-zed] [--no-vscode] [--no-neovim]")
+		return 1
+	}
+	wallpaperPath := args[0]
+
+	// Validate mode
+	if !validModes[mode] {
+		fmt.Fprintf(os.Stderr, "Error: Invalid extraction mode: %s\n", mode)
+		fmt.Fprintf(os.Stderr, "Valid modes: normal, monochromatic, analogous, pastel, material, colorful, muted, bright\n")
+		return 1
+	}
+
+	// Expand paths
+	wallpaperPath = expandHome(wallpaperPath)
+	if outputPath != "" {
+		outputPath = expandHome(outputPath)
+	}
+
+	// Validate file exists
+	if _, err := os.Stat(wallpaperPath); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Error: Wallpaper file not found: %s\n", wallpaperPath)
+		return 1
+	}
+	if !theme.IsImageFile(wallpaperPath) {
+		fmt.Fprintf(os.Stderr, "Error: Unsupported wallpaper file: %s\n", wallpaperPath)
+		fmt.Fprintln(os.Stderr, "Aether can extract colors from image files only")
+		return 1
+	}
+
+	// Build status message
+	msg := fmt.Sprintf("Extracting colors from: %s", wallpaperPath)
+	var details []string
+	if mode != "normal" {
+		details = append(details, mode)
+	}
+	if lightMode {
+		details = append(details, "light mode")
+	}
+	if noApply {
+		details = append(details, "generate only")
+	}
+	if len(details) > 0 {
+		msg += fmt.Sprintf(" (%s)", joinStrings(details, ", "))
+	}
+	fmt.Println(msg)
+
+	// Extract colors
+	palette, err := extraction.ExtractColors(wallpaperPath, lightMode, mode)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to extract colors: %v\n", err)
+		return 1
+	}
+	fmt.Println("Extracted 16 colors successfully")
+
+	// Map colors to roles
+	colorRoles := MapColorsToRoles(palette)
+
+	// Create writer
+	writer := theme.NewWriter(templatesFS, "templates")
+	state := &theme.ThemeState{
+		Palette:       palette,
+		WallpaperPath: wallpaperPath,
+		LightMode:     lightMode,
+		ColorRoles:    colorRoles,
+		IconTheme:     iconTheme,
+	}
+
+	settings := theme.Settings{
+		IncludeZed:    !noZed,
+		IncludeVscode: !noVscode,
+		IncludeNeovim: !noNeovim,
+	}
+
+	if noApply {
+		fmt.Println("Generating theme files...")
+		if err := writer.GenerateOnly(state, settings, outputPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed to generate theme: %v\n", err)
+			return 1
+		}
+		fmt.Println("Theme files generated successfully")
+	} else {
+		fmt.Println("Applying theme...")
+		result, err := writer.ApplyTheme(state, settings)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed to apply theme: %v\n", err)
+			return 1
+		}
+		if result.Success {
+			fmt.Println("Theme applied successfully")
+		}
+	}
+
+	return 0
+}
+
+func joinStrings(s []string, sep string) string {
+	result := ""
+	for i, v := range s {
+		if i > 0 {
+			result += sep
+		}
+		result += v
+	}
+	return result
+}
