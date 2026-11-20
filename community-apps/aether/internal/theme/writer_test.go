@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"aether/internal/omarchy"
+	"aether/internal/omaxiantest"
 	"aether/internal/platform"
 )
 
@@ -776,6 +777,7 @@ if [ "$1 $2" = "theme set" ] && [ "$AETHER_TEST_FAILURE" != "success" ]; then
     exit 7
 fi
 `
+				omaxiantest.CLIShims(t, os.Getenv("PATH"))
 				if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "omarchy"), []byte(script), 0o755); err != nil {
 					t.Fatal(err)
 				}
@@ -897,6 +899,7 @@ if [ "$1 $2 $3" = "theme bg set" ]; then
     fi
 fi
 `
+				omaxiantest.CLIShims(t, os.Getenv("PATH"))
 				if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "omarchy"), []byte(script), 0o755); err != nil {
 					t.Fatal(err)
 				}
@@ -955,6 +958,7 @@ func TestApplyOmarchyThemeDoesNotActivateAfterGenerationFailure(t *testing.T) {
 	home := setupWriterTestEnv(t)
 	commandLog := filepath.Join(home, "commands")
 	t.Setenv("AETHER_COMMAND_LOG", commandLog)
+	omaxiantest.CLIShims(t, os.Getenv("PATH"))
 	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "omarchy"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$AETHER_COMMAND_LOG\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

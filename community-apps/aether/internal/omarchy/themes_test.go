@@ -9,6 +9,7 @@ import (
 
 func TestThemeSearchDirsExtraDirsFirst(t *testing.T) {
 	t.Setenv(extraThemeDirsEnv, "/tmp/aether-test-themes:/opt/themes")
+	t.Setenv("OMARCHY_PATH", "")
 
 	dirs := themeSearchDirs()
 	if len(dirs) < 5 {
@@ -24,7 +25,7 @@ func TestThemeSearchDirsExtraDirsFirst(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	expectedDefaults := []string{
 		filepath.Join(home, ".config", "omarchy", "themes"),
-		filepath.Join("/usr/share/omarchy", "themes"),
+		filepath.Join(home, ".local", "share", "omarchy", "themes"),
 		filepath.Join(home, ".config", "themes"),
 	}
 	for i, want := range expectedDefaults {

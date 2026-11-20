@@ -53,7 +53,7 @@ func SupportsThemeOverride(app string) bool {
 
 // IsInstalled reports whether the public Omarchy command is available.
 func IsInstalled() bool {
-	return runtime.GOOS == "linux" && platform.CommandExists("omarchy")
+	return runtime.GOOS == "linux" && platform.CommandExists(cliProbe)
 }
 
 // DetectCapabilities returns the native paths and active theme for Omarchy.
@@ -65,12 +65,7 @@ func DetectCapabilities() Capabilities {
 		CurrentTheme: GetCurrentThemeName(),
 		OverrideApps: ThemeOverrideApps(),
 	}
-	if !capabilities.Available {
-		return capabilities
-	}
-	if output, err := platform.RunSync("omarchy", "version"); err == nil {
-		capabilities.Version = strings.TrimSpace(output)
-	}
+	// Omaxian has no `omarchy version`; Version stays empty.
 	return capabilities
 }
 
@@ -188,18 +183,18 @@ func ActivateThemeWithInstall(name, wallpaper string, install func(activate func
 		}
 		activationStarted = true
 		if wallpaper == "" {
-			if _, err := platform.RunSync("omarchy", "theme", "set", name); err != nil {
+			if _, err := runCLI(nil, "theme set", name); err != nil {
 				return fmt.Errorf("activate Omarchy theme %q: %w", name, err)
 			}
 			return nil
 		}
 
-		if _, err := platform.RunSync("omarchy", "theme", "bg", "set", wallpaper); err != nil {
+		if _, err := runCLI(nil, "theme bg set", wallpaper); err != nil {
 			return fmt.Errorf("set Omarchy background: %w", err)
 		}
-		if _, err := platform.RunSyncEnv(
+		if _, err := runCLI(
 			map[string]string{"OMARCHY_THEME_SKIP_BACKGROUND": "1"},
-			"omarchy", "theme", "set", name,
+			"theme set", name,
 		); err != nil {
 			return fmt.Errorf("activate Omarchy theme %q: %w", name, err)
 		}
@@ -213,7 +208,7 @@ func ActivateThemeWithInstall(name, wallpaper string, install func(activate func
 			}
 		}
 		keepSnapshot = restorePath == snapshot
-		if _, restoreErr := platform.RunSync("omarchy", "theme", "bg", "set", restorePath); restoreErr != nil {
+		if _, restoreErr := runCLI(nil, "theme bg set", restorePath); restoreErr != nil {
 			keepSnapshot = true
 			return fmt.Errorf("%w; restore previous background: %v; recovery copy: %s", err, restoreErr, snapshot)
 		}
@@ -269,7 +264,7 @@ func RevertTheme() error {
 	if err := validateThemeName(name); err != nil {
 		return fmt.Errorf("invalid previous Omarchy theme: %w", err)
 	}
-	_, err = platform.RunSync("omarchy", "theme", "set", name)
+	_, err = runCLI(nil, "theme set", name)
 	if err != nil {
 		return fmt.Errorf("restore Omarchy theme %q: %w", name, err)
 	}

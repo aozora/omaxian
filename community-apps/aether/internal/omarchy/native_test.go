@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"aether/internal/omaxiantest"
 )
 
 func TestActivateThemeUsesPublicCLIAndExplicitBackground(t *testing.T) {
@@ -25,6 +27,7 @@ func TestActivateThemeUsesPublicCLIAndExplicitBackground(t *testing.T) {
 
 	writeThemeName(t, filepath.Join(home, ".local", "state", "omarchy", "current", "theme.name"), "ethereal\n")
 	script := "#!/bin/sh\nprintf '%s|%s\\n' \"$OMARCHY_THEME_SKIP_BACKGROUND\" \"$*\" >> \"$AETHER_COMMAND_LOG\"\n"
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -71,6 +74,7 @@ func TestActivateForeignThemeDoesNotReplaceRevertTarget(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".config", "omarchy", "themes", "foreign"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +99,7 @@ func TestRevertThemeDoesNothingAfterExternalThemeChange(t *testing.T) {
 	writeThemeName(t, filepath.Join(home, ".local", "state", "omarchy", "current", "theme.name"), "foreign\n")
 	writeThemeName(t, previousThemeFile(), "ethereal\n")
 	script := "#!/bin/sh\nprintf '%s\n' \"$*\" >> \"$AETHER_COMMAND_LOG\"\n"
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +130,7 @@ func TestRevertThemeFallsBackForLegacyManagedTheme(t *testing.T) {
 	}
 	writeThemeName(t, filepath.Join(home, ".local", "state", "omarchy", "current", "theme.name"), "aether\n")
 	script := "#!/bin/sh\nprintf '%s\n' \"$*\" >> \"$AETHER_COMMAND_LOG\"\n"
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -148,6 +154,7 @@ func TestActivateThemeReturnsCommandOutput(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("PATH", binDir)
 	script := "#!/bin/sh\necho 'theme transaction failed' >&2\nexit 7\n"
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +189,7 @@ if [ "$1 $2 $3" = "theme bg set" ]; then
     exit 7
 fi
 `
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -233,6 +241,7 @@ if [ "$1 $2" = "theme set" ]; then
     exit 7
 fi
 `
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -262,6 +271,7 @@ func TestActivateThemeWithInstallDoesNotActivateOnInstallFailure(t *testing.T) {
 	t.Setenv("PATH", binDir)
 	t.Setenv("AETHER_COMMAND_LOG", logPath)
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$AETHER_COMMAND_LOG\"\n"
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -307,6 +317,7 @@ if [ "$4" = "$AETHER_OLD_BACKGROUND" ]; then
     exit 8
 fi
 `
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -330,6 +341,7 @@ func TestActivateThemeDoesNotInstallWhenSnapshotFails(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "blocked"))
 	t.Setenv("PATH", binDir)
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte("#!/bin/sh\nexit 9\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -370,6 +382,7 @@ func TestActivateThemeCleansUnusedSnapshots(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 			t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 			t.Setenv("PATH", binDir)
+			omaxiantest.CLIShims(t, binDir)
 			if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -426,6 +439,7 @@ if [ "$1 $2 $3" = "theme bg set" ]; then
     /bin/ln -sfn "$4" "$AETHER_BACKGROUND_LINK" || exit 9
 fi
 `
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -389,6 +389,7 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | [Hype](community-apps/hype/) | Markdown presentations with a visual slide editor; export to PDF or PowerPoint |
 | [Cards](community-apps/cards/) | Klondike solitaire in four card series |
 | [Checkmate](community-apps/checkmate/) | 3D chess for one or two players |
+| [Aether](community-apps/aether/) | Theme maker: extract a palette from a wallpaper and apply it as an Omarchy theme |
 
 Details: [`community-apps/README.md`](community-apps/README.md).
 

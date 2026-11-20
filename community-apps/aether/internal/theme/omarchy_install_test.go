@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"aether/internal/omarchy"
+	"aether/internal/omaxiantest"
 )
 
 func TestInstallOmarchyThemeCreatesAndActivatesNewTheme(t *testing.T) {
@@ -28,6 +29,7 @@ func TestInstallOmarchyThemeCreatesAndActivatesNewTheme(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := "#!/bin/sh\nif [ \"$1 $2 $3\" = \"theme bg set\" ]; then\n  printf '%s' \"$4\" > \"$AETHER_TEST_BGSET\"\nelif [ \"$1 $2\" = \"theme set\" ]; then\n  printf '%s' \"$3\" > \"$AETHER_TEST_ACTIVATED\"\nfi\n"
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +99,7 @@ if [ "$1 $2" = "theme set" ]; then
     exit 7
 fi
 `
+	omaxiantest.CLIShims(t, os.Getenv("PATH"))
 	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

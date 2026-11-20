@@ -12,17 +12,18 @@ func TestIsOmarchyInstalledRequiresPublicCLI(t *testing.T) {
 		t.Skip("Omarchy is only supported on Linux")
 	}
 
+	// Omaxian has no `omarchy` dispatcher; omarchy-theme-set is its public CLI.
 	binDir := t.TempDir()
 	t.Setenv("PATH", binDir)
-	writeExecutable(t, filepath.Join(binDir, "omarchy-theme-set"))
+	writeExecutable(t, filepath.Join(binDir, "omarchy"))
 
 	if IsOmarchyInstalled() {
-		t.Fatal("IsOmarchyInstalled() = true with only an internal command")
+		t.Fatal("IsOmarchyInstalled() = true with only a dispatcher Omaxian lacks")
 	}
 
-	writeExecutable(t, filepath.Join(binDir, "omarchy"))
+	writeExecutable(t, filepath.Join(binDir, "omarchy-theme-set"))
 	if !IsOmarchyInstalled() {
-		t.Fatal("IsOmarchyInstalled() = false with public CLI")
+		t.Fatal("IsOmarchyInstalled() = false with omarchy-theme-set")
 	}
 }
 

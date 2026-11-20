@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"aether/internal/omarchy"
+	"aether/internal/omaxiantest"
 	"aether/internal/platform"
 	"aether/internal/theme"
 )
@@ -23,6 +24,7 @@ func TestThemeFolderExists(t *testing.T) {
 			t.Setenv("PATH", bin)
 			root := platform.SavedThemesDir()
 			if native {
+				omaxiantest.CLIShims(t, bin)
 				if err := os.WriteFile(filepath.Join(bin, "omarchy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 					t.Fatal(err)
 				}
@@ -81,6 +83,7 @@ func TestWallpaperOnlyPreservesActiveTheme(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "commands")
 	t.Setenv("AETHER_COMMAND_LOG", log)
 	script := "#!/bin/sh\nprintf '%s|%s\\n' \"$#\" \"$*\" >> \"$AETHER_COMMAND_LOG\"\n"
+	omaxiantest.CLIShims(t, bin)
 	if err := os.WriteFile(filepath.Join(bin, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +126,7 @@ func TestSaveAndApplyThemeActivatesTheRenderedVariant(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "commands")
 	t.Setenv("AETHER_COMMAND_LOG", log)
 	script := "#!/bin/sh\nprintf '%s|%s\\n' \"$OMARCHY_THEME_SKIP_BACKGROUND\" \"$*\" >> \"$AETHER_COMMAND_LOG\"\n"
+	omaxiantest.CLIShims(t, bin)
 	if err := os.WriteFile(filepath.Join(bin, "omarchy"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

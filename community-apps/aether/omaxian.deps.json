@@ -1,0 +1,23 @@
+{
+  "apt": [
+    "libgtk-3-0t64",
+    "libwebkit2gtk-4.1-0",
+    "gstreamer1.0-plugins-good",
+    "xdg-utils"
+  ],
+  "apt_build": [
+    "build-essential",
+    "pkg-config",
+    "ca-certificates",
+    "golang-go",
+    "nodejs",
+    "npm",
+    "libgtk-3-dev",
+    "libwebkit2gtk-4.1-dev"
+  ],
+  "manual": [
+    "Source builds: go.mod needs Go 1.25 and Debian ships 1.24; bin/build sets GOTOOLCHAIN=auto, so go downloads the 1.25 toolchain once (checksum-verified).",
+    "Applying a theme writes ~/.config/omarchy/themes/<name>/ and runs omarchy-theme-set; the bar, i3, dunst, terminals and GTK follow colors.toml.",
+    "Optional bar/launcher pickers (contrib/quickshell) are not ported yet: they are Wayland layer-shell Quickshell plugins."
+  ]
+}

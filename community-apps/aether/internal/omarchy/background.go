@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"aether/internal/platform"
 )
 
 // SetBackground changes the native background without activating another theme.
@@ -24,7 +22,7 @@ func SetBackground(path string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("wallpaper is not a regular file")
 	}
-	if _, err := platform.RunSync("omarchy", "theme", "bg", "set", abs); err != nil {
+	if _, err := runCLI(nil, "theme bg set", abs); err != nil {
 		return fmt.Errorf("set Omarchy background: %w", err)
 	}
 	return nil

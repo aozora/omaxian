@@ -93,7 +93,9 @@ func themeSearchDirs() []string {
 func stockThemesDir() string {
 	root := os.Getenv("OMARCHY_PATH")
 	if root == "" {
-		root = "/usr/share/omarchy"
+		// Omaxian installs Omarchy per user, not as a package under /usr/share.
+		home, _ := os.UserHomeDir()
+		root = filepath.Join(home, ".local", "share", "omarchy")
 	}
 	return filepath.Join(root, "themes")
 }

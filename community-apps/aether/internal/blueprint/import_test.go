@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"aether/internal/omaxiantest"
 )
 
 func TestImportJSONRemovesLegacyGTKState(t *testing.T) {
@@ -62,6 +64,7 @@ func TestImportCurrentColorsTomlPrefersActiveOmarchyTheme(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("PATH", binDir)
+	omaxiantest.CLIShims(t, binDir)
 	if err := os.WriteFile(filepath.Join(binDir, "omarchy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

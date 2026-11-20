@@ -93,6 +93,7 @@ Plan and rationale:
 | [`hype`](hype/) | Hype (Qt Quick Markdown presentations) | [omacom/hype](https://github.com/omacom/hype) `0.7.1` (`8c347fc`) | Ported |
 | [`cards`](cards/) | Cards (Qt Quick Klondike solitaire) | [omacom/cards](https://github.com/omacom/cards) `0.1.0` (`e1a01bf`) | Ported |
 | [`checkmate`](checkmate/) | Checkmate (Qt Quick 3D chess) | [omacom/checkmate](https://github.com/omacom/checkmate) `0.1.3` (`b4e6a86`) | Ported |
+| [`aether`](aether/) | Aether (Wails / WebKitGTK theme maker) | [omacom/aether](https://github.com/omacom/aether) `4.33.0` (`a7a7c37`) | Ported |
 
 **Not ported:**
 
