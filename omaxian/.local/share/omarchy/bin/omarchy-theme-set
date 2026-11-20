@@ -202,7 +202,11 @@ reload_gtk
 reload_terminals
 reload_fastfetch
 reload_yazi
-set_background
+# Upstream contract: a caller that already set the background with
+# omarchy-theme-bg-set (Aether) keeps it instead of the theme's first image.
+if [[ ${OMARCHY_THEME_SKIP_BACKGROUND:-} != "1" ]]; then
+  set_background
+fi
 
 command -v dunstify >/dev/null 2>&1 && \
   dunstify -u low -h string:x-dunst-stack-tag:omarchy-theme \
