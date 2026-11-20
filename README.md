@@ -302,7 +302,8 @@ Instead of manually build it you can add the backports:
 sudo apt update
 sudo apt install -t trixie-backports quickshell
 sudo apt install qml6-module-qtquick-shapes \
-  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
+  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects \
+  qt6-image-formats-plugins
 ```
 
 ### Devuan Excalibur
@@ -313,7 +314,8 @@ sudo apt install qml6-module-qtquick-shapes \
 sudo apt update
 sudo apt install -t excalibur-backports quickshell
 sudo apt install qml6-module-qtquick-shapes \
-  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
+  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects \
+  qt6-image-formats-plugins
 ```
 
 ---

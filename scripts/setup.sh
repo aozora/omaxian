@@ -112,6 +112,8 @@ REQUIRED=(
 	qml6-module-qtquick-shapes
 	qml6-module-qt-labs-folderlistmodel
 	qml6-module-qtquick-effects
+	# Qt WebP/TIFF decoders — stock theme backgrounds are .webp (wallpaper thumbnails)
+	qt6-image-formats-plugins
 	# fonts + icons
 	fontconfig fonts-jetbrains-mono fonts-noto-color-emoji papirus-icon-theme
 )
