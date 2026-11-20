@@ -94,7 +94,10 @@ Plan and rationale:
 | [`cards`](cards/) | Cards (Qt Quick Klondike solitaire) | [omacom/cards](https://github.com/omacom/cards) `0.1.0` (`e1a01bf`) | Ported |
 | [`checkmate`](checkmate/) | Checkmate (Qt Quick 3D chess) | [omacom/checkmate](https://github.com/omacom/checkmate) `0.1.3` (`b4e6a86`) | Ported |
 
-**Not ported:** [omareel](https://github.com/omacom/omareel) — Hyprland plugin + `gpu-screen-recorder` / layer-shell capture; not viable on X11/i3.
+**Not ported:**
+
+- [omareel](https://github.com/omacom/omareel) — Hyprland plugin + `gpu-screen-recorder` / layer-shell capture; not viable on X11/i3.
+- [fantasi](https://github.com/omacom/fantasi) — the Qt app itself would port, but it only drives models through `omarchy-agent-local` / [omarchy-local-ai](https://github.com/omacom/omarchy-local-ai), which runs them as Podman Quadlets (systemd user units, `systemctl` / `journalctl`); not viable without systemd.
 
 ## Install
 
