@@ -2,7 +2,7 @@
 
 Live weather radar for the Omaxian bar. Beta. Port of
 [wesleygrimes/omastorm](https://github.com/wesleygrimes/omastorm)
-(upstream commit `dfe0262`, plugin version `0.1.25`).
+(upstream commit `3d6a159`, plugin version `0.1.27`).
 
 Plugin id: `com.omastorm.radar` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md) for the catalog install
@@ -53,10 +53,10 @@ omarchy-shell shell rescanPlugins
 omarchy-plugin-enable "$ID"
 ```
 
-On first open, the plugin downloads the pinned engine from GitHub Releases,
-checks its sha256, and installs it under `~/.local/share/omastorm/bin`.
-Configuration, remembered view, and cached scans stay in Omastorm's own
-directories.
+When the bar loads the widget, the plugin downloads the pinned engine from
+GitHub Releases, checks its sha256, and installs it under
+`~/.local/share/omastorm/bin`. Configuration, remembered view, and cached
+scans stay in Omastorm's own directories.
 
 Optional: an i3 key to toggle the window (put in `~/.config/i3/config.d/` or
 similar, then `i3-msg reload`). Omastorm never writes that file:
@@ -352,6 +352,7 @@ the template asks.
 omarchy-plugin-remove com.omastorm.radar
 ~/.local/share/omastorm/bin/omastorm-engine stop
 rm -rf ~/.local/share/omastorm ~/.cache/omastorm ~/.local/state/omastorm
+rm -rf "$XDG_RUNTIME_DIR/omastorm"                   # socket, logs, session tiles
 rm -rf ~/.config/omastorm                            # keep this to reinstall later
 rm -f ~/.local/share/applications/omastorm.desktop   # if you added the launcher entry
 ```
