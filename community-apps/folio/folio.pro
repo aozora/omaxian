@@ -2,7 +2,10 @@
 QT += core gui network qml quick quickcontrols2 dbus concurrent
 
 CONFIG += c++17 release link_pkgconfig
-PKGCONFIG += gio-2.0 gio-unix-2.0 zlib
+PKGCONFIG += gio-2.0 gio-unix-2.0 fontconfig zlib
+# Same default as CMake without a prefix. install.sh puts the plugins under
+# ~/.local/share/folio/plugins, which Folio reads as well.
+DEFINES += FOLIO_PACKAGED_PLUGINS=\\\"/usr/share/folio/plugins\\\"
 TARGET = folio
 TEMPLATE = app
 
@@ -10,6 +13,7 @@ HEADERS += \
     src/backend.h \
     src/chooser.h \
     src/disks.h \
+    src/dragpicture.h \
     src/filemanager1.h \
     src/fileops.h \
     src/foldermodel.h \
@@ -26,6 +30,7 @@ SOURCES += \
     src/backend.cpp \
     src/chooser.cpp \
     src/disks.cpp \
+    src/dragpicture.cpp \
     src/filemanager1.cpp \
     src/fileops.cpp \
     src/foldermodel.cpp \

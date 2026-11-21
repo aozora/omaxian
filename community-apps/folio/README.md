@@ -1,11 +1,12 @@
 # Folio (Omaxian port)
 
 Omarchy's file manager: columns / list tree / grid, Space previews, trash, drives,
-and keyboard-first browsing that follows the Omarchy theme. Can also be other
+and keyboard-first browsing that follows the Omarchy theme and the system's
+monospace font. Can also be other
 apps' Open and Save dialogs via `folio chooser` (xdg-desktop-portal).
 
 Port of [omacom/folio](https://github.com/omacom/folio) (upstream commit
-`36af8a0`, v0.6.1 + 7, pinned in `.omaxian-upstream-commit`). Full upstream docs:
+`78739f3`, v0.7.0, pinned in `.omaxian-upstream-commit`). Full upstream docs:
 [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
@@ -17,14 +18,17 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | ----------------------------- | --------- |
 | Arch package / `omarchy-pkgs` | Debian `install.sh` → `~/.local` |
 | Runtime dep `qt6-wayland` | Not installed. Uses XCB via `qt6-qpa-plugins` |
-| Plugins under `/usr/share/folio/plugins` | `~/.local/share/folio/plugins` |
+| Plugins under `/usr/share/folio/plugins` (`FOLIO_PACKAGED_PLUGINS`, from the CMake install prefix) | `~/.local/share/folio/plugins`, which Folio reads as well. The build keeps upstream's `/usr` default; `folio.pro` defines the same path |
+| `cmake --install` lays out the package | Not used. `install.sh` copies the files into `~/.local` and rewrites the `Exec=` paths |
+| `org.freedesktop.FileManager1.service` starts Folio for other apps' "Show in folder" | Shipped in `share/` but not installed, so Folio doesn't take that over from the file manager you already use. Opt in below |
 | Portal/DBus under `/usr/share/…` with `Exec=/usr/bin/folio` | `~/.local/share/xdg-desktop-portal/portals/` + `~/.local/share/dbus-1/services/` with `Exec=~/.local/bin/folio` |
 | `hyprland-portals.conf` + `systemctl --user restart` | Document `~/.config/xdg-desktop-portal/portals.conf` (XDG desktop `i3`); restart portal however the host runs it |
 | Corner radius from `hyprctl` | Unchanged; gated on `HYPRLAND_INSTANCE_SIGNATURE` (square on i3) |
 | Theme / language from Omarchy paths | Unchanged — Omaxian writes the same files |
+| Font and text size follow the system's fixed-width font (13px text at Omarchy's 11pt default) | Unchanged. The family is what `fc-match monospace` names. Omaxian sets no Qt font size, so Qt reports 9pt without a platform theme (11px text) and GTK's 10pt under `QT_QPA_PLATFORMTHEME=gtk3` (12px text) |
 | `xdg-terminal-exec` for Open Terminal | Same; Excalibur ships it |
 | Preview PDF error text names Arch `qt6-webengine` | Debian package is `qml6-module-qtquick-pdf` |
-| CMake-only build | Same CMake path when `qt6-*-dev` works; `folio.pro` + qmake fallback for `~/.local/opt/omaxian-qt6-<mm>/` |
+| CMake-only build | Same CMake path when `qt6-*-dev` works; `folio.pro` + qmake fallback for `~/.local/opt/omaxian-qt6-<mm>/` (keep its sources and `fontconfig` in step with `CMakeLists.txt`) |
 | Preview `setDesktopFileName("folio-preview")` only | Also `setApplicationName("folio-preview")` so i3 can float Space preview on X11 |
 | Chooser `setDesktopFileName("folio-chooser")` only | Also `setApplicationName("folio-chooser")`; i3 floats/centers `folio-chooser` |
 | Plugin dirs may be group-writable from umask | `install.sh` runs `chmod -R go-w` so Folio's `trusted()` accepts them |
@@ -38,13 +42,14 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 Runtime (also in `omaxian.deps.json`):
 
 - Qt 6 Quick / Controls / Effects / Shapes / QtCore QML, `qt6-qpa-plugins`
-- `gvfs` + `gvfs-backends`, `udisks2`, `libarchive-tools` (`bsdtar`)
+- `gvfs` + `gvfs-backends`, `udisks2`, `libarchive-tools` (`bsdtar`: compress,
+  extract, and the names inside an archive in its preview)
 - `xdg-terminal-exec`, `xdg-desktop-portal` + GTK backend
 - Optional Space preview: `qml6-module-qtmultimedia`, `qml6-module-qtquick-pdf`
 - Optional thumbs: `poppler-utils`, `ffmpegthumbnailer`
 
 Build: `cmake` + `qt6-base-dev` + `qt6-declarative-dev` + `libglib2.0-dev` +
-`zlib1g-dev`, or `qmake6` against `folio.pro`. Stock Devuan Excalibur Qt 6.8 is
+`libfontconfig-dev` + `zlib1g-dev`, or `qmake6` against `folio.pro`. Stock Devuan Excalibur Qt 6.8 is
 enough.
 
 Bundled plugins (Dropbox, LocalSend, Tailscale) soft-fail when those binaries
@@ -103,11 +108,24 @@ Then restart the portal (`killall xdg-desktop-portal` and open a dialog, or
 whatever your host uses — there is no systemd user session on Devuan). i3
 floats and centers `folio-chooser` windows (deployed `05_rules.conf`).
 
+### "Show in folder" from other apps (optional)
+
+A running Folio already answers `org.freedesktop.FileManager1`. To have D-Bus
+start it when no file manager is running (this replaces whichever file manager
+answered before):
+
+```bash
+sed "s|^Exec=/usr/bin/folio|Exec=$HOME/.local/bin/folio|" \
+  community-apps/folio/share/org.freedesktop.FileManager1.service \
+  > ~/.local/share/dbus-1/services/org.freedesktop.FileManager1.service
+```
+
 ## Smoke check
 
 1. `folio --help` / opening `folio` shows a window on the home folder.
 2. Ctrl+1/2/3 switches columns / list / grid; Space opens a preview.
 3. Switch theme (`omarchy-theme-set …`). The accent should follow. Corners stay square on i3.
+   Text is in the font `fc-match monospace` names.
 4. Delete a file → Trash; restore from the sidebar Trash place.
 5. Open Terminal on a folder needs `xdg-terminal-exec` on PATH.
 6. With FileChooser=folio enabled: an app's Open/Save dialog is a Folio window
@@ -122,6 +140,7 @@ rm -f ~/.local/share/applications/folio-chooser.desktop
 rm -f ~/.local/share/icons/hicolor/scalable/apps/folio.svg
 rm -f ~/.local/share/xdg-desktop-portal/portals/folio.portal
 rm -f ~/.local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.folio.service
+rm -f ~/.local/share/dbus-1/services/org.freedesktop.FileManager1.service  # only if it is Folio's
 rm -rf ~/.local/share/folio
 ```
 

@@ -2,7 +2,6 @@
 
 #include <QDir>
 #include <QFileInfo>
-#include <QFont>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
@@ -13,6 +12,7 @@
 #include <cstdio>
 
 #include "chooser.h"
+#include "dragpicture.h"
 #include "filemanager1.h"
 #include "foldermodel.h"
 #include "places.h"
@@ -41,17 +41,11 @@ static QString startPath(const QStringList &args, QString *select) {
     return QDir::homePath();
 }
 
-// Omarchy points fontconfig's monospace at the font picked in its menu, so
-// asking for "monospace" follows the user's choice.
 static void setUp(QGuiApplication &app) {
     app.setApplicationName("folio");
     // Settings (the chosen view) go to ~/.config/folio/folio.conf.
     app.setOrganizationName("folio");
     app.setWindowIcon(QIcon::fromTheme("folio"));
-    QFont font("monospace");
-    font.setStyleHint(QFont::Monospace);
-    font.setPixelSize(13);
-    app.setFont(font);
     QQuickStyle::setStyle("Material");
 }
 
@@ -96,6 +90,9 @@ static int preview(QGuiApplication &app) {
     Translator translator;
     app.installTranslator(&translator);
     Theme theme;
+    // The system's fixed-width font (Omarchy's pick) and its size, followed
+    // live: Folio's own font.
+    theme.followSystemFont();
     Thumbnails thumbnails;
     Previewer previewer;
     previewer.start(path, showHidden, sort);
@@ -141,6 +138,7 @@ int main(int argc, char *argv[]) {
     app.installTranslator(&translator);
 
     Theme theme;
+    theme.followSystemFont();
     Places places;
     Thumbnails thumbnails;
     // Plugins' text follows the language too.
@@ -153,6 +151,7 @@ int main(int argc, char *argv[]) {
     engine.addImageProvider("plugin-icon", new PluginIconProvider);
     // Creatable too: the column view lists each folder on the way here.
     qmlRegisterType<FolderModel>("Folio", 1, 0, "FolderModel");
+    qmlRegisterType<DragPicture>("Folio", 1, 0, "DragPicture");
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("places", &places);
