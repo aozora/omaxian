@@ -46,7 +46,9 @@ Runtime (also in `omaxian.deps.json`):
   extract, and the names inside an archive in its preview)
 - `xdg-terminal-exec`, `xdg-desktop-portal` + GTK backend
 - Optional Space preview: `qml6-module-qtmultimedia`, `qml6-module-qtquick-pdf`
-- Optional thumbs: `poppler-utils`, `ffmpegthumbnailer`
+- Optional thumbs: `poppler-utils`, `ffmpegthumbnailer`, `heif-thumbnailer`
+  (HEIC / AVIF pictures: Qt has no decoder for them, so their thumbnails and
+  Space preview both come from this thumbnailer)
 
 Build: `cmake` + `qt6-base-dev` + `qt6-declarative-dev` + `libglib2.0-dev` +
 `libfontconfig-dev` + `zlib1g-dev`, or `qmake6` against `folio.pro`. Stock Devuan Excalibur Qt 6.8 is

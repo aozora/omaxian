@@ -24,7 +24,8 @@
     "qml6-module-qtmultimedia",
     "qml6-module-qtquick-pdf",
     "poppler-utils",
-    "ffmpegthumbnailer"
+    "ffmpegthumbnailer",
+    "heif-thumbnailer"
   ],
   "apt_build": [
     "build-essential",
