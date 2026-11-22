@@ -99,6 +99,7 @@ Plan and rationale:
 
 - [omareel](https://github.com/omacom/omareel) — Hyprland plugin + `gpu-screen-recorder` / layer-shell capture; not viable on X11/i3.
 - [fantasi](https://github.com/omacom/fantasi) — the Qt app itself would port, but it only drives models through `omarchy-agent-local` / [omarchy-local-ai](https://github.com/omacom/omarchy-local-ai), which runs them as Podman Quadlets (systemd user units, `systemctl` / `journalctl`); not viable without systemd.
+- [flowtunes](https://github.com/omacom/flowtunes) — same blocker as fantasi: the Qt app would port, but the music comes from the `omarchy-local-ai` engine via `omarchy-agent-local` (Podman Quadlets under systemd), so without it the app only shows its "no engine" screen. Revisit if a systemd-free engine appears.
 
 ## Install
 
