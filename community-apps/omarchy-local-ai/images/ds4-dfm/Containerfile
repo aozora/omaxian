@@ -1,0 +1,67 @@
+# ds4-dfm-rs's ds4-server, built with CUDA for the DGX Spark (GB10), as runtimes/ds4-dfm.toml runs it,
+# published as ghcr.io/omacom/omarchy-local-ai/ds4-dfm. Built from Baekpica/ds4-dfm-rs at a pinned
+# commit with no patches, by its own `make cuda-spark` (sm_121a). The server checks no key, so Caddy
+# stands in front of it: it answers on 8080, refuses a request without the key in DS4_API_KEY and
+# streams the rest to the server on loopback. The driver's libcuda arrives through CDI; the image
+# carries only the CUDA runtime libraries the server links, which NVIDIA's CUDA EULA lists as
+# redistributable (Attachment A).
+
+# CUDA 13.4.3, the toolkit matching the 615 driver's CUDA 13.4, on Ubuntu 24.04.
+ARG BUILD_BASE=docker.io/nvidia/cuda@sha256:5626a7d0ecafe3e7c115a452f6b05f20f214f8509346196a7835b205dc5b7fd9
+ARG BASE=docker.io/library/ubuntu@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
+
+FROM ${BUILD_BASE} AS build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates curl
+# The commit, which tags the published image (a556720f-<n>); its VERSION file says v0.1.6.
+ARG COMMIT=a556720f12c2dafba63a5cbb60449f332e1d0efc
+RUN git init --quiet /src \
+ && git -C /src fetch --quiet --depth 1 https://github.com/Baekpica/ds4-dfm-rs "$COMMIT" \
+ && git -C /src checkout --quiet FETCH_HEAD
+# The Rust toolchain rust-toolchain.toml names, and the crates Cargo.lock pins.
+ENV PATH=/root/.cargo/bin:${PATH}
+RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none \
+ && cd /src && rustup show active-toolchain
+RUN make -C /src -j"$(nproc)" cuda-spark
+# The CUDA libraries ds4-server needs at run time, by what it links, with cuBLASLt, which cuBLAS
+# loads. Their packages' copyright files hold the EULA.
+RUN mkdir -p /cuda /licenses/nvidia \
+ && ldd /src/ds4-server | awk '/\/usr\/local\/cuda/ { print $3 }' \
+    | while read -r lib; do cp -L "$lib" /cuda/; done \
+ && cp -L /usr/local/cuda/lib64/libcublasLt.so.13 /cuda/ \
+ && for package in cuda-cudart-13-4 libcublas-13-4; do \
+      install -Dm644 "/usr/share/doc/$package/copyright" "/licenses/nvidia/$package"; \
+    done \
+ && ls -la /cuda
+# The licenses of ds4-dfm-rs and the code vendored into it.
+RUN cd /src \
+ && find . -path ./target -prune -o -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print \
+    | while read -r file; do install -Dm644 "$file" "/licenses/${file#./}"; done
+
+# Caddy's release, checked by the SHA-512 its checksums file gives.
+FROM ${BASE} AS caddy
+ARG CADDY_VERSION=2.11.9
+ARG CADDY_SHA512=9e5e76d7888542924de2c25353ae87c5f77e2a22c5b1198633cae13688922282e05383d142599205c88d8d80eee5e967d291214d7abce4835329a191b20dd6e0
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+ && curl -fsSLo /caddy.tar.gz "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_arm64.tar.gz" \
+ && echo "${CADDY_SHA512}  /caddy.tar.gz" | sha512sum -c - \
+ && mkdir /caddy && tar -xzf /caddy.tar.gz -C /caddy caddy LICENSE
+
+FROM ${BASE}
+# OpenMP for the CPU side; curl for the health probe.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgomp1 curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /cuda/ /usr/local/lib/
+RUN ldconfig
+COPY --from=build /src/ds4-server /usr/bin/ds4-server
+COPY --from=build /licenses /usr/share/licenses/ds4-dfm-rs
+COPY --from=caddy /caddy/caddy /usr/bin/caddy
+COPY --from=caddy /caddy/LICENSE /usr/share/licenses/caddy/LICENSE
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY serve /usr/bin/serve
+LABEL org.opencontainers.image.source="https://github.com/omacom/omarchy-local-ai"
+LABEL org.opencontainers.image.description="ds4-dfm-rs's ds4-server, built with CUDA for omarchy-local-ai"
+LABEL org.opencontainers.image.licenses="MIT"
+EXPOSE 8080
+CMD ["serve"]

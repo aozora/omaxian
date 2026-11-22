@@ -1,6 +1,7 @@
 # Local AI engine without systemd (`omarchy-local-ai`)
 
-Status: Phase 0 (spike) passed; Phases 1-3 not started.
+Status: Phase 0 passed; Phase 1 (engine port) done and tested; Phase 2 (real
+model) and Phase 3 (Flowtunes) not started.
 
 Goal: run [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai)
 (pinned `e7fe801`, v0.9.0 packaging) and the `omarchy-agent-local` command on
@@ -113,3 +114,38 @@ Notes for Phase 1:
 - Do not read from `/dev/dri/renderD128` in tests: it blocks.
 - The pulled ACE-Step image stays in the user's Podman store (about 380 MiB).
 
+
+## Phase 1 results
+
+Ported into `community-apps/omarchy-local-ai/` (pin `e7fe801`).
+
+- `omaxian_units.py` (new): the unit layer. `systemctl()` emulation for
+  `show`, `start`, `stop`, `reset-failed`, `is-active` and `daemon-reload`, a
+  supervisor per model (run, probe, restart, hooks, state), detached runs
+  (`run_transient`, `_exec`) and log files. A process is "the unit" while it
+  holds an flock, so a crashed one never looks active.
+- `agent_local.py`: `render_container` writes a JSON spec of `podman run`
+  flags; `write_unit_files` makes the internal network; `start_unit`,
+  `detach_use`, `detach_update`, `cmd_logs` and `journal_tail` use the new
+  layer; the share proxy raises; `share`, `network`, `pair`, `forget`, `link`,
+  `link-worker` and `share-proxy` are removed from the command table; two hidden
+  commands `supervise` and `_exec` are added. Pairing code is left in place
+  (dead) so upstream merges stay small. No autostart: upstream's units had no
+  `[Install]` either.
+- `omarchy-agent-local`, `omarchy-models`, `omarchy-local-ai` are symlinks to
+  the engine entry, installed by `install.sh` into `~/.local/bin`.
+- Tests: `tests/engine-test.sh` passes (352 checks; the 7 pair-unit checks are
+  listed in `tests/omaxian-expected-failures.txt`); `tests/omaxian-test.sh`
+  (new, 19 checks) runs the supervisor against real Podman: start waits for
+  health, crash then automatic restart, hooks, stop, stop mid-load, start
+  limit, transient runs.
+- On this machine `omarchy-local-ai list` reports `amd-gfx1152, 64 GB` and
+  offers ACE-Step (and the image models).
+
+Known gaps:
+
+- `ControlGroup` (for `memory` and the panel's memory bar) is read from the
+  container's `/proc/<pid>/cgroup`; on this rootless cgroupfs setup it was `/1`.
+  Whether that gives real numbers is untested.
+- Nothing starts a model at login.
+- Not run against a real model yet (Phase 2).

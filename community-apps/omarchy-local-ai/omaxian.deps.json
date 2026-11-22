@@ -1,0 +1,19 @@
+{
+  "apt": [
+    "python3",
+    "podman",
+    "crun",
+    "netavark",
+    "aardvark-dns",
+    "uidmap",
+    "passt",
+    "mesa-vulkan-drivers"
+  ],
+  "apt_build": [],
+  "manual": [
+    "Runs models as rootless Podman containers on the host's GPU (AMD or Intel through Vulkan). The music recipe (ACE-Step, used by Flowtunes) is about 7.6 GiB of weights plus a 380 MiB image, downloaded when you set it up; nothing is fetched at install time.",
+    "Rootless Podman needs subordinate ids for your user: a line for it in /etc/subuid and /etc/subgid (Debian adds them when the user is created; check with `grep $USER /etc/subuid /etc/subgid`).",
+    "There is no systemd user manager on Devuan: each running model is a supervisor process (omaxian_units.py) that restarts it on failure. Models do not start at login; start one with `omarchy-agent-local start <recipe>`.",
+    "Not ported: Spark pairing (link/pair), sharing over a tailnet (share/network/forget) and the NVIDIA CDI path. Their commands are removed."
+  ]
+}

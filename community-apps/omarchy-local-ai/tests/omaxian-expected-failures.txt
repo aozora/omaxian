@@ -1,0 +1,7 @@
+the pair unit shares the host network and publishes nothing
+the pair unit binds its API to loopback on the model's port
+the pair unit mounts rank 0's inputs and reads the link from its environment file
+the pair unit starts and stops rank 1 with itself
+a paired runtime may serve its prepared folder
+a state path mounts the rank folder writable
+the pair unit keeps the container restrictions

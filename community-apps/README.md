@@ -94,6 +94,7 @@ Plan and rationale:
 | [`cards`](cards/) | Cards (Qt Quick Klondike solitaire) | [omacom/cards](https://github.com/omacom/cards) `0.1.0` (`e1a01bf`) | Ported |
 | [`checkmate`](checkmate/) | Checkmate (Qt Quick 3D chess) | [omacom/checkmate](https://github.com/omacom/checkmate) `0.1.3` (`b4e6a86`) | Ported |
 | [`aether`](aether/) | Aether (Wails / WebKitGTK theme maker) | [omacom/aether](https://github.com/omacom/aether) `4.33.0` (`a7a7c37`) | Ported |
+| [`omarchy-local-ai`](omarchy-local-ai/) | omarchy-local-ai (local model engine, Podman; no systemd) | [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai) `0.9.0` (`e7fe801`) | Ported (music path; no pairing or tailnet sharing) |
 
 **Not ported:**
 

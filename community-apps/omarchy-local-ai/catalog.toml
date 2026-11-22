@@ -1,0 +1,2 @@
+# The recipe catalog: the engine reads it from the directory it ships in.
+schema = 1
