@@ -1835,7 +1835,7 @@ def unit_name(rid):
 
 
 def quadlet_path(rid):
-  return os.path.join(quadlet_dir(), f"{unit_base(rid)}.container")
+  return omaxian_units.spec_path(unit_name(rid))
 
 
 def ports_path():

@@ -1,7 +1,7 @@
 # Local AI engine without systemd (`omarchy-local-ai`)
 
 Status: Phase 0 passed; Phase 1 (engine port) done and tested; Phase 2 (real
-model) and Phase 3 (Flowtunes) not started.
+model) done except music generation; Phase 3 (Flowtunes) not started.
 
 Goal: run [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai)
 (pinned `e7fe801`, v0.9.0 packaging) and the `omarchy-agent-local` command on
@@ -149,3 +149,22 @@ Known gaps:
   Whether that gives real numbers is untested.
 - Nothing starts a model at login.
 - Not run against a real model yet (Phase 2).
+
+## Phase 2 results
+
+Run on this machine on 2026-11-22 with `ace-step-1.5-turbo-acestep`.
+
+- Setup downloaded 7.6 GiB (about 34 MiB/s), then the first start failed:
+  `quadlet_path` pointed at `<unit>.container` while the supervisor reads
+  `<unit>.service.spec.json`. Fixed (`quadlet_path` now returns `spec_path`).
+  The unit tests missed it because they wrote the spec by hand.
+- Start: healthy in 2.5 s, `observed` 8 GiB RAM. `/props` is 401 without the
+  key and 200 with it (acestep.cpp 973517b, LM + DiT + VAE + embedding listed).
+- Crash: `kill -9` of the container's process was restarted by the supervisor
+  in about 12 s (`auto-restart`, then active); `/props` 200 again.
+- `stop`: clean, state `inactive`, container gone.
+- Not done: a real song render (speed on Krackan unknown), and `remove`
+  mid-setup against the real download.
+- Confirmed gap: `podman stats` / the container's `ControlGroup` is `/1`, so
+  cgroup memory files are not found. `observed.ram_used_gib` (from free memory)
+  works; per-model live memory does not.
