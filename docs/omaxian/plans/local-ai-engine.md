@@ -183,3 +183,16 @@ the Krackan GPU, so it renders faster than it plays; it was saved to
 `~/Music/Jazz/` and played. The engine is installed in `~/.local` for this.
 Still to do: add it to `CI_APPS` for a pre-built binary; no audible check (the
 run was headless).
+
+## Fantasi
+
+`community-apps/fantasi/` (upstream `c7e0869`, 0.1.7 plus six commits), ported
+the same way as Flowtunes. Patches: the same two Qt 6.8 QML fixes and the
+optional Qt Test; `omarchy-launch-or-focus` became `i3-msg … focus`; the
+`omarchy models …` hints became `omarchy-models …`; and one real Qt 6.8 bug
+(`contentItem.forceActiveFocus()` leaves the focus in the prompt's scope, so F,
+Delete and the arrows did nothing: `releasePrompt()`). Tested on Qt 6.8 as a
+normal user (a test makes a folder read-only, so root fails it): all pass;
+qmllint clean. On the desktop, `fantasi generate --music … --instrumental
+--seconds 30` made a 29 s MP3 in 35 s, and the window renders. Image and video
+models (sdcpp) have not been run; untested.

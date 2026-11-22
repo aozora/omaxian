@@ -96,11 +96,11 @@ Plan and rationale:
 | [`aether`](aether/) | Aether (Wails / WebKitGTK theme maker) | [omacom/aether](https://github.com/omacom/aether) `4.33.0` (`a7a7c37`) | Ported |
 | [`omarchy-local-ai`](omarchy-local-ai/) | omarchy-local-ai (local model engine, Podman; no systemd) | [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai) `0.9.0` (`e7fe801`) | Ported (music path; no pairing or tailnet sharing) |
 | [`flowtunes`](flowtunes/) | Flowtunes (Qt Quick endless music; needs omarchy-local-ai) | [omacom/flowtunes](https://github.com/omacom/flowtunes) `0.2.0` (`8a9a76f`) | Ported (builds from source; no pre-built binary yet) |
+| [`fantasi`](fantasi/) | Fantasi (Qt Quick image, video and music maker; needs omarchy-local-ai) | [omacom/fantasi](https://github.com/omacom/fantasi) `0.1.7` (`c7e0869`) | Ported (builds from source; only the music model has been run) |
 
 **Not ported:**
 
 - [omareel](https://github.com/omacom/omareel) — Hyprland plugin + `gpu-screen-recorder` / layer-shell capture; not viable on X11/i3.
-- [fantasi](https://github.com/omacom/fantasi) — the Qt app would port and the engine it needs now exists ([`omarchy-local-ai`](omarchy-local-ai/)), but only the engine's music path (ACE-Step) has been run; its text-model recipes are untested here. Not started.
 
 ## Install
 
