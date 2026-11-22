@@ -148,9 +148,69 @@ qt_build_ready() {
   exit 1
 }
 
+# QtMultimedia is imported from QML. When the system has none (apt only has
+# Qt 6.8 while the desktop runs 6.10) but ~/.local/lib/qt6/qml does, run the
+# app through a wrapper that points at it, as Folio does.
+needs_qml_wrapper() {
+  local sys=/usr/lib/x86_64-linux-gnu/qt6/qml
+  local local_qml=$HOME/.local/lib/qt6/qml
+  [[ -d $local_qml/QtMultimedia && ! -d $sys/QtMultimedia ]]
+}
+
+# The aurora shader is compiled by Qt ShaderTools at build time. A local Qt
+# overlay (~/.local/opt/omaxian-qt6-<mm>) often has headers but no ShaderTools,
+# and apt only offers Qt 6.8. A binary built against Qt 6.8 runs on 6.8 and
+# newer, so build it in a Debian trixie container instead.
+host_can_build() {
+  [[ -z $local_qt_prefix ]] && return 0
+  [[ -f $local_qt_prefix/lib/x86_64-linux-gnu/cmake/Qt6ShaderTools/Qt6ShaderToolsConfig.cmake ]]
+}
+
+build_in_container() {
+  local engine=""
+  for e in podman docker; do
+    if command -v "$e" >/dev/null; then engine=$e; break; fi
+  done
+  if [[ -z $engine ]]; then
+    echo "The local Qt has no ShaderTools, and neither podman nor docker is available to build in." >&2
+    echo "Install qt6-shadertools-dev matching your Qt, or install podman." >&2
+    exit 1
+  fi
+  echo ">> building against Qt 6.8 in a debian:trixie container ($engine)"
+  rm -rf "$ROOT/build"
+  mkdir -p "$ROOT/build"
+  "$engine" run --rm -v "$ROOT:/src:ro" -v "$ROOT/build:/out" docker.io/library/debian:trixie bash -c '
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq >/dev/null
+    apt-get install -y -qq --no-install-recommends build-essential cmake pkg-config \
+      qt6-base-dev qt6-declarative-dev qt6-multimedia-dev qt6-shadertools-dev >/dev/null
+    mkdir /work && tar -C /src --exclude=./build -cf - . | tar -C /work -xf -
+    cd /work
+    cmake -S . -B b -DCMAKE_BUILD_TYPE=Release >/dev/null
+    cmake --build b -j"$(nproc)" --target flowtunes
+    install -m 0755 b/flowtunes /out/flowtunes'
+  [[ -x $ROOT/build/$NAME ]] || { echo "container build produced no binary" >&2; exit 1; }
+}
+
 install_files() {
   mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR"
-  install -m 0755 "$BUILT_BIN" "$BIN_DIR/$NAME"
+  if needs_qml_wrapper; then
+    mkdir -p "$PREFIX/libexec"
+    install -m 0755 "$BUILT_BIN" "$PREFIX/libexec/$NAME"
+    local lib_extra="$HOME/.local/lib"
+    cat > "$BIN_DIR/$NAME" <<WRAP
+#!/bin/bash
+export LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}$lib_extra"
+export QML_IMPORT_PATH="\${QML_IMPORT_PATH:+\$QML_IMPORT_PATH:}$lib_extra/qt6/qml"
+export QT_PLUGIN_PATH="\${QT_PLUGIN_PATH:+\$QT_PLUGIN_PATH:}$lib_extra/qt6/plugins"
+exec "$PREFIX/libexec/$NAME" "\$@"
+WRAP
+    chmod 0755 "$BIN_DIR/$NAME"
+    echo ">> wrapper $BIN_DIR/$NAME (QML from $lib_extra/qt6/qml)"
+  else
+    install -m 0755 "$BUILT_BIN" "$BIN_DIR/$NAME"
+  fi
   install -m 0644 "$ROOT/share/$NAME.svg" "$ICON_DIR/$NAME.svg"
   sed -e "s|^Exec=$NAME|Exec=$BIN_DIR/$NAME|" \
     "$ROOT/share/$NAME.desktop" > "$APP_DIR/$NAME.desktop"
@@ -175,9 +235,13 @@ if prebuilt_fetch "$NAME"; then
   BUILT_BIN=$PREBUILT_BIN
 else
   install_apt
-  qt_build_ready
-  echo ">> bin/build"
-  "$ROOT/bin/build"
+  if host_can_build; then
+    qt_build_ready
+    echo ">> bin/build"
+    "$ROOT/bin/build"
+  else
+    build_in_container
+  fi
 fi
 install_files
 

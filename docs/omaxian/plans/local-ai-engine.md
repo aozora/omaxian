@@ -1,7 +1,7 @@
 # Local AI engine without systemd (`omarchy-local-ai`)
 
 Status: Phase 0 passed; Phase 1 (engine port) done and tested; Phase 2 (real
-model) done except music generation; Phase 3 (Flowtunes) ported and tested on Qt 6.8, not yet run on the desktop.
+model) done except music generation; Phase 3 (Flowtunes) ported, installed and verified with a real render.
 
 Goal: run [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai)
 (pinned `e7fe801`, v0.9.0 packaging) and the `omarchy-agent-local` command on
@@ -175,8 +175,11 @@ Run on this machine on 2026-11-22 with `ace-step-1.5-turbo-acestep`.
 needed for Qt 6.8: `long` / `short` are reserved words there, and
 `styleHints.accessibility` is Qt 6.10+. Built and tested in a Debian trixie
 container (Qt 6.8.2): all upstream tests pass, qmllint is clean. The host
-cannot build it yet: it lacks `qt6-multimedia-dev`, `qt6-shadertools-dev` and
-`qml6-module-qtmultimedia` and the local Qt 6.10 prefix has no ShaderTools
-(`install.sh` needs `sudo apt`). Still to do: run it on the desktop against
-the real ACE-Step model (first real render), and add it to `CI_APPS` for a
-pre-built binary.
+has no ShaderTools for its Qt 6.10 overlay (and Qt Test is incomplete there), so
+`install.sh` builds in a trixie container when needed and installs a wrapper for
+QtMultimedia under `~/.local/lib`. Run on the desktop against the real model:
+`flowtunes jazz` made a 2:59 instrumental ("Midnight Rain") in about 2m15s on
+the Krackan GPU, so it renders faster than it plays; it was saved to
+`~/Music/Jazz/` and played. The engine is installed in `~/.local` for this.
+Still to do: add it to `CI_APPS` for a pre-built binary; no audible check (the
+run was headless).

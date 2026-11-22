@@ -24,12 +24,13 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | MPRIS on the session bus | Unchanged. Needs a session D-Bus (the X session has one) |
 | `const long` / `const short` in `Wave.qml` (a reserved word to Qt 6.8's JS engine, so `Wave` failed to load) | Renamed `slowWave` / `quickWave` |
 | `Application.styleHints.accessibility.motionPreference` (Qt 6.10+) | Read only when `accessibility` exists; on 6.8 the wave always moves |
+| `find_package(Qt6 … Test …)` is required at configure time | Test is probed first and optional, as in `cards`: an incomplete local Qt overlay has `Qt6TestConfig.cmake` without the library, which made the configure fail |
 | Tests need `ffmpeg` (they render a one-second MP3) and, for the MPRIS test, a session bus | Same; run them under `dbus-run-session` |
 
-Apart from those two QML fixes, the app is unchanged: it only runs `omarchy-agent-local` (`refresh --quiet`,
+Apart from the two QML fixes, the app is unchanged: it only runs `omarchy-agent-local` (`refresh --quiet`,
 `start`, `stop`, `use --detach`) and watches its `status.json` / `list.json`.
 
-Verified on Qt 6.8 (Debian trixie container): builds, `lib/qmllint-qt68.sh flowtunes` is clean, and the upstream tests pass (`ffmpeg`, `dbus-run-session`). Not yet run on this desktop or against the real model.
+Verified on Qt 6.8 (Debian trixie container): builds, `lib/qmllint-qt68.sh flowtunes` is clean, and the upstream tests pass (`ffmpeg`, `dbus-run-session`). Also run on this desktop (Qt 6.10 runtime) against the real model: `flowtunes jazz` rendered a 2:59 tune in about 2m15s, saved it under `~/Music/Jazz/` and played it.
 
 ## Requirements
 
@@ -53,7 +54,11 @@ community-apps/flowtunes/install.sh
 ```
 
 There is no pinned pre-built binary yet, so `install.sh` builds with
-`bin/build`. See [`../README.md`](../README.md#pre-built-binaries-omaxian-prebuilt).
+`bin/build`. When the local Qt (`~/.local/opt/omaxian-qt6-<mm>`) has no
+ShaderTools, which apt cannot supply for Qt 6.10, it builds against Qt 6.8 in a
+`debian:trixie` container (podman or docker) instead. That binary runs on 6.8
+and newer. When QtMultimedia exists only under `~/.local/lib/qt6/qml`, it
+installs a wrapper that points at it, as Folio does. See [`../README.md`](../README.md#pre-built-binaries-omaxian-prebuilt).
 
 | Path | Role |
 | ---- | ---- |
