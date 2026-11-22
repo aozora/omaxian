@@ -1,7 +1,7 @@
 # Local AI engine without systemd (`omarchy-local-ai`)
 
 Status: Phase 0 passed; Phase 1 (engine port) done and tested; Phase 2 (real
-model) done except music generation; Phase 3 (Flowtunes) not started.
+model) done except music generation; Phase 3 (Flowtunes) ported and tested on Qt 6.8, not yet run on the desktop.
 
 Goal: run [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai)
 (pinned `e7fe801`, v0.9.0 packaging) and the `omarchy-agent-local` command on
@@ -168,3 +168,15 @@ Run on this machine on 2026-11-22 with `ace-step-1.5-turbo-acestep`.
 - Confirmed gap: `podman stats` / the container's `ControlGroup` is `/1`, so
   cgroup memory files are not found. `observed.ram_used_gib` (from free memory)
   works; per-model live memory does not.
+
+## Phase 3 results
+
+`community-apps/flowtunes/` (upstream `8a9a76f`, 0.2.0). Two QML fixes were
+needed for Qt 6.8: `long` / `short` are reserved words there, and
+`styleHints.accessibility` is Qt 6.10+. Built and tested in a Debian trixie
+container (Qt 6.8.2): all upstream tests pass, qmllint is clean. The host
+cannot build it yet: it lacks `qt6-multimedia-dev`, `qt6-shadertools-dev` and
+`qml6-module-qtmultimedia` and the local Qt 6.10 prefix has no ShaderTools
+(`install.sh` needs `sudo apt`). Still to do: run it on the desktop against
+the real ACE-Step model (first real render), and add it to `CI_APPS` for a
+pre-built binary.
