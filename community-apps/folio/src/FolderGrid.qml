@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import Folio 1.0
 
 // The folder as a grid of tiles with real previews.
 GridView {
@@ -73,6 +74,9 @@ GridView {
     // on Excalibur's Qt 6.8 a mouse drag flicks the view, as 6.8 always did.
     Component.onCompleted: if (grid.acceptedButtons !== undefined) grid.acceptedButtons = Qt.NoButton
     boundsBehavior: Flickable.StopAtBounds
+    flickDeceleration: 1800
+    maximumFlickVelocity: 5000
+    KineticScroll { target: grid }
     // No cache buffer, as in FileListView.
     cacheBuffer: 0
     // Tiles scrolled out are reused for incoming items when scrolling large grids.

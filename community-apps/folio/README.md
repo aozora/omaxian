@@ -6,7 +6,7 @@ monospace font. Can also be other
 apps' Open and Save dialogs via `folio chooser` (xdg-desktop-portal).
 
 Port of [omacom/folio](https://github.com/omacom/folio) (upstream commit
-`f73d8e4`, v0.7.2, pinned in `.omaxian-upstream-commit`). Full upstream docs:
+`bd8ea0c`, v0.7.3, pinned in `.omaxian-upstream-commit`). Full upstream docs:
 [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
@@ -35,6 +35,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | `QDir::mkpath(path, permissions)` for the home trash (Qt 6.10+) | `mkpathWith()` in `src/fileops.cpp`: the same call on Qt ≥ 6.10, per-level `QDir::mkdir(path, permissions)` on Excalibur's Qt 6.8 |
 | Views set `acceptedButtons: Qt.NoButton` (`Flickable` property, Qt 6.9+) | Set from `Component.onCompleted` only where the property exists (`FileListView`, grid, columns flick). On Qt 6.8 the rubber band (`Band.qml`) sets `preventStealing`, so a drag on empty space draws the band instead of flicking. Dragging a file away isn't covered by a test on 6.8 |
 | `Band.qml` declared inside a `GridView` / `ListView` (stays on the view, not its content) | Band reparented to `view.contentItem`, so a press on empty space after scrolling starts a band rather than counting as a press on a tile. Upstream bug on every Qt; `gridBandDragDoesNotFlick` covers it |
+| Upstream builds the QML into a `FolioUI` module (`qrc:/FolioUI/…`, CMake only) | `folio.pro` (qmake fallback) loads the same files from `src/qml.qrc` at that path; keep it in step with `src/*.qml`, `src/*.js`. It defines `FOLIO_QMAKE`, which skips `Q_INIT_RESOURCE(qmlcache_folio_core)` (windows.cpp, previewer.cpp) |
 | Tests use `QQmlPropertyMap::create()` and a `QPointF` `QDragEnterEvent` (newer Qt) | `tests/folio_tests.cpp` uses `new QQmlPropertyMap` and `toPoint()`, so the tests compile on Qt 6.8 |
 
 ## Requirements

@@ -160,6 +160,7 @@ ApplicationWindow {
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                clip: true
 
                 Loader {
                     id: inlineView
@@ -177,7 +178,7 @@ ApplicationWindow {
                     id: externalView
                     anchors.fill: parent
                     active: win.external
-                    source: win.viewer === "pdf" ? "qrc:/PdfPreview.qml" : win.external ? "qrc:/MediaPreview.qml" : ""
+                    source: win.viewer === "pdf" ? "qrc:/FolioUI/PdfPreview.qml" : win.external ? "qrc:/FolioUI/MediaPreview.qml" : ""
                 }
 
                 FolioText {

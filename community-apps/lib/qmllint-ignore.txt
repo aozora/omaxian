@@ -8,6 +8,12 @@ folio/src/FolderColumns.qml|Property "showHidden" does not exist
 folio/src/FolderColumns.qml|Property "sortMode" does not exist
 folio/src/FolderColumns.qml|Property "filter" does not exist
 
+# Folio: KineticScroll (src/kineticscroll.h)
+folio/src/FileListView.qml|Property "target" does not exist
+folio/src/FolderGrid.qml|Property "target" does not exist
+folio/src/FolderColumns.qml|Property "target" does not exist
+folio/src/FolderColumns.qml|Property "horizontal" does not exist
+
 # Signed: TextItem (C++ QQuickPaintedItem)
 signed/src/PlacedItem.qml|Property "fill" does not exist
 signed/src/PlacedItem.qml|Property "visible" does not exist

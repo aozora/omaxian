@@ -16,7 +16,11 @@
 
 Previewer::Previewer(QObject *parent) : Previewer(FileOps::openInDefaultApp, parent) {}
 
-Previewer::Previewer(Opener opener, QObject *parent) : QObject(parent), m_opener(std::move(opener)) {}
+Previewer::Previewer(Opener opener, QObject *parent) : QObject(parent), m_opener(std::move(opener)) {
+#ifndef FOLIO_QMAKE  // Omaxian: the qmake build has no precompiled QML module
+    Q_INIT_RESOURCE(qmlcache_folio_core);
+#endif
+}
 
 Previewer::~Previewer() {
     *m_listing = 0;
