@@ -6,7 +6,7 @@ monospace font. Can also be other
 apps' Open and Save dialogs via `folio chooser` (xdg-desktop-portal).
 
 Port of [omacom/folio](https://github.com/omacom/folio) (upstream commit
-`eba4276`, v0.7.1, pinned in `.omaxian-upstream-commit`). Full upstream docs:
+`f73d8e4`, v0.7.2, pinned in `.omaxian-upstream-commit`). Full upstream docs:
 [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
