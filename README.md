@@ -364,6 +364,7 @@ README (or Menu → Setup → Plugins).
 | [Omamail](community-plugins/omamail/) | Gmail / HEY / JMAP / IMAP client with Rust backend |
 | [Voxtype Aura](community-plugins/io.github.adamcbrewer.voxtype-aura/) | Voxtype dictation overlay |
 | [Calculator](community-plugins/io.github.canclini.calculator/) | Spotlight-style quick calculator |
+| [Bose QC Ultra](community-plugins/io.github.borferkic.bose/) | Bose headphone battery, modes, ANC and EQ |
 
 Details, upstream links, and install steps:
 [`community-plugins/README.md`](community-plugins/README.md).
