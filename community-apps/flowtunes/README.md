@@ -4,7 +4,7 @@ Endless music in the genre you pick, made on your own machine by Omarchy's
 local music model (ACE-Step). Full upstream docs:
 [`README.upstream.md`](README.upstream.md).
 
-Port of [omacom/flowtunes](https://github.com/omacom/flowtunes) **0.2.0**
+Port of [omacom/flowtunes](https://github.com/omacom/flowtunes) **0.4.0**
 (upstream commit in `.omaxian-upstream-commit`, version in
 `.omaxian-upstream-version`).
 

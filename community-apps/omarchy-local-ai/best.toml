@@ -19,6 +19,7 @@ gpu = "amd-strix-halo"
 ram_class = 192
 recipes = ["qwen3.8-flash-next-gufo"]
 images = ["flux2-klein-4b-sdcpp", "z-image-turbo-sdcpp"]
+music = ["stable-audio-3-medium-vulkan"]
 
 [[class]]
 gpu = "amd-strix-halo"
@@ -43,13 +44,16 @@ ram_class = 64
 recipes = ["nemotron-3.5-bolt-tensorfold", "qwen3.8-27b-tensorfold"]
 
 # Two DGX Sparks cabled through their ConnectX-7 ports: the pair's own class, tried before either Spark's own.
+# DeepSeek V4.1 Flash decodes nearly twice as fast as GLM-5.3 Flash, leads it at coding and holds 1M tokens;
+# GLM-5.3, which reads prompts faster and needs 13 GiB less on each Spark, is for a pair DeepSeek doesn't fit.
 [[class]]
 gpu = "nvidia-gb10-pair"
 ram_class = 128
-recipes = ["glm-5.3-flash-tensorfold-pair", "deepseek-v4.1-flash-tensorfold-pair"]
+recipes = ["deepseek-v4.1-flash-tensorfold-pair", "glm-5.3-flash-tensorfold-pair"]
 
 # On an Arc B390 a mixture-of-experts model generates at 45 tokens a second and a dense 27B at 5.
 [[class]]
 gpu = "intel-arc-b390"
 ram_class = 64
 recipes = ["qwen3.6-35b-a3b-llamacpp"]
+music = ["stable-audio-3-medium"]

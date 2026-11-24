@@ -34,6 +34,7 @@ Rectangle {
     property string typed: ""
 
     color: theme.darkBackground
+    onVisibleChanged: if (!visible) dragProxy.Drag.active = false
 
     function focusTree() {
         if (list.currentIndex < 0 && list.count > 0)
@@ -205,12 +206,16 @@ Rectangle {
                     if (row >= 0)
                         sidebar.renameRequested(files.pathAt(row))
                 } else if (event.key === Qt.Key_Home) {
-                    list.currentIndex = 0
+                    if (list.count > 0)
+                        list.currentIndex = 0
                 } else if (event.key === Qt.Key_End) {
-                    list.currentIndex = list.count - 1
+                    if (list.count > 0)
+                        list.currentIndex = list.count - 1
                 } else if (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) {
-                    const page = Math.max(1, Math.floor(list.height / Math.round(theme.textSize * 2)) - 1)
-                    list.currentIndex = Math.max(0, Math.min(list.count - 1, row + (event.key === Qt.Key_PageUp ? -page : page)))
+                    if (list.count > 0) {
+                        const page = Math.max(1, Math.floor(list.height / Math.round(theme.textSize * 2)) - 1)
+                        list.currentIndex = Math.max(0, Math.min(list.count - 1, row + (event.key === Qt.Key_PageUp ? -page : page)))
+                    }
                 } else if (event.key === Qt.Key_Delete) {
                     if (row >= 0)
                         sidebar.deleteRequested(files.pathAt(row))
@@ -339,6 +344,8 @@ Rectangle {
                     drag.target: pressedButtons & Qt.LeftButton ? dragProxy : null
                     drag.threshold: 6
                     onPressed: function(mouse) {
+                        if (mouse.button !== Qt.LeftButton)
+                            return
                         const at = row.mapToItem(sidebar, 0, 0)
                         dragProxy.x = at.x
                         dragProxy.y = at.y
@@ -349,6 +356,7 @@ Rectangle {
                         dragProxy.Drag.hotSpot.y = mouse.y
                     }
                     drag.onActiveChanged: if (drag.active) dragProxy.Drag.active = true
+                    onCanceled: dragProxy.Drag.active = false
                     onReleased: {
                         if (dragProxy.Drag.active) {
                             dragProxy.Drag.drop()

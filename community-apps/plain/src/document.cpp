@@ -17,6 +17,8 @@
 #include <QTextDocument>
 #include <QUrl>
 
+#include <cerrno>
+#include <cstring>
 #include <fcntl.h>
 #include <grp.h>
 #include <pwd.h>
@@ -26,6 +28,33 @@
 
 namespace {
 const QByteArray Bom("\xEF\xBB\xBF");
+
+QString shortenHome(const QString &path) {
+    if (path.isEmpty())
+        return {};
+    const QString home = QDir::homePath();
+    return path.startsWith(home + "/") ? "~" + path.mid(home.size()) : path;
+}
+
+// Block by block rather than toPlainText(), which turns non-breaking spaces
+// into ordinary ones and always allocates a full copy of the document.
+bool documentEquals(const QTextDocument *document, const QString &text) {
+    if (document->characterCount() - 1 != text.size())
+        return false;
+    qsizetype at = 0;
+    for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
+        const QString line = block.text();
+        if (at + line.size() > text.size() || QStringView(text).sliced(at, line.size()) != line)
+            return false;
+        at += line.size();
+        if (block.next().isValid()) {
+            if (at >= text.size() || text.at(at) != '\n')
+                return false;
+            ++at;
+        }
+    }
+    return at == text.size();
+}
 
 // Only regular files. Opened without blocking and checked once open, since
 // opening a FIFO for reading waits for a writer, and the path can be swapped
@@ -129,6 +158,7 @@ Document::Decoded Document::decode(const QByteArray &input) {
 // newline is the empty last line the user can see.
 QByteArray Document::encode(const QTextDocument *document, bool bom, bool crlf) {
     QString text;
+    text.reserve(document->characterCount() + (crlf ? document->blockCount() : 0));
     const QString ending = crlf ? "\r\n" : "\n";
     for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
         text += block.text().replace(ParagraphStandIn, QChar::ParagraphSeparator);
@@ -183,11 +213,43 @@ QByteArray Document::stamp(const QString &path) {
          + QByteArray::number(qlonglong(st.st_mtim.tv_nsec));
 }
 
+// Absolute and free of `.`, `..` and `//`, without changing which file the
+// user named: `..` after a directory symlink follows the link first (as the
+// kernel does), and `..` after a missing or non-directory entry stays put so
+// open() refuses it.
+QString Document::cleanPath(const QString &path) {
+    // Make it absolute without QFileInfo::absoluteFilePath(), which calls
+    // QDir::cleanPath() and collapses `..` lexically across directory symlinks.
+    const QString abs = QDir::isAbsolutePath(path) ? path : QDir::currentPath() + "/" + path;
+    const QStringList parts = abs.split('/', Qt::SkipEmptyParts);
+    if (!parts.contains(".."))
+        return QDir::cleanPath(abs);
+    QStringList out;
+    for (const QString &part : parts) {
+        if (part == ".")
+            continue;
+        if (part == "..") {
+            const QString current = "/" + out.join('/');
+            const QFileInfo info(current);
+            if (!info.isDir())
+                return abs;
+            if (info.isSymLink()) {
+                const QString resolved = info.canonicalFilePath();
+                if (resolved.isEmpty())
+                    return abs;
+                out = resolved.split('/', Qt::SkipEmptyParts);
+            }
+            if (!out.isEmpty())
+                out.removeLast();
+        } else {
+            out << part;
+        }
+    }
+    return "/" + out.join('/');
+}
+
 QString Document::displayPath() const {
-    if (m_path.isEmpty())
-        return {};
-    const QString home = QDir::homePath();
-    return m_path.startsWith(home + "/") ? "~" + m_path.mid(home.size()) : m_path;
+    return shortenHome(m_path);
 }
 
 QString Document::fileName() const {
@@ -228,7 +290,7 @@ bool Document::openUrl(const QUrl &url) {
 
 bool Document::open(const QString &path) {
     // Absolute, but not canonical: the user opened the link, not its target.
-    m_path = QFileInfo(path).absoluteFilePath();
+    m_path = cleanPath(path);
     m_allowLarge = false;
     return load(false);
 }
@@ -270,7 +332,7 @@ void Document::relocate(const QString &from, const QString &to) {
             return after + path.mid(before.size());
         return QString();
     };
-    const QString path = moved(m_path, QFileInfo(from).absoluteFilePath(), QFileInfo(to).absoluteFilePath());
+    const QString path = moved(m_path, cleanPath(from), cleanPath(to));
     if (path.isEmpty())
         return;
     m_path = path;
@@ -321,7 +383,7 @@ bool Document::tooLarge(qint64 size, const QString &text) {
 void Document::setText(const QString &text, bool undoably) {
     // The same text as before isn't set again, so nothing recolors it for a
     // new language: recolor here instead.
-    const bool unchanged = !undoably && m_document && m_document->toPlainText() == text;
+    const bool unchanged = !undoably && m_document && documentEquals(m_document, text);
     setLanguageFor(m_path, text.left(text.indexOf(QChar(u'\n'))), unchanged);
     if (undoably) {
         QTextCursor cursor(m_document);
@@ -373,7 +435,7 @@ bool Document::load(bool reload) {
         // A new file, created on first save. A dangling link saves to where
         // it points.
         const QString target = info.isSymLink() ? info.symLinkTarget() : m_path;
-        if (!QFileInfo(QFileInfo(target).absolutePath()).isDir())
+        if (!QFileInfo(QFileInfo(target).path()).isDir())
             return refuse(Problem::NotFound);
         m_target = target;
         forgetDisk();
@@ -504,13 +566,14 @@ bool Document::checkAndWrite(bool inPlace) {
         }
     }
 
-    if (!write(target, inPlace)) {
+    if (!write(target, inPlace, displayPath())) {
         if (m_problem == Problem::NotWritable) {
             m_locked = true;
             emit fileChanged();
         }
         return false;
     }
+    watch();
     return true;
 }
 
@@ -545,15 +608,14 @@ bool Document::saveAsUrl(const QUrl &url) {
     // refused file itself) with nothing.
     if (!url.isLocalFile() || !m_document || (!m_editable && !m_locked))
         return false;
-    const QString path = QFileInfo(url.toLocalFile()).absoluteFilePath();
+    const QString path = cleanPath(url.toLocalFile());
     const QFileInfo info(path);
     const QString target = info.exists() ? info.canonicalFilePath() : info.isSymLink() ? info.symLinkTarget() : path;
     const bool inPlace = info.exists() && !unsafeForRename(target).isEmpty();
-    if (!write(target, inPlace))
+    if (!write(target, inPlace, shortenHome(path)))
         return false;
     m_path = path;
     m_target = target;
-    m_diskStamp = stamp(target);
     m_editable = true;
     m_locked = false;
     setLanguageFor(m_path, m_document->firstBlock().text());
@@ -590,7 +652,7 @@ QString Document::unsafeForRename(const QString &target) const {
 
 // Writes the editor's text to target and records it as the version on disk.
 // Callers decide whether that's safe; this only refuses what it can't do.
-bool Document::write(const QString &target, bool inPlace) {
+bool Document::write(const QString &target, bool inPlace, const QString &display) {
     if (!m_document || target.isEmpty())
         return false;
     const bool exists = QFileInfo::exists(target);
@@ -613,13 +675,19 @@ bool Document::write(const QString &target, bool inPlace) {
         const bool known = ::stat(QFile::encodeName(target).constData(), &before) == 0;
         QFile file(target);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(bytes) != bytes.size()
-            || !file.flush() || ::fsync(file.handle()) != 0) {
+            || !file.flush()) {
             setProblem(Problem::SaveFailed, file.errorString());
             return false;
         }
+        if (::fsync(file.handle()) != 0) {
+            setProblem(Problem::SaveFailed, QString::fromLocal8Bit(::strerror(errno)));
+            return false;
+        }
         // The kernel clears setuid and setgid when a non-root user writes a
-        // file; put them back, which the owner is allowed to do.
-        if (known)
+        // file; put them back only when the mode actually changed, so saving
+        // another user's ordinary file doesn't fail fchmod() with EPERM.
+        struct stat after;
+        if (known && (::fstat(file.handle(), &after) != 0 || (after.st_mode & 07777) != (before.st_mode & 07777)))
             modeRestored = ::fchmod(file.handle(), before.st_mode & 07777) == 0;
     } else {
         QSaveFile file(target);
@@ -633,8 +701,7 @@ bool Document::write(const QString &target, bool inPlace) {
     m_diskHash = hash(bytes);
     m_diskStamp = stamp(target);
     m_document->setModified(false);
-    setProblem(modeRestored ? Problem::None : Problem::ModeLost, displayPath());
-    watch();
+    setProblem(modeRestored ? Problem::None : Problem::ModeLost, display);
     return true;
 }
 
@@ -650,11 +717,10 @@ void Document::watch() {
     const QStringList watched = m_watcher.files() + m_watcher.directories();
     if (!watched.isEmpty())
         m_watcher.removePaths(watched);
-    if (m_path.isEmpty())
+    if (m_path.isEmpty() || m_target.isEmpty())
         return;
-    QStringList paths{m_path, QFileInfo(m_path).absolutePath()};
-    if (!m_target.isEmpty())
-        paths << m_target << QFileInfo(m_target).absolutePath();
+    QStringList paths{m_path, QFileInfo(m_path).absolutePath(),
+                      m_target, QFileInfo(m_target).absolutePath()};
     paths.removeDuplicates();
     for (const QString &path : paths)
         if (QFileInfo::exists(path))

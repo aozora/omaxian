@@ -138,6 +138,8 @@ private:
     // in the middle of the flow. `again` tries a start that failed.
     void pump(bool again = false);
     void compose();
+    void render(Track track, const QJsonObject &body, bool sung);
+    bool effectiveLyrics() const;
     // Hands the model a job, follows it until it's done, and gives its result to `done`.
     void submit(const QString &path, const QJsonObject &body, Done done);
     void poll();
@@ -170,6 +172,7 @@ private:
 
     QString m_genre;
     bool m_lyrics = false;
+    bool m_lastVocals = true;
     QString m_language = "en";
     Track m_current;
     QList<Track> m_queue;

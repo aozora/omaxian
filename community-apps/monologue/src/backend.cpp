@@ -83,6 +83,7 @@ void Backend::refreshDevices() {
 void Backend::retranslate() {
     if(m_activateHardware) listDevices();
     if(!m_formatLabel.isEmpty()) { m_formatLabel=describeFormat(); emit changed(); }
+    emit meterChanged();
 }
 QString Backend::describeFormat() const {
     return tr("%1 × %2 · up to %3 fps").arg(m_cameraFormat.resolution().width()).arg(m_cameraFormat.resolution().height()).arg(m_fps,0,'f',m_fps==int(m_fps)?0:2);
@@ -127,7 +128,7 @@ void Backend::releaseSources(bool keepPicture) {
     m_videoOrigin=-1; m_audioCapturedUntil=-1; m_videoCapturedUntil=-1;
     m_lastFrame=QVideoFrame();
     if(m_preview && !keepPicture) m_preview->setVideoFrame({});
-    m_level=m_peak=-60; emit meterChanged();
+    m_level=m_peak=-60; m_clipUntil=0; m_lastClipping=false; emit meterChanged();
 }
 void Backend::activateSources() {
     if(m_writer || m_state=="saving" || m_probing) return;
@@ -148,7 +149,9 @@ void Backend::activateSources() {
             m_camera=new QCamera(selectedCamera,this);
             m_camera->setCameraFormat(m_cameraFormat);
             m_capture.setCamera(m_camera);
-            connect(m_camera,&QCamera::errorOccurred,this,[this](auto,const QString &error) { sourceFailed(tr("Camera: %1").arg(error)); });
+            connect(m_camera,&QCamera::errorOccurred,this,[this,camera=QPointer<QCamera>(m_camera)](auto,const QString &error) {
+                if(camera && camera==m_camera) sourceFailed(tr("Camera: %1").arg(error));
+            },Qt::QueuedConnection);
             m_camera->start();
         }
     }
@@ -159,7 +162,9 @@ void Backend::activateSources() {
             m_audioFormat=selectedAudio.preferredFormat();
             m_audio=new AudioCapture([this] { return now(); },this);
             connect(m_audio,&AudioCapture::samples,this,&Backend::receiveAudio);
-            connect(m_audio,&AudioCapture::failed,this,&Backend::sourceFailed);
+            connect(m_audio,&AudioCapture::failed,this,[this,audio=QPointer<AudioCapture>(m_audio)](const QString &error) {
+                if(audio && audio==m_audio) sourceFailed(error);
+            },Qt::QueuedConnection);
             m_audio->start(selectedAudio.id(),m_audioFormat);
         }
     } else { m_settings.setValue("microphone/id","none"); m_settings.setValue("microphone/label",tr("No audio")); }
@@ -174,6 +179,10 @@ void Backend::updateReady() {
 }
 void Backend::receiveVideo(QVideoFrame frame) {
     if(!m_camera || !frame.isValid()) return;
+    // uvcvideo flags a frame the camera cut short, but Qt passes it on regardless,
+    // and it decodes as a coloured grid. Skip it, and the recording holds the frame
+    // before. A camera that sends nothing else still times out as stalled.
+    if(!media::completeFrame(frame)) return;
     // Qt maps V4L2's sRGB colorspace to BT.601 and ignores the YCbCr encoding the
     // driver reports, so HDMI capture cards sending BT.709 decode with skewed colors.
     if(!m_cameraHealthy) m_colorSpace=media::cameraColorSpace(m_camera->cameraDevice().id());
@@ -182,10 +191,6 @@ void Backend::receiveVideo(QVideoFrame frame) {
         auto format=frame.surfaceFormat(); format.setColorSpace(m_colorSpace);
         frame=media::withFormat(frame,format);
     }
-    // uvcvideo flags a frame the camera cut short, but Qt passes it on regardless,
-    // and it decodes as a coloured grid. Skip it, and the recording holds the frame
-    // before. A camera that sends nothing else still times out as stalled.
-    if(!media::completeFrame(frame)) return;
     m_lastVideoAt=now();
     if(frame.size()!=m_cameraFormat.resolution()) {
         sourceFailed(tr("The camera did not provide its maximum resolution. Choose another source or Retry.")); return;
@@ -220,7 +225,9 @@ void Backend::receiveAudio(const QByteArray &data, qint64 capturedAt) {
     if(!m_audioHealthy) {
         m_audioHealthy=true;
         m_settings.setValue("microphone/id",m_audioId);
-        if(m_audio) m_settings.setValue("microphone/label",m_microphones.value(microphoneIndex()).toMap()["label"]);
+        const int index=microphoneIndex();
+        if(m_audio && index>=0) m_settings.setValue("microphone/label",m_microphones[index].toMap()["label"]);
+        emit meterChanged();
         updateReady();
     }
     m_pendingPeak=std::max(m_pendingPeak,media::peak(data,m_audioFormat));
@@ -231,23 +238,38 @@ void Backend::receiveAudio(const QByteArray &data, qint64 capturedAt) {
 void Backend::tick() {
     const auto time=now();
     const double db=m_pendingPeak>0 ? std::max(-60.0,20*std::log10(m_pendingPeak)) : -60;
-    m_level=std::max(db,m_level-1.5);
+    const double level=std::max(db,m_level-1.5);
     if(db>-60) m_signalAt=time;
     if(m_pendingPeak>=.999) m_clipUntil=time+1000000;
-    if(db>=m_peak) { m_peak=db; m_peakUntil=time+700000; }
-    else if(time>m_peakUntil) m_peak=std::max(m_level,m_peak-1.5);
-    m_pendingPeak=0; emit meterChanged();
-    if(m_writer && (m_state=="recording" || m_state=="paused")) { m_duration=m_writer->duration(time)/1000000.0; emit changed(); }
+    double peak=m_peak;
+    if(db>=peak) { peak=db; m_peakUntil=time+700000; }
+    else if(time>m_peakUntil) peak=std::max(level,peak-1.5);
+    m_pendingPeak=0;
+    const bool clip=time<m_clipUntil;
+    const bool signal=time-m_signalAt<=3000000;
+    if(level!=m_level || peak!=m_peak || clip!=m_lastClipping || signal!=m_lastSignal) {
+        m_level=level; m_peak=peak; m_lastClipping=clip; m_lastSignal=signal;
+        emit meterChanged();
+    }
+    if(m_writer && (m_state=="recording" || m_state=="paused")) {
+        const double duration=m_writer->duration(time)/1000000.0;
+        if(duration!=m_duration) { m_duration=duration; emit changed(); }
+    }
     if((m_state=="starting" || m_state=="ready" || m_state=="recording" || m_state=="paused") && time-m_activatedAt>5000000) {
         if(m_camera && time-m_lastVideoAt>3000000) sourceFailed(tr("The camera stopped delivering video. Check the connection, then Retry."));
         else if(audioEnabled() && m_audio && time-m_lastAudioAt>3000000) sourceFailed(tr("The microphone stopped delivering audio. Check the connection, then Retry."));
     }
 }
 void Backend::sourceFailed(const QString &message) {
-    if(m_state=="finished" || m_state=="saving" || m_state=="finalizing") return;
+    if(m_state=="finished" || m_state=="saving" || m_state=="finalizing" || m_state=="unavailable") return;
     m_message=message;
     if(m_writer) { m_interruption=message; finish(); }
-    else m_state="unavailable";
+    else {
+        m_state="unavailable";
+        // Defer hardware teardown so a synchronous failure (such as a bad frame size in receiveVideo)
+        // never deletes QCamera while it is still delivering that frame.
+        QTimer::singleShot(0,this,[this] { if(m_state=="unavailable") releaseSources(); });
+    }
     emit changed();
 }
 void Backend::selectCamera(int index) {
@@ -278,9 +300,10 @@ void Backend::toggleRecording() {
 }
 void Backend::startTake() {
     if(!ready() || !m_lastFrame.isValid()) return;
-    m_takeId=QUuid::createUuid().toString(QUuid::WithoutBraces);
-    const QString directory=m_root+"/"+m_takeId;
+    const QString takeId=QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString directory=m_root+"/"+takeId;
     if(!QDir().mkpath(directory) || !lockTake(directory)) { m_message=tr("Could not create the recording folder. Check available space and permissions."); emit changed(); return; }
+    m_takeId=takeId;
     m_clipFileName="Monologue-"+QDateTime::currentDateTime().toString("yyyy-MM-dd-HHmmss")+".mp4";
     m_clipPath=directory+"/"+m_clipFileName;
     m_interruption.clear(); m_duration=0;
@@ -297,9 +320,12 @@ void Backend::startTake() {
 void Backend::finish() {
     if(!m_writer || m_state=="finalizing") return;
     if(m_state=="recording") readAudio();
-    m_finishAt=now();
-    m_duration=m_writer->duration(m_finishAt)/1000000.0;
-    m_writer->pause(m_finishAt);
+    const qint64 nowTime=now();
+    const qint64 pausedAt=m_writer->pausedAt();
+    // A paused take already closed its last interval; no later buffers belong to it.
+    m_finishAt=pausedAt>=0 ? pausedAt : nowTime;
+    m_duration=m_writer->duration(nowTime)/1000000.0;
+    m_writer->pause(nowTime);
     m_state="finalizing"; m_message=m_interruption.isEmpty()?tr("Finishing your clip…"):m_interruption;
     m_finishTimeout.start();
     finishWhenCaptured();
@@ -315,12 +341,19 @@ void Backend::finishWhenCaptured() {
 void Backend::writerFinished() {
     if(!m_writer) return;
     m_finishTimeout.stop(); m_finishAt=-1;
+    const bool timedOut=m_writer->timedOut();
     m_pauses.clear();
     for(const auto join:m_writer->joins()) m_pauses.append(join/1000000.0);
     m_writer->deleteLater(); m_writer=nullptr;
     releaseSources(true);
     if(m_discardAfter) { m_discardAfter=false; deleteTake(); emit safeToClose(); return; }
     if(m_restartAfter) { m_restartAfter=false; deleteTake(); activateSources(); return; }
+    if(timedOut) {
+        // The encoder never reached StoppedState; keep the folder on disk rather than racing normalizeMp4 against it.
+        m_takeLock.reset(); m_takeId.clear(); deleteTake();
+        m_state="unavailable"; m_message=m_interruption; emit changed();
+        return;
+    }
     probeClip(m_clipPath,true);
 }
 void Backend::probeClip(const QString &path,bool currentTake) {
@@ -363,7 +396,8 @@ void Backend::newRecording() {
 }
 void Backend::save() {
     if(m_state!="finished" || m_dialogOpen) return;
-    const QString directory=m_settings.value("saveDirectory",QStandardPaths::writableLocation(QStandardPaths::MoviesLocation)).toString();
+    QString directory=m_settings.value("saveDirectory",QStandardPaths::writableLocation(QStandardPaths::MoviesLocation)).toString();
+    if(directory.isEmpty()) directory=QDir::homePath();
     m_dialogOpen=true; emit changed();
     m_picker->saveVideo(QUrl::fromLocalFile(directory+"/"+m_clipFileName));
 }
@@ -426,7 +460,12 @@ void Backend::exportTo(const QString &destination) {
         while(m_export->canReadLine()) {
             const auto line=m_export->readLine().trimmed();
             if(line.startsWith("out_time_us=") && total>0) {
-                m_saveProgress=std::clamp(line.mid(12).toDouble()/1000000.0/total,0.0,1.0); emit changed();
+                bool ok=false;
+                const double us=line.mid(12).toDouble(&ok);
+                if(ok) {
+                    const double progress=std::clamp(us/1000000.0/total,0.0,1.0);
+                    if(progress!=m_saveProgress) { m_saveProgress=progress; emit changed(); }
+                }
             }
         }
     });
@@ -550,7 +589,7 @@ void Backend::deleteTake() {
         m_takeLock.reset();
         QDir(m_root+"/"+m_takeId).removeRecursively();
     }
-    m_takeId.clear(); m_clipPath.clear(); m_clipFileName.clear();
+    m_takeId.clear(); m_clipPath.clear(); m_clipFileName.clear(); m_duration=0;
     resetEdit({},{}); m_thumbnails.clear();
 }
 void Backend::recoverTake() {

@@ -133,6 +133,19 @@ Backend::Backend(const Options &options, QObject *parent)
     // plays, and a drag of the volume asks PipeWire once it pauses.
     m_boostTimer.setSingleShot(true);
     connect(&m_boostTimer, &QTimer::timeout, this, &Backend::applyBoost);
+    m_boostTimeout.setSingleShot(true);
+    m_boostTimeout.setInterval(5000);
+    connect(&m_boostTimeout, &QTimer::timeout, &m_boostProcess, &QProcess::kill);
+    auto boostDone = [this] {
+        m_boostTimeout.stop();
+        if (std::exchange(m_boostPending, false))
+            QMetaObject::invokeMethod(this, &Backend::applyBoost, Qt::QueuedConnection);
+    };
+    connect(&m_boostProcess, &QProcess::finished, this, boostDone);
+    connect(&m_boostProcess, &QProcess::errorOccurred, this, [boostDone](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart)
+            boostDone();
+    });
     m_muted = m_preferences.value("muted").toBool(false);
     m_preferenceTimer.setSingleShot(true);
     m_preferenceTimer.setInterval(500);
@@ -181,11 +194,23 @@ Backend::~Backend() {
     m_previews.cancel();
     if (m_cancel)
         *m_cancel = true;
+    m_boostTimer.stop();
+    m_boostTimeout.stop();
+    m_boostProcess.disconnect();
+    if (m_boostProcess.state() != QProcess::NotRunning) {
+        m_boostProcess.kill();
+        m_boostProcess.waitForFinished(1000);
+    }
     flush();
     if (m_player) {
-        // No frame may reach a backend that is going: detach the sink before
-        // the decoder's thread can call into it again.
-        m_sink->disconnect(this);
+        // No frame or RHI update may reach a backend that is going: detach the
+        // sink before the decoder or render thread can call into it again.
+        QVideoSink *sink = nullptr;
+        {
+            QMutexLocker locker(&m_rhiLock);
+            sink = std::exchange(m_sink, nullptr);
+        }
+        sink->disconnect(this);
         m_player->disconnect(this);
         m_player->setVideoSink(nullptr);
         m_player->stop();
@@ -275,13 +300,17 @@ void Backend::ensurePlayer() {
     // The player draws into a sink of ours, which hands each frame on to the
     // window's and keeps the subtitle text, so the window draws embedded and
     // sidecar subtitles in one style and the frame on screen is at hand.
-    m_sink = new QVideoSink(this);
-    m_player->setVideoSink(m_sink);
+    auto *sink = new QVideoSink(this);
+    m_player->setVideoSink(sink);
     // Frames are handed on from the decoder's thread, as Qt's own player
     // hands them to a VideoOutput, so a busy GUI thread never makes the
     // picture stutter. The sink shares the window's GPU context (setRhi), so
     // a frame decoded on the GPU stays there.
-    m_sink->setRhi(m_rhi.load());
+    {
+        QMutexLocker locker(&m_rhiLock);
+        m_sink = sink;
+        m_sink->setRhi(m_rhi);
+    }
     connect(
         m_sink, &QVideoSink::videoFrameChanged, this,
         [this](const QVideoFrame &frame) {
@@ -403,6 +432,7 @@ void Backend::setVideoSink(QVideoSink *sink) {
 void Backend::setRhi(QRhi *rhi) {
     // Called on the render thread as the scene graph comes and goes, as Qt's
     // own VideoOutput sets its sink's.
+    QMutexLocker locker(&m_rhiLock);
     m_rhi = rhi;
     if (m_sink)
         m_sink->setRhi(rhi);
@@ -498,6 +528,7 @@ void Backend::resetFile() {
     m_title.clear();
     m_artist.clear();
     m_coverArt.clear();
+    m_coverArtLoading = false;
     m_problem = Problem::None;
     m_stopped = false;
     m_position = 0;
@@ -811,6 +842,8 @@ void Backend::onProbed(const probe::Info &info, const QList<subtitles::Sidecar> 
 }
 
 void Backend::onTracks() {
+    if (m_picture || m_player->source().isEmpty())
+        return;
     m_tracksReady = true;
     chooseTracks();
 }
@@ -1050,21 +1083,40 @@ void Backend::updateMetadata() {
         artist = metadata.stringValue(QMediaMetaData::AlbumArtist);
     if (!artist.isEmpty())
         m_artist = artist;
-    QImage cover = metadata.value(QMediaMetaData::CoverArtImage).value<QImage>();
-    // Omaxian: Qt 6.8's FFmpeg backend gives an attached picture as the
-    // thumbnail instead.
-    if (cover.isNull())
-        cover = metadata.value(QMediaMetaData::ThumbnailImage).value<QImage>();
-    if (!cover.isNull()) {
-        // Small enough to hand QML as a data URL, which needs no provider
-        // whose lifetime has to outlast the engine's.
-        if (cover.width() > 1024 || cover.height() > 1024)
-            cover = cover.scaled(1024, 1024, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        QByteArray bytes;
-        QBuffer buffer(&bytes);
-        buffer.open(QIODevice::WriteOnly);
-        cover.save(&buffer, "JPG", 90);
-        m_coverArt = "data:image/jpeg;base64," + QString::fromLatin1(bytes.toBase64());
+    if (m_coverArt.isEmpty() && !m_coverArtLoading) {
+        QImage cover = metadata.value(QMediaMetaData::CoverArtImage).value<QImage>();
+        // Omaxian: Qt 6.8's FFmpeg backend gives an attached picture as the
+        // thumbnail instead.
+        if (cover.isNull())
+            cover = metadata.value(QMediaMetaData::ThumbnailImage).value<QImage>();
+        if (!cover.isNull()) {
+            m_coverArtLoading = true;
+            const quint64 generation = m_generation;
+            QPointer<Backend> self(this);
+            (void)QtConcurrent::run([self, cover, generation]() mutable {
+                QEventLoopLocker keepRunning;
+                // Scaled and encoded off the GUI thread, small enough to hand
+                // QML as a data URL without a provider whose lifetime has to
+                // outlast the engine's.
+                if (cover.width() > 1024 || cover.height() > 1024)
+                    cover = cover.scaled(1024, 1024, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                QByteArray bytes;
+                QBuffer buffer(&bytes);
+                buffer.open(QIODevice::WriteOnly);
+                const QString encoded = cover.save(&buffer, "JPG", 90)
+                                            ? QStringLiteral("data:image/jpeg;base64,") + QString::fromLatin1(bytes.toBase64())
+                                            : QString();
+                QMetaObject::invokeMethod(qApp, [self, encoded, generation] {
+                    if (!self || self->m_generation != generation)
+                        return;
+                    self->m_coverArtLoading = false;
+                    if (!encoded.isEmpty()) {
+                        self->m_coverArt = encoded;
+                        emit self->metadataChanged();
+                    }
+                }, Qt::QueuedConnection);
+            });
+        }
     }
     QSize resolution = metadata.value(QMediaMetaData::Resolution).toSize();
     m_videoTurned = std::abs(metadata.value(QMediaMetaData::Orientation).toInt()) % 180 == 90;
@@ -1159,7 +1211,7 @@ void Backend::buildPictureInfo(Row row) {
     QStringList exposure;
     if (exif.exposure > 0)
         exposure << tr("%1 s").arg(exif.exposure >= 1 ? locale.toString(exif.exposure, 'g', 3)
-                                                       : QString("1/%1").arg(qRound(1 / exif.exposure)));
+                                                      : QString("1/%1").arg(qRound64(1.0 / exif.exposure)));
     if (exif.aperture > 0)
         exposure << "f/" + locale.toString(exif.aperture, 'f', exif.aperture < 10 ? 1 : 0);
     if (exif.iso > 0)
@@ -1192,26 +1244,14 @@ void Backend::applyBoost() {
         return;
     // One wpctl at a time, and the latest volume last: two left running
     // could finish in either order.
-    if (m_boostRunning) {
+    if (m_boostProcess.state() != QProcess::NotRunning) {
         m_boostPending = true;
         return;
     }
     const double gain = std::max(1.0, m_volume);
-    m_boostRunning = true;
-    auto *wpctl = new QProcess(this);
-    auto done = [this, wpctl] {
-        wpctl->deleteLater();
-        m_boostRunning = false;
-        if (std::exchange(m_boostPending, false))
-            applyBoost();
-    };
-    connect(wpctl, &QProcess::finished, this, done);
-    connect(wpctl, &QProcess::errorOccurred, this, [done](QProcess::ProcessError error) {
-        if (error == QProcess::FailedToStart)
-            done();
-    });
-    wpctl->start("wpctl", {"set-volume", "-p", QString::number(QCoreApplication::applicationPid()),
-                           QString::number(gain, 'f', 2)});
+    m_boostTimeout.start();
+    m_boostProcess.start("wpctl", {"set-volume", "-p", QString::number(QCoreApplication::applicationPid()),
+                                   QString::number(gain, 'f', 2)});
     if (m_boostAgain) {
         m_boostAgain = false;
         m_boostTimer.start(1500);

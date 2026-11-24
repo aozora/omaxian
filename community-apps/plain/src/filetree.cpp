@@ -18,6 +18,13 @@ static QString cleaned(const QString &path) {
     return QDir::cleanPath(QFileInfo(path).absoluteFilePath());
 }
 
+static QCollator fileCollator() {
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    return collator;
+}
+
 FileTree::FileTree(QObject *parent) : QAbstractListModel(parent) {
     // Saving a file is several changes in a row (a temporary file, a rename).
     m_debounce.setSingleShot(true);
@@ -74,14 +81,11 @@ QHash<int, QByteArray> FileTree::roleNames() const {
             {FolderRole, "folder"}, {ExpandedRole, "expanded"}, {HiddenRole, "hidden"}};
 }
 
-QVector<FileTree::Entry> FileTree::rowsUnder(const QString &folder, int depth) const {
+QVector<FileTree::Entry> FileTree::rowsUnder(const QString &folder, int depth, const QCollator &collator) const {
     QDir::Filters filters = QDir::AllEntries | QDir::NoDotAndDotDot;
     if (m_showHidden)
         filters |= QDir::Hidden;
     QFileInfoList infos = QDir(folder).entryInfoList(filters);
-    QCollator collator;
-    collator.setNumericMode(true);
-    collator.setCaseSensitivity(Qt::CaseInsensitive);
     std::sort(infos.begin(), infos.end(), [&](const QFileInfo &a, const QFileInfo &b) {
         if (a.isDir() != b.isDir())
             return a.isDir();
@@ -89,20 +93,22 @@ QVector<FileTree::Entry> FileTree::rowsUnder(const QString &folder, int depth) c
     });
 
     QVector<Entry> rows;
+    rows.reserve(infos.size());
     for (const QFileInfo &info : infos) {
         const Entry entry{info.fileName(), info.absoluteFilePath(), depth, info.isDir()};
         rows << entry;
         if (entry.folder && m_expanded.contains(entry.path))
-            rows << rowsUnder(entry.path, depth + 1);
+            rows << rowsUnder(entry.path, depth + 1, collator);
     }
     return rows;
 }
 
 void FileTree::rebuild() {
+    m_debounce.stop();
     // Folders removed from disk stop being open, so they don't come back open.
     for (auto it = m_expanded.begin(); it != m_expanded.end();)
         it = QFileInfo(*it).isDir() ? std::next(it) : m_expanded.erase(it);
-    const QVector<Entry> rows = m_root.isEmpty() ? QVector<Entry>() : rowsUnder(m_root, 0);
+    const QVector<Entry> rows = m_root.isEmpty() ? QVector<Entry>() : rowsUnder(m_root, 0, fileCollator());
 
     // Only the rows between the unchanged start and end are replaced. A
     // reset would scroll the list back to its top on every save in a shown
@@ -124,7 +130,7 @@ void FileTree::rebuild() {
     }
     if (const qsizetype added = rows.size() - tail - head; added > 0) {
         beginInsertRows({}, int(head), int(head + added - 1));
-        m_rows = m_rows.mid(0, head) + rows.mid(head, added) + m_rows.mid(head);
+        m_rows = rows;
         endInsertRows();
     }
     // Rows that stayed can still have opened or closed.
@@ -158,11 +164,13 @@ void FileTree::expand(int row) {
         return;
     const Entry entry = m_rows.at(row);
     m_expanded.insert(entry.path);
-    const QVector<Entry> children = rowsUnder(entry.path, entry.depth + 1);
+    const QVector<Entry> children = rowsUnder(entry.path, entry.depth + 1, fileCollator());
     if (!children.isEmpty()) {
         // In one go: one at a time shifts the rows after it once per child.
         beginInsertRows({}, row + 1, row + int(children.size()));
-        m_rows = m_rows.mid(0, row + 1) + children + m_rows.mid(row + 1);
+        const qsizetype oldSize = m_rows.size();
+        m_rows.append(children);
+        std::rotate(m_rows.begin() + row + 1, m_rows.begin() + oldSize, m_rows.end());
         endInsertRows();
     }
     const QModelIndex at = index(row);
@@ -214,6 +222,8 @@ int FileTree::reveal(const QString &path) {
 }
 
 int FileTree::indexOf(const QString &path) const {
+    if (path.isEmpty())
+        return -1;
     const QString clean = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
     for (int i = 0; i < m_rows.size(); ++i)
         if (m_rows.at(i).path == clean)
@@ -251,7 +261,6 @@ QString FileTree::trash(const QString &target) {
     QFile file(path);
     if (!file.moveToTrash())
         return file.errorString().isEmpty() ? tr("It couldn't be moved to the trash") : file.errorString();
-    m_debounce.stop();
     rebuild();
     return {};
 }
@@ -289,7 +298,6 @@ QVariantMap FileTree::move(const QString &source, const QString &folder) {
     followExpanded(from, to);
     if (into != m_root)
         m_expanded.insert(into);
-    m_debounce.stop();
     rebuild();
     return {{"path", to}};
 }
@@ -317,7 +325,6 @@ QVariantMap FileTree::create(const QString &folder, const QString &name, bool is
         return {{"error", tr("%1 couldn't be created here").arg(name)}};
     if (QDir::cleanPath(folder) != m_root)
         m_expanded.insert(QDir::cleanPath(folder));
-    m_debounce.stop();
     rebuild();
     return {{"path", path}};
 }
@@ -352,7 +359,6 @@ QVariantMap FileTree::rename(const QString &source, const QString &name) {
     if (!QDir().rename(from, to))
         return {{"error", tr("%1 couldn't be renamed").arg(QFileInfo(from).fileName())}};
     followExpanded(from, to);
-    m_debounce.stop();
     rebuild();
     return {{"path", to}};
 }
@@ -380,7 +386,7 @@ QVariantMap FileTree::duplicate(const QString &source) {
         return {{"error", tr("%1 points at nothing to duplicate").arg(name)}};
     // A link to a folder the copy would land in would copy itself forever.
     const QString copyIn = QFileInfo(info.absolutePath()).canonicalFilePath();
-    if (copyIn == original || copyIn.startsWith(original + "/"))
+    if (copyIn == original || copyIn.startsWith(original == "/" ? original : original + "/"))
         return {{"error", tr("%1 can't be duplicated inside itself").arg(name)}};
     std::error_code error;
     std::filesystem::copy(QFile::encodeName(original).constData(), QFile::encodeName(to).constData(),
@@ -388,7 +394,6 @@ QVariantMap FileTree::duplicate(const QString &source) {
                           error);
     if (error)
         return {{"error", tr("%1 couldn't be duplicated: %2").arg(name, QString::fromLocal8Bit(error.message().c_str()))}};
-    m_debounce.stop();
     rebuild();
     return {{"path", to}};
 }

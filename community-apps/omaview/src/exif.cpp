@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QHash>
+#include <limits>
 
 namespace exif {
 
@@ -52,7 +53,7 @@ int typeSize(quint16 type) {
     switch (type) {
     case 1: case 2: case 6: case 7: return 1;  // BYTE, ASCII, SBYTE, UNDEFINED
     case 3: case 8: return 2;                  // SHORT, SSHORT
-    case 4: case 9: case 11: return 4;         // LONG, SLONG, FLOAT
+    case 4: case 9: case 11: case 13: return 4;  // LONG, SLONG, FLOAT, IFD
     case 5: case 10: case 12: return 8;        // RATIONAL, SRATIONAL, DOUBLE
     }
     return 0;
@@ -62,6 +63,8 @@ int typeSize(quint16 type) {
 // wanted are all in the first image's and its EXIF one.
 QHash<quint16, Entry> entries(const Reader &reader, quint32 offset) {
     QHash<quint16, Entry> found;
+    if (!reader.fits(offset, 2))
+        return found;
     const quint16 count = reader.u16(offset);
     if (!reader.fits(offset + 2, quint32(count) * 12))
         return found;
@@ -108,19 +111,37 @@ double number(const Reader &reader, const QHash<quint16, Entry> &ifd, quint16 ta
     return 0;
 }
 
-// The TIFF structure in a JPEG: the APP1 segment that starts "Exif\0\0".
-QByteArray fromJpeg(const QByteArray &data) {
-    int at = 2;
-    while (at + 4 <= data.size() && uchar(data[at]) == 0xFF) {
-        const uchar marker = uchar(data[at + 1]);
-        if (marker == 0xD9 || marker == 0xDA)  // the end, or the image data
+// The TIFF structure in a JPEG: the APP1 segment that starts "Exif\0\0",
+// found by walking marker headers with seeks rather than reading a fixed
+// prefix or any pixel data.
+QByteArray fromJpeg(QFile &file) {
+    qint64 at = 2;
+    const qint64 end = file.size();
+    while (at + 2 <= end && file.seek(at)) {
+        char byte = 0;
+        if (file.read(&byte, 1) != 1 || uchar(byte) != 0xFF)
             break;
-        const int length = uchar(data[at + 2]) << 8 | uchar(data[at + 3]);
+        // JPEG allows one or more 0xFF fill bytes before a marker code.
+        uchar marker = 0xFF;
+        while (marker == 0xFF && file.read(&byte, 1) == 1)
+            marker = uchar(byte);
+        if (marker == 0xFF || marker == 0xD9 || marker == 0xDA)  // EOF, the end, or the image data
+            break;
+        // Standalone markers (TEM, RST0..7, SOI) carry no length field.
+        if (marker == 0x00 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8)) {
+            at = file.pos();
+            continue;
+        }
+        const QByteArray lenBytes = file.read(2);
+        if (lenBytes.size() < 2)
+            break;
+        const int length = uchar(lenBytes[0]) << 8 | uchar(lenBytes[1]);
         if (length < 2)
             break;
-        if (marker == 0xE1 && data.mid(at + 4, 6) == QByteArray("Exif\0\0", 6))
-            return data.mid(at + 10, length - 8);
-        at += 2 + length;
+        const qint64 payloadStart = file.pos();
+        if (marker == 0xE1 && length >= 8 && file.read(6) == QByteArray("Exif\0\0", 6))
+            return file.read(length - 8);
+        at = payloadStart + (length - 2);
     }
     return {};
 }
@@ -155,7 +176,7 @@ QByteArray chunk(QFile &file, bool webp) {
 
 bool Tags::empty() const {
     return !taken.isValid() && make.isEmpty() && model.isEmpty() && lens.isEmpty() && exposure <= 0
-           && aperture <= 0 && focalLength <= 0 && iso <= 0;
+           && aperture <= 0 && focalLength <= 0 && focal35 <= 0 && iso <= 0;
 }
 
 QString Tags::camera() const {
@@ -176,13 +197,16 @@ Tags parse(const QByteArray &tiff) {
     tags.make = text(reader, image, 0x010F);
     tags.model = text(reader, image, 0x0110);
     QHash<quint16, Entry> photo;
-    if (image.contains(0x8769) && image.value(0x8769).type == 4)
-        photo = entries(reader, reader.u32(image.value(0x8769).value));
+    if (const Entry exifIfd = image.value(0x8769); exifIfd.type == 4 || exifIfd.type == 13)
+        photo = entries(reader, reader.u32(exifIfd.value));
+    auto whole = [](double v) {
+        return v > 0 && v <= std::numeric_limits<int>::max() ? int(v) : 0;
+    };
     tags.exposure = number(reader, photo, 0x829A);
     tags.aperture = number(reader, photo, 0x829D);
-    tags.iso = int(number(reader, photo, 0x8827));
+    tags.iso = whole(number(reader, photo, 0x8827));
     tags.focalLength = number(reader, photo, 0x920A);
-    tags.focal35 = int(number(reader, photo, 0xA405));
+    tags.focal35 = whole(number(reader, photo, 0xA405));
     tags.lens = text(reader, photo, 0xA434);
     QString when = text(reader, photo, 0x9003);
     if (when.isEmpty())
@@ -200,7 +224,7 @@ Tags read(const QString &path) {
     // cuts short as it saves would crash a mapping with SIGBUS.
     const QByteArray head = file.peek(16);
     if (head.startsWith("\xFF\xD8"))
-        return parse(fromJpeg(file.read(256 * 1024)));
+        return parse(fromJpeg(file));
     if (head.startsWith("\x89PNG\r\n\x1a\n"))
         return parse(chunk(file, false));
     if (head.startsWith("RIFF") && head.mid(8, 4) == "WEBP")

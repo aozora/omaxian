@@ -6,7 +6,7 @@ UTF-8 only. Upstream 0.4.x adds a folder sidebar (Ctrl+B), rename/duplicate
 in the files, and related editor polish.
 
 Port of [omacom/plain](https://github.com/omacom/plain) **0.4.1**
-(upstream commit `4b58792`, pinned in `.omaxian-upstream-commit`). Full upstream
+(upstream commit `7ad163e`, pinned in `.omaxian-upstream-commit`). Full upstream
 docs: [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under

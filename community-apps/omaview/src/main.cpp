@@ -7,6 +7,7 @@
 #include <QPointer>
 #include <QtConcurrent>
 #include <cmath>
+#include <memory>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
@@ -108,12 +109,12 @@ int main(int argc, char *argv[]) {
     // folder, which is listed before its grid shows, open while it's hidden.
     if (picture || folder) {
         // Work in the background lets the app quit when it finishes with no
-        // window showing, so the hidden window holds it until it shows.
-        auto *hold = new QEventLoopLocker;
-        QObject::connect(window, &QWindow::visibleChanged, window, [hold](bool visible) {
+        // window showing, so the hidden window holds it until it shows (or goes).
+        auto hold = std::make_shared<QEventLoopLocker>();
+        QObject::connect(window, &QWindow::visibleChanged, window, [hold](bool visible) mutable {
             if (visible)
-                delete hold;
-        }, Qt::SingleShotConnection);
+                hold.reset();
+        });
         backend.open(files);
     }
     else if (!files.isEmpty())

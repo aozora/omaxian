@@ -293,6 +293,10 @@ private slots:
         QCOMPARE(cues.at(0).end, qint64(2500));
         QCOMPARE(cues.at(0).text, QString("Hello & welcome\nsecond line"));
         QCOMPARE(cues.at(1).text, QString("Top"));
+        // Escaped entities stay literal rather than double-unescaping.
+        const auto escaped = subtitles::parseWebVtt("WEBVTT\n\n00:00.000 --> 00:01.000\n&amp;lt;b&amp;gt;\n");
+        QCOMPARE(escaped.size(), 1);
+        QCOMPARE(escaped.first().text, QString("&lt;b&gt;"));
         QCOMPARE(subtitles::at(cues, 999), QString());
         QCOMPARE(subtitles::at(cues, 1500), QString("Hello & welcome\nsecond line"));
         QCOMPARE(subtitles::at(cues, 3700), QString("Top\nOverlap"));
@@ -351,6 +355,16 @@ private slots:
         QCOMPARE(names, (QStringList{"cover.jpg", "Episode 1.mp4", "episode 2.mkv", "Episode 10.mkv", "song.flac"}));
         QCOMPARE(playlist::kind("a.FLAC"), playlist::Kind::Audio);
         QCOMPARE(playlist::kind("a.txt"), playlist::Kind::None);
+        QCOMPARE(playlist::kind("/dir.jpg/noext"), playlist::Kind::None);
+        QCOMPARE(playlist::kind("/dir/file."), playlist::Kind::None);
+        // Natural, case-insensitive order holds under the C locale too.
+        const QLocale savedLocale;
+        QLocale::setDefault(QLocale::c());
+        QStringList cNames;
+        for (const QString &path : playlist::siblings(dir.filePath("episode 2.mkv")))
+            cNames << QFileInfo(path).fileName();
+        QLocale::setDefault(savedLocale);
+        QCOMPARE(cNames, (QStringList{"cover.jpg", "Episode 1.mp4", "episode 2.mkv", "Episode 10.mkv", "song.flac"}));
     }
 
     void songsAndPicturesDontMix() {
@@ -406,6 +420,29 @@ private slots:
         // Nothing in a file without it, nor in a truncated one.
         QVERIFY(exif::read(m_clip).empty());
         QVERIFY(exif::parse(QByteArray("II*\0\x08\0\0\0\xFF\xFF", 10)).empty());
+        // focal35 alone makes Tags non-empty.
+        exif::Tags onlyFocal35;
+        onlyFocal35.focal35 = 35;
+        QVERIFY(!onlyFocal35.empty());
+        // EXIF after 0xFF fill bytes, a standalone marker, a short APP1, and >256 KB of earlier segments.
+        QTemporaryDir dir;
+        const QString padded = dir.filePath("padded.jpg");
+        QImage tiny(16, 16, QImage::Format_RGB32);
+        tiny.fill(Qt::black);
+        QByteArray jpeg = fixtures::jpegWithExif(tiny, {fixtures::ascii(0x010F, "Leica"), fixtures::ascii(0x0110, "M11")},
+                                                 {fixtures::shortTag(0x8827, 200)});
+        QByteArray prefix;
+        prefix += QByteArray("\xFF\xFF\x01", 3);                                // fill byte + standalone TEM marker
+        prefix += QByteArray("\xFF\xE1\x00\x04\xAA\xBB", 6);                    // short APP1 (length < 8)
+        for (int i = 0; i < 5; ++i) {                                           // >256 KB of APP2 segments before EXIF
+            prefix += QByteArray("\xFF\xE2\xFF\xFF", 4);
+            prefix += QByteArray(0xFFFF - 2, '\0');
+        }
+        jpeg.insert(2, prefix);
+        QVERIFY(write(padded, jpeg));
+        const exif::Tags deep = exif::read(padded);
+        QCOMPARE(deep.camera(), QString("Leica M11"));
+        QCOMPARE(deep.iso, 200);
     }
 
     void picturesAreReadUpright() {
@@ -637,6 +674,15 @@ private slots:
         QCOMPARE(parseTime("x"), -1.0);
         QCOMPARE(parseTime("1:2:3:4"), -1.0);
         QCOMPARE(parseTime("-5"), -1.0);
+        QCOMPARE(parseTime("nan"), -1.0);
+        QCOMPARE(parseTime("inf"), -1.0);
+        QCOMPARE(parseTime("-inf"), -1.0);
+        QCOMPARE(parseTime("1e306:0:0"), -1.0);
+        QCOMPARE(formatTime(1.9999), QString("0:00:02.000"));
+        QCOMPARE(formatTime(59.9999), QString("0:01:00.000"));
+        QCOMPARE(formatTime(-1.5), QString("0:00:00.000"));
+        QCOMPARE(formatTime(std::numeric_limits<double>::quiet_NaN()), QString("0:00:00.000"));
+        QCOMPARE(formatTime(1e20), formatTime(1e12));
     }
 
     void framesAreExact() {
@@ -853,6 +899,12 @@ private slots:
             send(player, "Play");
             QTRY_VERIFY(backend.playing());
             QCOMPARE(mpris.playbackStatus(), QString("Playing"));
+            // Stepping to a picture reports Stopped and not playable.
+            backend.open({m_picture});
+            QTRY_COMPARE(mpris.playbackStatus(), QString("Stopped"));
+            QDBusPendingCall canPlay = send("org.freedesktop.DBus.Properties", "Get", {player, QString("CanPlay")});
+            QVERIFY2(!canPlay.isError(), qPrintable(canPlay.error().message()));
+            QCOMPARE(canPlay.reply().arguments().value(0).value<QDBusVariant>().variant().toBool(), false);
             QDBusConnection::disconnectFromBus("omaview-client");
             backend.close();
         }

@@ -6,7 +6,7 @@ language sync (`Translator` + embedded catalogs) and other feature work; see
 [`README.upstream.md`](README.upstream.md).
 
 Port of [omacom/monologue](https://github.com/omacom/monologue) **0.4.0**
-(upstream commit `add2122d`, full SHA in `.omaxian-upstream-commit`).
+(upstream commit `28fa956`, full SHA in `.omaxian-upstream-commit`).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
 `community-apps/` so `./scripts/deploy.sh` never copies it into `$HOME`.

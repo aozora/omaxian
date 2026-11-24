@@ -58,6 +58,7 @@ Rectangle {
         Label {
             Layout.fillWidth: true
             text: banner.message
+            textFormat: Text.PlainText
             color: theme.foreground
             wrapMode: Text.Wrap
         }

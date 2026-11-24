@@ -121,7 +121,7 @@ Item {
             // as it is zoomed, up to a size any GPU takes. The size is in
             // logical pixels; Qt multiplies it by the screen's ratio itself.
             sourceSize: {
-                if (!view.vector)
+                if (!view.vector || view.naturalWidth <= 0 || view.naturalHeight <= 0)
                     return undefined
                 const limit = Math.min(view.ratio,
                                        8192 / Screen.devicePixelRatio / Math.max(1, view.naturalWidth, view.naturalHeight))

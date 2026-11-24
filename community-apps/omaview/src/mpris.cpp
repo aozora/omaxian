@@ -30,8 +30,12 @@ void Mpris::start() {
     if (!m_bus.isConnected() || !m_service.isEmpty())
         return;
     const QString name = QStringLiteral("org.mpris.MediaPlayer2.omaview.instance%1").arg(QCoreApplication::applicationPid());
-    if (!m_bus.registerObject(objectPath, this) || !m_bus.registerService(name))
+    if (!m_bus.registerObject(objectPath, this))
         return;
+    if (!m_bus.registerService(name)) {
+        m_bus.unregisterObject(objectPath);
+        return;
+    }
     m_service = name;
 
     // Clients cache properties and listen for these rather than polling.
@@ -40,11 +44,13 @@ void Mpris::start() {
     connect(backend, &Backend::statusChanged, this,
             [this] { propertiesChanged(playerInterface, {{"PlaybackStatus", playbackStatus()}}); });
     auto media = [this] {
+        const bool playable = m_backend->hasMedia() && !m_backend->isPicture();
         propertiesChanged(playerInterface, {{"Metadata", metadata()},
+                                            {"PlaybackStatus", playbackStatus()},
                                             {"CanGoNext", m_backend->playlistIndex() + 1 < m_backend->playlistCount()},
                                             {"CanGoPrevious", m_backend->playlistIndex() > 0},
-                                            {"CanPlay", m_backend->hasMedia()},
-                                            {"CanPause", m_backend->hasMedia()},
+                                            {"CanPlay", playable},
+                                            {"CanPause", playable},
                                             {"CanSeek", m_backend->seekable()}});
     };
     connect(backend, &Backend::mediaChanged, this, media);
@@ -67,7 +73,7 @@ Mpris::~Mpris() {
 }
 
 QString Mpris::playbackStatus() const {
-    if (!m_backend->hasMedia() || m_backend->ended() || m_backend->stopped())
+    if (!m_backend->hasMedia() || m_backend->isPicture() || m_backend->ended() || m_backend->stopped())
         return QStringLiteral("Stopped");
     return m_backend->playing() ? QStringLiteral("Playing") : QStringLiteral("Paused");
 }
@@ -117,8 +123,8 @@ void MprisPlayer::setVolume(double volume) { m_mpris->backend()->setVolume(volum
 qlonglong MprisPlayer::position() const { return m_mpris->backend()->position() * 1000; }
 bool MprisPlayer::canGoNext() const { return m_mpris->backend()->playlistIndex() + 1 < m_mpris->backend()->playlistCount(); }
 bool MprisPlayer::canGoPrevious() const { return m_mpris->backend()->playlistIndex() > 0; }
-bool MprisPlayer::canPlay() const { return m_mpris->backend()->hasMedia(); }
-bool MprisPlayer::canPause() const { return m_mpris->backend()->hasMedia(); }
+bool MprisPlayer::canPlay() const { return m_mpris->backend()->hasMedia() && !m_mpris->backend()->isPicture(); }
+bool MprisPlayer::canPause() const { return m_mpris->backend()->hasMedia() && !m_mpris->backend()->isPicture(); }
 bool MprisPlayer::canSeek() const { return m_mpris->backend()->seekable(); }
 
 void MprisPlayer::Next() { m_mpris->backend()->next(); }

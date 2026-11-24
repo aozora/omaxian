@@ -40,6 +40,8 @@ QString seconds(double value) {
 // Runs ffmpeg and returns stdout, or empty with the reason in *error.
 QByteArray ffmpeg(const QStringList &arguments, int timeoutMs, QString *error, bool lowPriority = false,
                   const std::atomic_bool *cancelled = nullptr) {
+    if (cancelled && *cancelled)
+        return {};
     const QString tool = probe::toolPath("ffmpeg");
     if (tool.isEmpty()) {
         if (error)
@@ -64,7 +66,8 @@ QByteArray ffmpeg(const QStringList &arguments, int timeoutMs, QString *error, b
             return {};
         }
     }
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+    if (process.error() == QProcess::FailedToStart || process.exitStatus() != QProcess::NormalExit
+        || process.exitCode() != 0) {
         if (error) {
             const QString message = QString::fromUtf8(process.readAllStandardError()).trimmed().section('\n', -1);
             *error = message.isEmpty() ? Texts::tr("ffmpeg could not read this file.")
@@ -244,21 +247,23 @@ QImage readCached(const QString &cache) {
 }
 
 // Written whole or not at all, and the cache pruned on the first write and
-// every 32nd after, rather than after every one.
-void writeCached(const QImage &image, const QString &cache) {
+// every 32nd after (or right away when asked), one prune at a time.
+bool writeCached(const QImage &image, const QString &cache, int quality = 85, bool pruneNow = false) {
     if (!QDir().mkpath(previewCacheDirectory()))
-        return;
+        return false;
     QSaveFile file(cache);
-    if (!file.open(QIODevice::WriteOnly) || !image.save(&file, "JPG", 85) || !file.commit())
-        return;
+    file.setDirectWriteFallback(false);
+    if (!file.open(QIODevice::WriteOnly) || !image.save(&file, "JPG", quality) || !file.commit())
+        return false;
     static std::atomic_int writes{0};
     static QMutex pruning;
     // The first write of a run prunes too, so short runs, a small folder
     // browsed and closed, don't leave the cache to grow.
-    if (writes++ % 32 == 0 && pruning.tryLock()) {
+    if ((pruneNow || writes++ % 32 == 0) && pruning.tryLock()) {
         prunePreviewCache(previewCacheDirectory(), previewCacheLimit);
         pruning.unlock();
     }
+    return true;
 }
 
 // The strips' seeks run in a pool of their own, so the app's other work in
@@ -267,6 +272,18 @@ QThreadPool &shotPool() {
     static QThreadPool *pool = [] {
         auto *created = new QThreadPool;
         created->setMaxThreadCount(std::max(4, QThread::idealThreadCount()));
+        return created;
+    }();
+    return *pool;
+}
+
+// Scrub-preview atlases run in a separate small pool so up to 100 atlas tiles
+// neither starve interactive grid filmstrips nor saturate disk I/O during
+// playback.
+QThreadPool &previewPool() {
+    static QThreadPool *pool = [] {
+        auto *created = new QThreadPool;
+        created->setMaxThreadCount(std::clamp(QThread::idealThreadCount() / 2, 2, 3));
         return created;
     }();
     return *pool;
@@ -284,6 +301,8 @@ QImage poster(const QString &path, const std::atomic_bool *cancelled) {
         return {};
     const std::shared_ptr<QMutex> lock = lockFor(cache);
     QMutexLocker locker(lock.get());
+    if ((cancelled && *cancelled) || hasFailed(cache))
+        return {};
     QImage image = readCached(cache);
     if (!image.isNull())
         return image;
@@ -319,6 +338,13 @@ QImage makeFilmstrip(const QString &path, const std::atomic_bool *cancelled) {
     }
     const std::shared_ptr<QMutex> lock = lockFor(cache);
     QMutexLocker locker(lock.get());
+    if ((cancelled && *cancelled) || hasFailed(cache))
+        return {};
+    {
+        QMutexLocker kept(&stripsLock);
+        if (const QImage *cached = strips.object(cache))
+            return *cached;
+    }
     QImage strip = readCached(cache);
     if (strip.isNull()) {
         const double duration = probe::run(path, 5000, cancelled).duration;
@@ -412,9 +438,7 @@ void Previews::start(const QString &path, double duration, QSize videoSize) {
         return;
     if (QFileInfo::exists(cachePath)) {
         // Touched, so pruning removes what hasn't been watched lately first.
-        QFile file(cachePath);
-        if (file.open(QIODevice::ReadWrite))
-            file.setFileTime(QDateTime::currentDateTime(), QFileDevice::FileModificationTime);
+        (void)::utime(QFile::encodeName(cachePath).constData(), nullptr);
         emit ready(cachePath, layout);
         return;
     }
@@ -426,30 +450,44 @@ void Previews::start(const QString &path, double duration, QSize videoSize) {
     (void)QtConcurrent::run([self, generation, cancelled, path, layout, cachePath] {
         // The work finishes, or is cancelled, even if the window closes first.
         QEventLoopLocker keepRunning;
-        const int rows = (layout.count + layout.columns - 1) / layout.columns;
-        QImage atlas(layout.tileSize.width() * layout.columns, layout.tileSize.height() * rows, QImage::Format_RGB32);
-        atlas.fill(Qt::black);
-        QPainter painter(&atlas);
         const QString scale = QString("scale=%1:%2:force_original_aspect_ratio=decrease")
                                   .arg(layout.tileSize.width()).arg(layout.tileSize.height());
-        int made = 0;
-        for (int i = 0; i < layout.count; ++i) {
+        auto grab = [&](int i) -> QImage {
             if (*cancelled)
-                return;
-            // A file ffmpeg can't read at all fails on every tile; stop early
-            // rather than spawning the rest.
-            if (i == 3 && made == 0)
-                return;
+                return {};
             // A fast seek to the keyframe before each time: good enough for a
             // thumbnail, and far cheaper than decoding the film.
             const QByteArray bytes = ffmpeg({"-skip_frame", "nokey", "-ss", seconds((i + 0.5) * layout.interval),
                                              "-i", path, "-map", "0:V:0", "-frames:v", "1", "-vf", scale,
                                              "-f", "image2pipe", "-c:v", "bmp", "-"},
                                             20000, nullptr, true, cancelled.get());
-            const QImage tile = QImage::fromData(bytes, "BMP");
+            return QImage::fromData(bytes, "BMP");
+        };
+        // Try the first few tiles first so a file ffmpeg can't read stops
+        // early rather than spawning seeks for the whole video.
+        const int probeCount = std::min(3, layout.count);
+        QList<int> first(probeCount);
+        std::iota(first.begin(), first.end(), 0);
+        QList<QImage> tiles = QtConcurrent::blockingMapped(&previewPool(), first, grab);
+        if (*cancelled)
+            return;
+        if (std::all_of(tiles.begin(), tiles.end(), [](const QImage &tile) { return tile.isNull(); }))
+            return;
+        if (layout.count > probeCount) {
+            QList<int> rest(layout.count - probeCount);
+            std::iota(rest.begin(), rest.end(), probeCount);
+            tiles.append(QtConcurrent::blockingMapped(&previewPool(), rest, grab));
+            if (*cancelled)
+                return;
+        }
+        const int rows = (layout.count + layout.columns - 1) / layout.columns;
+        QImage atlas(layout.tileSize.width() * layout.columns, layout.tileSize.height() * rows, QImage::Format_RGB32);
+        atlas.fill(Qt::black);
+        QPainter painter(&atlas);
+        for (int i = 0; i < tiles.size(); ++i) {
+            const QImage &tile = tiles.at(i);
             if (tile.isNull())
                 continue;
-            ++made;
             const QPoint cell((i % layout.columns) * layout.tileSize.width(),
                               (i / layout.columns) * layout.tileSize.height());
             painter.drawImage(cell + QPoint((layout.tileSize.width() - tile.width()) / 2,
@@ -457,15 +495,8 @@ void Previews::start(const QString &path, double duration, QSize videoSize) {
                               tile);
         }
         painter.end();
-        // Never cache a blank atlas: the next open tries again.
-        if (*cancelled || made == 0)
+        if (!writeCached(atlas, cachePath, 80, true))
             return;
-        QDir().mkpath(previewCacheDirectory());
-        QSaveFile out(cachePath);
-        out.setDirectWriteFallback(false);
-        if (!out.open(QIODevice::WriteOnly) || !atlas.save(&out, "JPG", 80) || !out.commit())
-            return;
-        prunePreviewCache(previewCacheDirectory(), previewCacheLimit);
         QMetaObject::invokeMethod(
             qApp,
             [self, generation, cachePath, layout] {

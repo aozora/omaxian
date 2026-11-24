@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QMutex>
 #include <QObject>
+#include <QProcess>
 #include <QSet>
 #include <QSize>
 #include <QStringList>
@@ -323,7 +324,8 @@ private:
     QMutex m_outputLock;
     QVideoSink *m_output = nullptr;  // the window's
     QVideoFrame m_pendingFrame;  // latched by Save frame while the dialog is up
-    std::atomic<QRhi *> m_rhi{nullptr};
+    QMutex m_rhiLock;
+    QRhi *m_rhi = nullptr;
 
     QStringList m_playlist;
     int m_index = -1;
@@ -342,6 +344,7 @@ private:
     QString m_title;
     QString m_artist;
     QString m_coverArt;
+    bool m_coverArtLoading = false;
     Problem m_problem = Problem::None;
     bool m_stopped = false;  // MPRIS Stop: back at the start, not merely paused
     qint64 m_position = 0;
@@ -359,8 +362,9 @@ private:
     // gives a new stream the volume it last had, a boost included.
     bool m_boosted = true;
     bool m_boostAgain = false;
-    bool m_boostRunning = false;
     bool m_boostPending = false;
+    QProcess m_boostProcess;
+    QTimer m_boostTimeout;
     QTimer m_boostTimer;
     bool m_looping = false;
     bool m_holdPlayback = false;

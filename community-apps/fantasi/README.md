@@ -3,8 +3,8 @@
 Make images, video clips and songs on your own machine with Omarchy's local AI
 models. Full upstream docs: [`README.upstream.md`](README.upstream.md).
 
-Port of [omacom/fantasi](https://github.com/omacom/fantasi) **0.1.7** plus six
-later commits (upstream commit in `.omaxian-upstream-commit`, version in
+Port of [omacom/fantasi](https://github.com/omacom/fantasi) **0.3.0**
+(upstream commit in `.omaxian-upstream-commit`, version in
 `.omaxian-upstream-version`).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under

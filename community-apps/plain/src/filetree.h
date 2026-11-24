@@ -6,6 +6,8 @@
 #include <QTimer>
 #include <QVector>
 
+class QCollator;
+
 // The sidebar's folder, as the rows a list shows: each open folder's
 // contents follow it one level deeper. Folders come first, then files, both
 // alphabetical. Dotfiles are left out unless shown (Ctrl+H in the files),
@@ -84,7 +86,7 @@ private:
     };
 
     // A folder's rows, with those of its open folders after each.
-    QVector<Entry> rowsUnder(const QString &folder, int depth) const;
+    QVector<Entry> rowsUnder(const QString &folder, int depth, const QCollator &collator) const;
     void rebuild();
     // Under the root, as a clean absolute path; the root itself isn't.
     bool inTree(const QString &clean) const;

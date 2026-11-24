@@ -2,6 +2,7 @@
     <qresource prefix="/">
         <file alias="Main.qml">Main.qml</file>
         <file alias="Chooser.qml">Chooser.qml</file>
+        <file alias="Library.qml">Library.qml</file>
         <file alias="NoModel.qml">NoModel.qml</file>
         <file alias="VideoPlayer.qml">VideoPlayer.qml</file>
         <file alias="SongPlayer.qml">SongPlayer.qml</file>
@@ -12,6 +13,7 @@
         <file alias="icons/save.svg">icons/save.svg</file>
         <file alias="icons/delete.svg">icons/delete.svg</file>
         <file alias="icons/model.svg">icons/model.svg</file>
+        <file alias="icons/models.svg">icons/models.svg</file>
         <file alias="icons/new.svg">icons/new.svg</file>
         <file alias="icons/fullscreen.svg">icons/fullscreen.svg</file>
         <file alias="fantasi.svg">../share/fantasi.svg</file>

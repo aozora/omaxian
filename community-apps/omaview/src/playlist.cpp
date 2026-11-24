@@ -4,7 +4,9 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QLocale>
 #include <QSet>
+#include <QStringView>
 #include <algorithm>
 
 namespace playlist {
@@ -41,8 +43,16 @@ const QSet<QString> &pictureExtensions() {
     return set;
 }
 
+QStringView fileNameOf(const QString &path) {
+    const QStringView view(path);
+    const qsizetype slash = view.lastIndexOf('/');
+    return slash >= 0 ? view.sliced(slash + 1) : view;
+}
+
 QString suffixOf(const QString &path) {
-    return QFileInfo(path).suffix().toLower();
+    const QStringView name = fileNameOf(path);
+    const qsizetype dot = name.lastIndexOf('.');
+    return dot >= 0 ? name.sliced(dot + 1).toString().toLower() : QString();
 }
 
 }  // namespace
@@ -60,15 +70,31 @@ Kind kind(const QString &path) {
 
 bool picture(const QString &path) { return kind(path) == Kind::Picture; }
 
-// Natural, case-insensitive order.
+// Natural, case-insensitive order. Precomputes sort keys once per path rather
+// than constructing QFileInfo and running collation on every comparison.
 static void sort(QStringList &paths) {
-    QCollator collator;
+    if (paths.size() < 2)
+        return;
+    // Qt's C-locale collator bypasses ICU, dropping numeric mode and
+    // sortKey() case-insensitivity; fall back to an ICU locale when C is set.
+    const QLocale locale;
+    QCollator collator(locale.language() == QLocale::C ? QLocale(QLocale::English) : locale);
     collator.setNumericMode(true);
     collator.setCaseSensitivity(Qt::CaseInsensitive);
-    std::sort(paths.begin(), paths.end(), [&](const QString &a, const QString &b) {
-        const int order = collator.compare(QFileInfo(a).fileName(), QFileInfo(b).fileName());
-        return order != 0 ? order < 0 : a < b;
+    struct Item {
+        QCollatorSortKey key;
+        QString path;
+    };
+    QList<Item> items;
+    items.reserve(paths.size());
+    for (QString &path : paths)
+        items.push_back({collator.sortKey(fileNameOf(path).toString()), std::move(path)});
+    std::sort(items.begin(), items.end(), [](const Item &a, const Item &b) {
+        const int order = a.key.compare(b.key);
+        return order != 0 ? order < 0 : a.path < b.path;
     });
+    for (qsizetype i = 0; i < paths.size(); ++i)
+        paths[i] = std::move(items[i].path);
 }
 
 QStringList siblings(const QString &path) {
@@ -91,20 +117,19 @@ QStringList siblings(const QString &path) {
 }
 
 QStringList folder(const QString &directory) {
-    QStringList found;
-    int pictures = 0, songs = 0;
+    QStringList pictures, songs, videos;
     for (const QFileInfo &entry : QDir(directory).entryInfoList(QDir::Files | QDir::Readable)) {
-        const Kind each = kind(entry.fileName());
-        if (each == Kind::None)
-            continue;
-        pictures += each == Kind::Picture;
-        songs += each == Kind::Audio;
-        found << entry.absoluteFilePath();
+        switch (kind(entry.fileName())) {
+        case Kind::Picture: pictures << entry.absoluteFilePath(); break;
+        case Kind::Audio: songs << entry.absoluteFilePath(); break;
+        case Kind::Video: videos << entry.absoluteFilePath(); break;
+        case Kind::None: break;
+        }
     }
     // An album's cover doesn't make it a folder of pictures: whichever there
     // are more of wins.
-    const Kind left = pictures > songs ? Kind::Audio : Kind::Picture;
-    found.removeIf([left](const QString &path) { return kind(path) == left; });
+    QStringList found = pictures.size() > songs.size() ? std::move(pictures) : std::move(songs);
+    found.append(videos);
     sort(found);
     return found;
 }

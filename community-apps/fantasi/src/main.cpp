@@ -79,6 +79,11 @@ int main(int argc, char *argv[]) {
         backend.open(request.value("model").toString(), request.value("prompt").toString());
     });
 
+    // Quitting stops the media models nothing else uses. A window drawn
+    // offscreen leaves the user's models alone.
+    if (!offscreen)
+        QObject::connect(&app, &QCoreApplication::aboutToQuit, &backend, [&backend] { backend.models()->release(); });
+
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);

@@ -268,11 +268,16 @@ QByteArray tone() {
     return ffmpeg.readAllStandardOutput();
 }
 
-// A stand-in for omarchy-agent-local that notes what it was asked.
+// A stand-in for omarchy-models that notes what it was asked.
 QString fakeEngine(const QString &folder) {
     const QString path = folder + "/engine";
-    // The refresh every start asks for is beside the point of any test.
-    write(path, "#!/bin/sh\n[ \"$1\" = refresh ] && exit 0\necho \"$@\" >> \"$(dirname \"$0\")/asked\"\n");
+    // The refresh every start asks for, and what the running models hold,
+    // are beside the point of any test that doesn't say otherwise. The hold
+    // on the model in use is noted on its own, and lasts until its input
+    // closes, as the engine's does.
+    write(path, "#!/bin/sh\n[ \"$1\" = refresh ] && exit 0\n[ \"$1\" = memory ] && { cat \"$(dirname \"$0\")/held\" 2>/dev/null || echo {}; exit 0; }\n"
+                "[ \"$1\" = hold ] && { echo \"$@\" >> \"$(dirname \"$0\")/holding\"; cat > /dev/null; echo released >> \"$(dirname \"$0\")/holding\"; exit 0; }\n"
+                "echo \"$@\" >> \"$(dirname \"$0\")/asked\"\n");
     QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
     return path;
 }
@@ -358,6 +363,69 @@ private slots:
         QCOMPARE(unfit.reason, QString("no GPU"));
     }
 
+    void modelsWeighTheMemoryFree() {
+        // As the engine counts it: what's available and what a GPU driver keeps pooled.
+        const Models::Memory read = Models::memoryOf("MemTotal:       65011712 kB\nMemFree:  1 kB\nMemAvailable:    3145728 kB\nGPUReclaim:      1048576 kB\n");
+        QCOMPARE(read.totalGib, 62.0);
+        QCOMPARE(read.freeGib, 4.0);
+        QCOMPARE(Models::memoryOf("").freeGib, -1.0);
+
+        const auto running = [](const QString &kind, double gib) {
+            return QJsonObject{{"kind", kind}, {"name", kind + " model"}, {"unit", "active"}, {"observed", QJsonObject{{"ram_used_gib", gib}}}};
+        };
+        const QJsonObject status{{"models", QJsonObject{
+            {"ace", QJsonObject{{"kind", "music"}, {"name", "ACE"}, {"unit", "inactive"}, {"fits", true}}},
+            {"qwen", running("text", 40)}, {"flux", running("image", 11)}, {"wan", running("video", 3)},
+            {"far", QJsonObject{{"kind", "text"}, {"unit", "active"}, {"host", "studio"}}}}}};
+        const QJsonArray list{QJsonObject{{"id", "ace"}, {"kind", "music"}, {"available", true}, {"memory_gib", 8}, {"download_gib", 7.5}}};
+        Models::Memory memory;
+        memory.freeGib = 9;
+        Models::Discovery found = Models::discover(status, list, true, memory);
+        QCOMPARE(found.state, QString("installed"));
+        QCOMPARE(found.needGib, 8.0);
+        QCOMPARE(found.diskGib, 7.5);
+        // Every model running here holds memory, whatever its kind, biggest
+        // first; a paired host's holds its own.
+        QCOMPARE(found.holders.size(), 3);
+        QCOMPARE(found.holders.first().toMap().value("name").toString(), QString("text model"));
+
+        // Short by 5: of the models that would make room alone, the smallest
+        // is stopped, leaving the big text model someone's coding with.
+        memory.freeGib = 3;
+        found = Models::discover(status, list, true, memory);
+        QCOMPARE(found.state, QString("blocked"));
+        QCOMPARE(found.blockerIds, QStringList{"flux"});
+        // What the engine measures a model holding now counts over what it
+        // took to load. With none enough alone, the biggest go first.
+        memory.held.insert("qwen", 2);
+        memory.held.insert("flux", 1);
+        found = Models::discover(status, list, true, memory);
+        QCOMPARE(found.blockerIds, (QStringList{"wan", "qwen"}));
+        memory.freeGib = 2;
+        found = Models::discover(status, list, true, memory);
+        QCOMPARE(found.blockerIds, (QStringList{"wan", "qwen", "flux"}));
+        // Stopping them all wouldn't be enough: nothing to offer to stop.
+        memory.held.insert("wan", 1);
+        found = Models::discover(status, list, true, memory);
+        QCOMPARE(found.state, QString("blocked"));
+        QVERIFY(found.blockers.isEmpty());
+    }
+
+    void modelsPlayWithTheOnePicked() {
+        const QJsonObject status{{"models", QJsonObject{
+            {"ace", QJsonObject{{"kind", "music"}, {"name", "ACE"}, {"unit", "active"}}},
+            {"other", QJsonObject{{"kind", "music"}, {"name", "Other"}, {"unit", "inactive"}}}}}};
+        const QJsonArray list{QJsonObject{{"id", "ace"}, {"kind", "music"}, {"available", true}, {"installed", true}},
+                              QJsonObject{{"id", "other"}, {"kind", "music"}, {"available", true}, {"installed", true}},
+                              QJsonObject{{"id", "new"}, {"kind", "music"}, {"name", "New"}, {"available", true}, {"best", true}}};
+        QCOMPARE(Models::discover(status, list, true).id, QString("ace"));
+        QCOMPARE(Models::discover(status, list, true).others.size(), 2);
+        QCOMPARE(Models::discover(status, list, true, {}, "other").id, QString("other"));
+        // One picked that isn't set up yet is offered, over the recommended one.
+        QCOMPARE(Models::discover({}, list, true).id, QString("new"));
+        QCOMPARE(Models::discover({}, list, true, {}, "ace").id, QString("ace"));
+    }
+
     void modelsFollowTheEngine() {
         QTemporaryDir dir;
         engineWith(dir.path(), "inactive", "http://127.0.0.1:1");
@@ -374,6 +442,23 @@ private slots:
         engineWith(dir.path(), "active", "http://127.0.0.1:1");
         QTRY_COMPARE(models.state(), QString("ready"));
         QCOMPARE(models.origin(), QString("http://127.0.0.1:1"));
+    }
+
+    void holdsTheModelInUseAndStopsTheMusicModelsOnQuit() {
+        QTemporaryDir dir;
+        engineWith(dir.path(), "active", "http://127.0.0.1:1");
+        Models models(dir.path(), dir.path() + "/key", fakeEngine(dir.path()));
+        const auto read = [&](const QString &name) {
+            QFile file(dir.path() + "/" + name);
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        };
+        QTRY_COMPARE(read("holding"), QByteArray("hold ace-step\n"));
+        // Held for as long as the app runs, and let go before anything is stopped.
+        QTest::qWait(200);
+        QCOMPARE(read("holding"), QByteArray("hold ace-step\n"));
+        models.release();
+        QCOMPARE(read("holding"), QByteArray("hold ace-step\nreleased\n"));
+        QTRY_COMPARE(read("asked"), QByteArray("stop --unless-used ace-step\n"));
     }
 
     void aBlockedModelIsStartedOnceItsWayIsCleared() {
@@ -396,6 +481,35 @@ private slots:
         QFile asked(dir.path() + "/asked");
         QVERIFY(asked.open(QIODevice::ReadOnly));
         QCOMPARE(asked.readAll(), QByteArray("stop llm\nstart ace-step\n"));
+    }
+
+    void modelsAreStoppedUpdatedRemovedAndSwapped() {
+        QTemporaryDir dir;
+        QVERIFY(write(dir.path() + "/status.json", QJsonDocument(QJsonObject{{"models", QJsonObject{
+            {"ace", QJsonObject{{"kind", "music"}, {"name", "ACE"}, {"unit", "active"}, {"update", QJsonObject{{"image", true}}}}}}}}).toJson()));
+        QVERIFY(write(dir.path() + "/list.json", R"([{"id":"ace","kind":"music","available":true,"installed":true},
+                                                     {"id":"xl","kind":"music","name":"XL","available":true,"installed":false}])"));
+        // What the running model holds now, as the engine measures it.
+        QVERIFY(write(dir.path() + "/held", R"({"ace": 6.5})"));
+        Models models(dir.path(), dir.path() + "/key", fakeEngine(dir.path()));
+        QTRY_COMPARE(models.heldGib(), 6.5);
+        QVERIFY(models.updatable());
+        const auto asked = [&]() -> QString {
+            QTest::qWaitFor([&] { return !models.working(); });
+            QFile file(dir.path() + "/asked");
+            return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll()) : QString();
+        };
+        models.update();
+        QCOMPARE(asked(), QString("update ace --detach\n"));
+        models.stop();
+        QCOMPARE(asked(), QString("update ace --detach\nstop ace\n"));
+        models.remove();
+        QCOMPARE(asked(), QString("update ace --detach\nstop ace\nremove ace\n"));
+        // Another music model makes room for itself, and is set up first.
+        QFile::remove(dir.path() + "/asked");
+        models.use("xl");
+        QCOMPARE(asked(), QString("stop ace\nuse xl --detach\n"));
+        QCOMPARE(QSettings().value("model").toString(), QString("xl"));
     }
 
     void aPairedHostsModelServes() {
@@ -1089,7 +1203,7 @@ private slots:
         FakeServer server;
         server.sound = m_tone;
         engineWith(dir.path() + "/engine-state", "active", server.origin());
-        Backend backend({dir.path() + "/engine-state", dir.path() + "/engine-state/key", fakeEngine(dir.path()), dir.path() + "/music"});
+        Backend backend({dir.path() + "/engine-state", dir.path() + "/engine-state/key", fakeEngine(dir.path()), dir.path() + "/music", {}});
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -1299,6 +1413,72 @@ private slots:
         flow.stop();
     }
 
+    void windowSaysWhatHoldsTheMemoryAndMakesRoom() {
+        QTemporaryDir dir;
+        Translator translator(dir.path() + "/language");
+        QCoreApplication::installTranslator(&translator);
+        Theme theme(dir.path());
+        const QString state = dir.path() + "/engine-state";
+        QDir().mkpath(state);
+        const auto running = [](const QString &kind, const QString &name, double gib) {
+            return QJsonObject{{"kind", kind}, {"name", name}, {"unit", "active"}, {"observed", QJsonObject{{"ram_used_gib", gib}}}};
+        };
+        write(state + "/status.json", QJsonDocument(QJsonObject{{"models", QJsonObject{
+            {"ace", QJsonObject{{"kind", "music"}, {"name", "ACE-Step"}, {"unit", "inactive"}, {"endpoint", "http://127.0.0.1:9/v1"}}},
+            {"qwen", running("text", "Qwen", 40)}, {"flux", running("image", "FLUX", 11)}}}}).toJson());
+        write(state + "/list.json", R"([{"id":"ace","kind":"music","available":true,"installed":true,"memory_gib":8,"download_gib":7.5}])");
+        write(dir.path() + "/meminfo", "MemTotal: 67108864 kB\nMemAvailable: 3145728 kB\n");
+        Backend backend({state, state + "/key", fakeEngine(dir.path()), dir.path() + "/music", dir.path() + "/meminfo"});
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const QList<QQmlError> &errors) {
+            for (const auto &error : errors)
+                warnings << error.toString();
+        });
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.load(QUrl("qrc:/Main.qml"));
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+
+        // Playing says what the model needs, what's free and who has the rest,
+        // and offers to stop the one that's enough.
+        QTest::keyClick(window, Qt::Key_Space);
+        QCOMPARE(backend.models()->state(), QString("blocked"));
+        QCOMPARE(item(window->contentItem(), "status")->property("text").toString(),
+                 QString("ACE-Step needs 8 GB of memory to play, and 3 GB is free."));
+        QCOMPARE(item(window->contentItem(), "holders")->property("text").toString(), QString("Running now: Qwen (40 GB), FLUX (11 GB)"));
+        auto *retry = item(window->contentItem(), "retry");
+        QCOMPARE(retry->property("text").toString(), QString("Stop FLUX and play"));
+        QVERIFY(!QFile::exists(dir.path() + "/asked"));
+        QTest::mouseClick(window, Qt::LeftButton, {}, retry->mapToScene(QPointF(retry->width() / 2, retry->height() / 2)).toPoint());
+        QTRY_VERIFY(!backend.models()->working());
+        QFile asked(dir.path() + "/asked");
+        QVERIFY(asked.open(QIODevice::ReadOnly));
+        QCOMPARE(asked.readAll(), QByteArray("stop flux\nstart ace\n"));
+        asked.close();
+
+        // The sheet removes the model only once asked twice, and stops the music first.
+        QTest::keyClick(window, Qt::Key_M);
+        auto *sheet = window->findChild<QObject *>("sheet");
+        QTRY_VERIFY(sheet->property("opened").toBool());
+        QTest::keyClick(window, Qt::Key_Delete);
+        QVERIFY(sheet->property("removing").toBool());
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_VERIFY(!backend.models()->working());
+        QVERIFY(asked.open(QIODevice::ReadOnly));
+        QVERIFY(asked.readAll().endsWith("remove ace\n"));
+        QVERIFY(backend.flow()->genre().isEmpty());
+
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        QCoreApplication::removeTranslator(&translator);
+    }
+
     void windowOffersToSetUpAModel() {
         QTemporaryDir dir;
         Translator translator(dir.path() + "/language");
@@ -1308,7 +1488,7 @@ private slots:
         QDir().mkpath(state);
         write(state + "/status.json", "{\"models\":{}}");
         write(state + "/list.json", R"([{"id":"ace-step","kind":"music","name":"ACE-Step 1.5 Turbo","available":true}])");
-        Backend backend({state, state + "/key", fakeEngine(dir.path()), dir.path() + "/music"});
+        Backend backend({state, state + "/key", fakeEngine(dir.path()), dir.path() + "/music", {}});
         // As `flowtunes jazz` starts it.
         backend.setInitialGenre("jazz");
 
@@ -1347,6 +1527,148 @@ private slots:
         QTRY_COMPARE(backend.flow()->genre(), QString("jazz"));
         QVERIFY(item(window->contentItem(), "playing")->isVisible());
         QVERIFY(!item(window->contentItem(), "picker")->isVisible());
+
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        QCoreApplication::removeTranslator(&translator);
+    }
+
+    void logoIsTheVendorsMarkFromOmarchy() {
+        QTemporaryDir dir;
+        const QString assets = dir.path() + "/shell/plugins/agents/assets/";
+        QDir().mkpath(assets);
+        for (const char *name : {"ace-step.svg", "ace-step-light.svg", "stability.svg", "local.svg"})
+            write(assets + name, "<svg/>");
+        const QByteArray saved = qgetenv("OMARCHY_PATH");
+        const auto restore = qScopeGuard([&] {
+            if (saved.isEmpty())
+                qunsetenv("OMARCHY_PATH");
+            else
+                qputenv("OMARCHY_PATH", saved);
+        });
+        qputenv("OMARCHY_PATH", dir.path().toUtf8());
+        QCOMPARE(Models::logo("ace-step", true), QUrl::fromLocalFile(assets + "ace-step-light.svg").toString());
+        QCOMPARE(Models::logo("stability", true), QUrl::fromLocalFile(assets + "stability.svg").toString());
+        QCOMPARE(Models::logo("unknown", false), QUrl::fromLocalFile(assets + "local.svg").toString());
+        QCOMPARE(Models::logo("../stability", false), QUrl::fromLocalFile(assets + "local.svg").toString());
+        qunsetenv("OMARCHY_PATH");
+        QCOMPARE(Models::logo("stability", false), QString());
+    }
+
+    void anInstrumentalMusicModelRendersDirectlyAndHidesLyrics() {
+        QTemporaryDir dir;
+        FakeServer server;
+        server.sound = m_tone;
+        const QString state = dir.path() + "/engine-state";
+        QDir().mkpath(state);
+        write(state + "/status.json", QJsonDocument(QJsonObject{{"models", QJsonObject{{"sa3", QJsonObject{
+            {"kind", "music"}, {"vocals", false}, {"vendor", "stability"}, {"name", "Stable Audio 3 Medium"},
+            {"unit", "active"}, {"endpoint", server.origin() + "/v1"}}}}}}).toJson());
+        write(state + "/list.json", R"([{"id":"sa3","kind":"music","vocals":false,"vendor":"stability","name":"Stable Audio 3 Medium","available":true,"installed":true,"download_gib":2.56,"memory_gib":4}])");
+        write(state + "/key", "secret\n");
+
+        Models models(state, state + "/key", fakeEngine(dir.path()));
+        QCOMPARE(models.vendor(), QString("stability"));
+        QVERIFY(!models.vocals());
+
+        // Even with lyrics saved on from a vocal model, an instrumental model plays only saved
+        // instrumental tracks (skipping sung ones), renders new ones straight via /synth without
+        // calling /lm, and never overwrites the user's saved lyrics preference.
+        QSettings().setValue("lyrics", true);
+        Flow flow(&models, dir.path() + "/music");
+        QVERIFY(flow.lyrics());
+        QVERIFY(QDir().mkpath(flow.folder("synthwave")));
+        QVERIFY(write(flow.folder("synthwave") + "/20260101-100000-110bpm.mp3", m_tone));
+        QVERIFY(write(flow.folder("synthwave") + "/20260101-100500-110bpm-instrumental.mp3", m_tone));
+        flow.play("synthwave");
+        QTRY_VERIFY_WITH_TIMEOUT(!flow.track().isEmpty(), 10000);
+        QCOMPARE(QFileInfo(flow.track().toLocalFile()).fileName(), QString("20260101-100500-110bpm-instrumental.mp3"));
+        QTRY_VERIFY_WITH_TIMEOUT(server.count("POST /synth") >= 1 && !flow.composing(), 10000);
+        QCOMPARE(server.count("POST /lm"), 0);
+        const QJsonObject body = server.bodies[server.requests.indexOf("POST /synth")];
+        QVERIFY(body.value("caption").toString().endsWith(", instrumental"));
+        QCOMPARE(body.value("duration").toInt(), Flow::trackSeconds);
+        // Skipping past the saved instrumental tune plays the newly generated instrumental tune, never the sung one.
+        flow.next();
+        QTRY_VERIFY_WITH_TIMEOUT(!flow.track().isEmpty(), 10000);
+        QVERIFY(!Flow::sungOf(flow.track().fileName()));
+        QVERIFY(QFileInfo(flow.track().toLocalFile()).fileName() != QString("20260101-100000-110bpm.mp3"));
+        QVERIFY(QSettings().value("lyrics").toBool());
+        flow.stop();
+
+        // The window hides the lyrics switch and ignores L for an instrumental-only model.
+        Translator translator(dir.path() + "/language");
+        QCoreApplication::installTranslator(&translator);
+        Theme theme(dir.path());
+        Backend backend({state, state + "/key", fakeEngine(dir.path()), dir.path() + "/music2", {}});
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const QList<QQmlError> &errors) {
+            for (const auto &error : errors)
+                warnings << error.toString();
+        });
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.load(QUrl("qrc:/Main.qml"));
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_VERIFY(item(window->contentItem(), "playing")->isVisible());
+        QVERIFY(!item(window->contentItem(), "lyrics")->isVisible());
+        const bool before = backend.flow()->lyrics();
+        QTest::keyClick(window, Qt::Key_L);
+        QCOMPARE(backend.flow()->lyrics(), before);
+        window->close();
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        QCoreApplication::removeTranslator(&translator);
+    }
+
+    void windowOffersMultipleMusicModelsOnFirstRun() {
+        QTemporaryDir dir;
+        Translator translator(dir.path() + "/language");
+        QCoreApplication::installTranslator(&translator);
+        Theme theme(dir.path());
+        const QString state = dir.path() + "/engine-state";
+        QDir().mkpath(state);
+        write(state + "/status.json", "{\"models\":{}}");
+        write(state + "/list.json", R"([
+            {"id":"ace-step","kind":"music","vocals":true,"vendor":"ace-step","name":"ACE-Step 1.5 Turbo","available":true,"best":true,"download_gib":7.57,"memory_gib":8},
+            {"id":"sa3-medium","kind":"music","vocals":false,"vendor":"stability","name":"Stable Audio 3 Medium","available":true,"download_gib":2.56,"memory_gib":4}
+        ])");
+        Backend backend({state, state + "/key", fakeEngine(dir.path()), dir.path() + "/music", {}});
+        QCOMPARE(backend.models()->offers().size(), 2);
+        QCOMPARE(backend.models()->offers().first().toMap().value("id").toString(), QString("ace-step"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&](const QList<QQmlError> &errors) {
+            for (const auto &error : errors)
+                warnings << error.toString();
+        });
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.load(QUrl("qrc:/Main.qml"));
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+
+        QVERIFY(item(window->contentItem(), "setup")->isVisible());
+        QVERIFY(item(window->contentItem(), "offer-ace-step")->isVisible());
+        QVERIFY(item(window->contentItem(), "offer-sa3-medium")->isVisible());
+        QVERIFY(!item(window->contentItem(), "setUp")->isVisible());
+
+        auto *sa3Button = item(window->contentItem(), "setUp-sa3-medium");
+        QVERIFY(sa3Button && sa3Button->isVisible());
+        QTest::mouseClick(window, Qt::LeftButton, {}, sa3Button->mapToScene(QPointF(sa3Button->width() / 2, sa3Button->height() / 2)).toPoint());
+        QTRY_VERIFY(QFile::exists(dir.path() + "/asked"));
+        QFile asked(dir.path() + "/asked");
+        QVERIFY(asked.open(QIODevice::ReadOnly));
+        QCOMPARE(asked.readAll(), QByteArray("use sa3-medium --detach\n"));
+        QCOMPARE(QSettings().value("model").toString(), QString("sa3-medium"));
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
         QCoreApplication::removeTranslator(&translator);

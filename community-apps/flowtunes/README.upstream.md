@@ -6,7 +6,7 @@ Endless music in the genre you pick, made on your own machine with Omarchy's loc
 
 Pick a genre and the music never stops. The model makes one tune after another, each a little different from the last, and always has the next two ready behind the one playing, so a skip never waits. Lo-fi, Ambient, Synthwave, Deep House, Techno, Drum & Bass, Jazz, Classical, Downtempo, Post-Rock, Acoustic and Cinematic are there to flow to. Turn the lyrics on and the tunes are sung, with words the model writes in your language; leave them off for music alone.
 
-Every tune has a name: a sung one is named for its hook, the line it sings most, and one nobody sings in gets two words of its genre, like Dusty Notebook or Neon Boulevard. The name is kept in the MP3's tag, and the tune in a folder of its genre in your music, like `~/Music/Deep House`, named for when it was made, its tempo and its key, and ending in `-instrumental` when nobody sings in it. A genre that has tunes from before plays those first, in a new order each time, before the model makes more, and any MP3 of your own in the folder plays along. The model runs in [omarchy-local-ai](https://github.com/omacom/omarchy-local-ai), and Flowtunes starts it, or offers to set it up, when it isn't running.
+Every tune has a name: a sung one is named for its hook, the line it sings most, and one nobody sings in gets two words of its genre, like Dusty Notebook or Neon Boulevard. The name is kept in the MP3's tag, and the tune in a folder of its genre in your music, like `~/Music/Deep House`, named for when it was made, its tempo and its key, and ending in `-instrumental` when nobody sings in it. A genre that has tunes from before plays those first, in a new order each time, before the model makes more, and any MP3 of your own in the folder plays along. The model runs in [omarchy-local-ai](https://github.com/omacom/omarchy-local-ai), and Flowtunes looks after it: it offers to set it up, saying how big a download it is and how much memory it needs, and starts it when you play. When there isn't room for it, Flowtunes says how much memory it needs and how much is free, names the other models holding the rest, and offers to stop the fewest of them that makes room. Press M to see the music model: whether it runs and how much memory it holds, an update when there is one, stop it to give its memory back, remove it to give its disk back, or pick another music model where this machine runs more than one.
 
 ## Shortcuts
 
@@ -17,6 +17,7 @@ Every tune has a name: a sung one is named for its hook, the line it sings most,
 | Space | Pause or play |
 | N | Skip to the next tune |
 | L | Turn the lyrics on or off |
+| M | Show the music model |
 | G | Pick another genre |
 | ? | All shortcuts |
 | Q | Quit |

@@ -11,7 +11,7 @@ Item {
     readonly property real fraction: backend.duration > 0 ? Math.min(1, backend.position / backend.duration) : 0
     property real dragFraction: -1
     readonly property real shownFraction: dragFraction >= 0 ? dragFraction : fraction
-    readonly property real hoverFraction: hover.hovered ? Math.max(0, Math.min(1, hover.point.position.x / width)) : -1
+    readonly property real hoverFraction: hover.hovered && width > 0 ? Math.max(0, Math.min(1, hover.point.position.x / width)) : -1
     LayoutMirroring.enabled: false
     LayoutMirroring.childrenInherit: true
     height: expanded ? 28 : 3
@@ -35,8 +35,8 @@ Item {
             model: timeline.expanded ? backend.chapters : []
             delegate: Rectangle {
                 required property var modelData
-                visible: modelData.start > 0
-                x: track.width * modelData.start / backend.duration - 1
+                visible: modelData.start > 0 && backend.duration > 0
+                x: backend.duration > 0 ? track.width * modelData.start / backend.duration - 1 : 0
                 width: 2
                 height: track.height
                 color: Qt.rgba(0, 0, 0, 0.7)
@@ -119,7 +119,7 @@ Item {
         anchors.topMargin: -8
         enabled: timeline.usable && timeline.expanded
         preventStealing: true
-        function at(x) { return Math.max(0, Math.min(1, x / width)) }
+        function at(x) { return width > 0 ? Math.max(0, Math.min(1, x / width)) : 0 }
         onPressed: mouse => timeline.dragFraction = at(mouse.x)
         onPositionChanged: mouse => { if (pressed) timeline.dragFraction = at(mouse.x) }
         onReleased: mouse => {

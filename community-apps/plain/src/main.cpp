@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
     // A folder opens in the sidebar, with no file open yet.
     QString startPath = arguments.path, startFolder;
     if (!startPath.isEmpty() && QFileInfo(startPath).isDir()) {
-        startFolder = QFileInfo(startPath).absoluteFilePath();
+        startFolder = Document::cleanPath(startPath);
         startPath.clear();
     }
 

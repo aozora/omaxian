@@ -32,6 +32,7 @@ ApplicationWindow {
     property string pendingPath: ""
     // Set once the user agreed to lose changes, so closing doesn't ask again.
     property bool discardConfirmed: false
+    readonly property bool modalOpen: goToLine.opened || namePrompt.opened || deleteConfirm.opened || unsaved.opened
 
     function tint(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
 
@@ -138,39 +139,40 @@ ApplicationWindow {
         }
     }
 
-    Shortcut { sequence: "Ctrl+S"; context: Qt.ApplicationShortcut; onActivated: win.save() }
-    Shortcut { sequence: "Ctrl+Shift+S"; context: Qt.ApplicationShortcut; onActivated: win.saveAs() }
-    Shortcut { sequence: "Ctrl+O"; context: Qt.ApplicationShortcut; onActivated: win.request("open") }
-    Shortcut { sequences: ["Ctrl+W", "Ctrl+Q"]; context: Qt.ApplicationShortcut; onActivated: win.request("close") }
-    Shortcut { sequence: "Ctrl+F"; context: Qt.ApplicationShortcut; onActivated: findBar.toggle(false) }
+    Shortcut { sequence: "Ctrl+S"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: win.save() }
+    Shortcut { sequence: "Ctrl+Shift+S"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: win.saveAs() }
+    Shortcut { sequence: "Ctrl+O"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: win.request("open") }
+    Shortcut { sequences: ["Ctrl+W", "Ctrl+Q"]; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: win.request("close") }
+    Shortcut { sequence: "Ctrl+F"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: findBar.toggle(false) }
     // In the files, Ctrl+H shows or hides hidden files; in the text, it's
     // find and replace.
     Shortcut {
         sequence: "Ctrl+H"
         context: Qt.ApplicationShortcut
+        enabled: !win.modalOpen
         onActivated: sidebar.treeFocused ? files.showHidden = !files.showHidden : findBar.toggle(true)
     }
     // Each key once: StandardKey.FindNext is F3 itself on Linux, and a key
     // listed twice is ambiguous to Qt and never fires.
-    Shortcut { sequence: "F3"; context: Qt.ApplicationShortcut; onActivated: findBar.next(false) }
-    Shortcut { sequence: "Shift+F3"; context: Qt.ApplicationShortcut; onActivated: findBar.next(true) }
-    Shortcut { sequence: "Ctrl+G"; context: Qt.ApplicationShortcut; onActivated: goToLine.open() }
-    Shortcut { sequence: "Ctrl+/"; context: Qt.ApplicationShortcut; enabled: doc.editable; onActivated: editor.toggleComment() }
-    Shortcut { sequence: "Alt+Z"; context: Qt.ApplicationShortcut; onActivated: settings.wrap = !settings.wrap }
+    Shortcut { sequence: "F3"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: findBar.next(false) }
+    Shortcut { sequence: "Shift+F3"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: findBar.next(true) }
+    Shortcut { sequence: "Ctrl+G"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: goToLine.open() }
+    Shortcut { sequence: "Ctrl+/"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen && doc.editable; onActivated: editor.toggleComment() }
+    Shortcut { sequence: "Alt+Z"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: settings.wrap = !settings.wrap }
     // Each key once: listing StandardKey.ZoomIn/ZoomOut as well registers
     // Ctrl++ and Ctrl+- twice, which Qt treats as ambiguous and ignores.
-    Shortcut { sequences: ["Ctrl+=", "Ctrl++"]; context: Qt.ApplicationShortcut; onActivated: if (win.textSize < 48) settings.zoom += 1 }
-    Shortcut { sequence: "Ctrl+-"; context: Qt.ApplicationShortcut; onActivated: if (win.textSize > 8) settings.zoom -= 1 }
-    Shortcut { sequence: "Ctrl+0"; context: Qt.ApplicationShortcut; onActivated: settings.zoom = 0 }
+    Shortcut { sequences: ["Ctrl+=", "Ctrl++"]; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: if (win.textSize < 48) settings.zoom = Math.min(48, win.textSize + 1) - theme.textSize }
+    Shortcut { sequence: "Ctrl+-"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: if (win.textSize > 8) settings.zoom = Math.max(8, win.textSize - 1) - theme.textSize }
+    Shortcut { sequence: "Ctrl+0"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: settings.zoom = 0 }
     // The keys go with the files: shown, they're in the tree on the open
     // file; hidden, they're back in the text. Ctrl+Tab hops between the two
     // to keep the files open while editing, and Escape in the tree goes
     // back to the text.
-    Shortcut { sequence: "Ctrl+B"; context: Qt.ApplicationShortcut; onActivated: win.sidebarVisible ? win.hideSidebar() : win.showSidebar(true) }
+    Shortcut { sequence: "Ctrl+B"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: win.sidebarVisible ? win.hideSidebar() : win.showSidebar(true) }
     Shortcut {
         sequence: "Ctrl+Tab"
         context: Qt.ApplicationShortcut
-        enabled: win.sidebarVisible
+        enabled: !win.modalOpen && win.sidebarVisible
         onActivated: sidebar.treeFocused ? editor.focusText() : sidebar.focusTree()
     }
     // With the files showing, a new file named in place where they're at;
@@ -178,19 +180,21 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+N"
         context: Qt.ApplicationShortcut
+        enabled: !win.modalOpen
         onActivated: win.sidebarVisible ? namePrompt.ask(false) : launcher.newWindow()
     }
     Shortcut {
         sequence: "Ctrl+Shift+N"
         context: Qt.ApplicationShortcut
+        enabled: !win.modalOpen
         onActivated: {
             if (!win.sidebarVisible)
                 win.showSidebar(false)
             namePrompt.ask(true)
         }
     }
-    Shortcut { sequences: ["F1", "Ctrl+?"]; context: Qt.ApplicationShortcut; onActivated: win.helpVisible = !win.helpVisible }
-    Shortcut { sequence: "Escape"; context: Qt.ApplicationShortcut; enabled: win.helpVisible; onActivated: win.helpVisible = false }
+    Shortcut { sequences: ["F1", "Ctrl+?"]; context: Qt.ApplicationShortcut; enabled: !win.modalOpen; onActivated: win.helpVisible = !win.helpVisible }
+    Shortcut { sequence: "Escape"; context: Qt.ApplicationShortcut; enabled: !win.modalOpen && win.helpVisible; onActivated: win.helpVisible = false }
 
     Connections {
         target: picker
@@ -259,6 +263,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.margins: 10
                     visible: text.length > 0
+                    textFormat: Text.PlainText
                     color: theme.red
                     wrapMode: Text.Wrap
                     MouseArea { anchors.fill: parent; onClicked: pickerError.text = "" }
@@ -312,14 +317,14 @@ ApplicationWindow {
             objectName: "help"
             anchors.fill: parent
             visible: win.helpVisible
-            property var returnFocus: null
+            property Item returnFocus: null
             onVisibleChanged: {
                 if (visible) {
                     returnFocus = win.activeFocusItem
                     forceActiveFocus()
                 } else if (activeFocus) {
                     // Closed with the keys still on it: back where they were.
-                    if (returnFocus)
+                    if (returnFocus && returnFocus.visible)
                         returnFocus.forceActiveFocus()
                     else
                         editor.focusText()
@@ -361,7 +366,7 @@ ApplicationWindow {
         property string error: ""
         // Where the keys go back to: the new folder in the files, the new
         // file's text, or where they were.
-        property var returnFocus: null
+        property Item returnFocus: null
         property string made: ""
 
         function ask(folder) {
@@ -397,8 +402,7 @@ ApplicationWindow {
                 return
             }
             // The open file follows a rename, edits and all.
-            if (renaming.length > 0 && made.path !== renaming
-                    && (doc.path === renaming || doc.path.startsWith(renaming + "/")))
+            if (renaming.length > 0 && made.path !== renaming)
                 doc.relocate(renaming, made.path)
             namePrompt.made = made.path
             close()
@@ -411,14 +415,15 @@ ApplicationWindow {
         }
         onClosed: {
             if (made.length === 0) {
-                if (returnFocus)
+                if (returnFocus && returnFocus.visible)
                     returnFocus.forceActiveFocus()
+                else
+                    editor.focusText()
                 return
             }
             sidebar.reveal(made)
-            if (folder || renaming.length > 0)
-                sidebar.focusTree()
-            else
+            sidebar.focusTree()
+            if (!folder && renaming.length === 0)
                 win.openPath(made)
         }
 
@@ -541,6 +546,7 @@ ApplicationWindow {
                        ? qsTr("The folder and everything in it will be moved to the trash.")
                        : qsTr("The file will be moved to the trash."))
                       + (deleteConfirm.holdsOpenFile && doc.modified ? " " + qsTr("Unsaved changes to %1 will be lost.").arg(doc.fileName) : "")
+                textFormat: Text.PlainText
                 color: theme.foreground
                 wrapMode: Text.Wrap
             }
@@ -592,9 +598,9 @@ ApplicationWindow {
         property bool choosing: false
         // Where the keys were when it asked, for a cancel to go back to:
         // the files, if a file was picked there.
-        property var returnFocus: null
+        property Item returnFocus: null
         function giveBackFocus() {
-            if (returnFocus)
+            if (returnFocus && returnFocus.visible)
                 returnFocus.forceActiveFocus()
             else
                 editor.focusText()
@@ -638,6 +644,7 @@ ApplicationWindow {
                 text: win.pendingAction === "open" || win.pendingAction === "openPath"
                     ? qsTr("Save changes to %1 before opening another file?").arg(doc.fileName)
                     : qsTr("Save changes to %1 before closing?").arg(doc.fileName)
+                textFormat: Text.PlainText
                 color: theme.foreground
                 wrapMode: Text.Wrap
             }

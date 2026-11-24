@@ -3,7 +3,7 @@
 Markdown writing app with auto-save, find/replace, print, and Omarchy theme/language.
 
 Port of [omacom/omawrite](https://github.com/omacom/omawrite) 0.7.6
-(upstream commit `9d713b9`, pinned in `.omaxian-upstream-commit`). Full upstream
+(upstream commit `2f27bdc`, pinned in `.omaxian-upstream-commit`). Full upstream
 docs: [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under

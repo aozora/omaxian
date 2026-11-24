@@ -21,7 +21,7 @@ import sys
 import tempfile
 import tomllib
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import mock_open, patch
 
 sys.path.insert(0, os.environ["ENGINE_ROOT"])
 import agent_local as a
@@ -222,9 +222,21 @@ with patch.object(a, "free_memory", return_value=(1, 1)), patch.object(a, "top_m
 
 # A 64 GB Strix Halo whose desktop holds 13 GiB: fit kept its reserve, so start needs only the peak.
 long_ctx = {"ctx": 262144, "peak_ram_gib": 42, "peak_gpu_gib": 40}
-with patch.object(a, "free_memory", return_value=(48.6, 54)), patch.object(a, "choose_gpu", return_value=dict(gpu, memory_gib=54)):
+with patch.object(a, "free_memory", return_value=(48.6, 54)), patch.object(a, "choose_gpu", return_value=dict(gpu, memory_gib=54)), patch.object(a, "reclaim_page_cache"):
   check("start counts the desktop's reserve once", a.check_headroom(long_ctx, dict(gpu, memory_gib=54)) == (48.6, 54)
         and a.start_fit({"variant": long_ctx}, profile) == (True, ""))
+# Its 48.6 GiB free is 20 not cached and 28.6 of cache: a 42 GiB start reclaims the 22 short and
+# a margin, file pages only, and a 16 GiB one leaves the cache alone.
+uid = os.getuid()
+with patch.object(a, "meminfo", return_value={"MemFree": 16 * 2**30, "GPUReclaim": 4 * 2**30}), patch("builtins.open", mock_open()) as opened:
+  a.reclaim_page_cache(16)
+  untouched = not opened.called
+  a.reclaim_page_cache(42)
+  check("a start reclaims only the file cache it is short of, from the user's own cgroup",
+        untouched and opened.call_args.args == (f"/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service/memory.reclaim", "w")
+        and opened().write.call_args.args == (f"{24 * 2**30} swappiness=0",))
+with patch.object(a, "meminfo", return_value={"MemFree": 16 * 2**30}), patch("builtins.open", side_effect=OSError(22, "Invalid argument")):
+  check("a kernel that refuses the reclaim leaves the start as it was", a.reclaim_page_cache(42) is None)
 
 # A 64 GB Strix Halo on a stock kernel: the GPU maps half of RAM until use raises the cap.
 halo = {"vendor": "amd", "family": "amd-strix-halo", "memory_gib": 31.6, "unified": True}
@@ -232,6 +244,12 @@ with patch.object(a, "platform_name", return_value="x86"), patch.object(a, "amd_
   halo = a.machine_profile()["gpus"][0]
 needs_more = dict(variant, peak_gpu_gib=38, peak_ram_gib=38)
 check("a unified AMD GPU fits by the cap use can raise it to", halo["max_memory_gib"] == 54 and a.fits(needs_more, profile, halo)[0])
+# A 64 GB Arc B390 on a stock kernel: the page limit holds it to half of RAM, Mesa to three quarters.
+arc_b390 = {"vendor": "intel", "family": "intel-arc-b390", "memory_gib": 31.15, "unified": True}
+with patch.object(a, "platform_name", return_value="x86"), patch.object(a, "amd_gpus", return_value=[]), patch.object(a, "intel_gpus", return_value=[dict(arc_b390)]), patch.object(a, "meminfo", return_value={"MemTotal": 62.3 * 2**30}):
+  arc_b390 = a.machine_profile()["gpus"][0]
+check("an Intel GPU fits by the three quarters Mesa lets it address once use raises the cap", abs(arc_b390["max_memory_gib"] - 46.7) < 0.1 and a.fits(needs_more, profile, arc_b390)[0]
+      and not a.fits(dict(needs_more, peak_gpu_gib=48), profile, arc_b390)[0])
 check("a GPU with VRAM of its own fits only by what it has", not a.fits(needs_more, profile, dict(halo, max_memory_gib=a.gpu_memory_ceiling_gib(dict(halo, unified=False), 62)))[0])
 page = os.sysconf("SC_PAGE_SIZE")
 with patch.object(a, "pending_pages_limit", return_value=54 * 2**30 // page), patch.object(a, "_read", return_value=str(31 * 2**30 // page)), patch.object(a, "choose_gpu", return_value=halo):
@@ -1193,6 +1211,28 @@ check("best stays the text recommendation, and image models resolve on their own
 rows = {row["id"]: row for row in a.recipe_listing(img_catalog, profile)}
 check("list rows carry their kind and the best of each kind", (rows["picture"]["kind"], rows["model"]["kind"]) == ("image", "text") and rows["picture"]["best"] and rows["model"]["best"]
       and rows["picture"]["available"] and rows["picture"]["context"] is None and rows["picture"]["reason"] == "", repr(rows["picture"]))
+# An experimental recipe is kept for trying by name: listed once set up or when asked for, never recommended.
+trial = dict(copy.deepcopy(recipe), experimental=True)
+trial_catalog = SimpleNamespace(root=str(repo), recipes={"model": recipe, "trial": trial}, runtimes=both, best=images_best)
+check("experimental takes only true or false", any(".experimental: true or false" in e for e in a.validate_recipe("trial", dict(trial, experimental="yes"), {"server": runtime})))
+check("an experimental recipe is otherwise valid", not a.validate_recipe("trial", trial, {"server": runtime}))
+check("best.toml can't recommend an experimental recipe", any("'trial' is experimental" in e for e in a.validate_best({"class": [dict(entry, recipes=["trial", "model"])]}, {"model": recipe, "trial": trial})))
+with patch.object(a, "recipe_installed", return_value=False):
+  hidden = {row["id"] for row in a.recipe_listing(trial_catalog, profile)}
+  asked = {row["id"]: row for row in a.recipe_listing(trial_catalog, profile, experimental=True)}
+check("the listing leaves an experimental recipe out", hidden == {"model"}, repr(hidden))
+check("asked for, it lists it and says it's experimental", asked["trial"]["experimental"] and not asked["model"]["experimental"], repr(asked))
+with patch.object(a, "recipe_installed", side_effect=lambda rid: rid == "trial"):
+  installed = {row["id"] for row in a.recipe_listing(trial_catalog, profile)}
+check("once set up, it's listed so it can be started, stopped and removed", installed == {"model", "trial"}, repr(installed))
+printed, saved = [], []
+with patch.object(a, "load_catalog", return_value=trial_catalog), patch.object(a, "machine_profile", return_value=profile), \
+     patch.object(a, "running_models", return_value=set()), patch.object(a, "recipe_installed", return_value=False), \
+     patch.object(a, "write_list_cache", side_effect=saved.append), patch("builtins.print", side_effect=printed.append):
+  a.cmd_list(["--json", "--experimental"])
+shown = {row["id"] for row in json.loads(printed[0])}
+check("list --experimental shows it, and the panel's saved listing still leaves it out",
+      shown == {"model", "trial"} and len(saved) == 1 and {row["id"] for row in saved[0]} == {"model"}, repr((shown, saved)))
 # Video and music models are recommended beside them the same way, each kind its own use best.
 check("best.toml lists video models of their own", not a.validate_best({"class": [dict(entry, videos=["clip"])]}, {"model": recipe, "clip": clip}))
 check("a kind's list takes only that kind", any(".music: 'picture' is of kind image, not music" in e for e in a.validate_best({"class": [dict(entry, music=["picture"])]}, {"model": recipe, "picture": picture})))
@@ -1267,6 +1307,93 @@ for name, answers, message in (("that answers without the key", [(200, found)], 
   with patch.object(a, "http_status", side_effect=answers):
     raises(f"an ace-server {name} is refused", lambda: a.post_start_checks("song", "test-key", ace_rt), message)
 
+# Stable Audio 3 music runtime: api = "sa3" checks /props for dit, decoder, text_encoder, tokenizer,
+# and vocals = false marks an instrumental-only music recipe.
+sa3_cuda_rt = {"image": "registry.example/test/sa3-cuda@sha256:" + "d" * 64, "tier": "omarchy", "api": "sa3", "port": 8085,
+               "health": {"probe": ["curl", "http://127.0.0.1:8085/health"]}, "command": ["sa3-server"],
+               "reserved": ["--port", "SA3_API_KEY"], "run": {"devices": ["cdi-nvidia"], "tmpfs": "/tmp"}, "gpus": ["nvidia-gb10"],
+               "inputs": {"model": {"arg": "--models"}, "key": {"env": "SA3_API_KEY"}}}
+sa3_cuda_song = {"name": "Stable Audio 3 Medium", "vendor": "stability", "kind": "music", "vocals": False, "runtime": "sa3-cuda",
+                 "hardware": [{"gpu": "nvidia-n1x", "ram_class": 128, "measured": "measurements/model.toml"}],
+                 "artifacts": [{"repo": "test/sa3", "revision": "a" * 40, "license": "other", "files": ["dit.gguf"], "dest": "sa3", "model": "."}],
+                 "variant": [picture_variant]}
+check("an sa3 music runtime and instrumental recipe validate",
+      not a.validate_runtime("sa3-cuda", sa3_cuda_rt) and not a.validate_recipe("sa3-song-cuda", sa3_cuda_song, {"sa3-cuda": sa3_cuda_rt}),
+      "\n".join(a.validate_runtime("sa3-cuda", sa3_cuda_rt) + a.validate_recipe("sa3-song-cuda", sa3_cuda_song, {"sa3-cuda": sa3_cuda_rt})))
+check("vocals is only for music recipes", any(".vocals" in e for e in a.validate_recipe("model", dict(recipe, vocals=False), {"server": runtime})))
+sa3_found = b'{"models": {"dit": ["dit.gguf"], "decoder": ["same.gguf"], "text_encoder": ["t5.gguf"], "tokenizer": ["vocab.gguf"]}}'
+with patch.object(a, "http_status", side_effect=[(401, b""), (200, sa3_found)]):
+  a.post_start_checks("sa3-song-cuda", "test-key", sa3_cuda_rt)
+with patch.object(a, "http_status", side_effect=[(401, b""), (200, b'{"models": {"dit": ["dit.gguf"]}}')]):
+  raises("an sa3-server missing parts is refused", lambda: a.post_start_checks("sa3-song-cuda", "test-key", sa3_cuda_rt), "found no decoder, text_encoder, tokenizer model")
+sa3_inst_rec = a.begin_installing("sa3-song-cuda", sa3_cuda_song)
+sa3_inst_row = a.install_row("sa3-song-cuda", sa3_inst_rec)
+check("an installing instrumental music recipe keeps vocals = False",
+      sa3_inst_rec.get("vocals") is False and sa3_inst_row.get("vocals") is False, repr((sa3_inst_rec, sa3_inst_row)))
+a.clear_installing("sa3-song-cuda")
+
+# A CPU-only music model (Stable Audio 3): runs with gpus = ["cpu"], no GPU devices, peak_gpu_gib = 0,
+# vocals = false, stays available on machines with no supported GPU, and yields to a GPU build of
+# the same model when one runs on the machine.
+sa3_rt = {"image": "registry.example/test/sa3@sha256:" + "d" * 64, "tier": "omarchy", "api": "sa3", "port": 8085,
+          "health": {"probe": ["curl", "http://127.0.0.1:8085/health"]}, "command": ["sa3-server"],
+          "reserved": ["--port", "SA3_API_KEY"], "run": {"tmpfs": "/tmp"}, "gpus": ["cpu"],
+          "inputs": {"model": {"arg": "--models"}, "key": {"env": "SA3_API_KEY"}}}
+sa3_variant = {"peak_ram_gib": 4, "peak_gpu_gib": 0}
+sa3_song = {"name": "Stable Audio 3 Medium", "vendor": "stability", "kind": "music", "vocals": False, "runtime": "sa3",
+            "hardware": [{"gpu": "cpu", "ram_class": 64, "measured": "measurements/model.toml"}],
+            "artifacts": [{"repo": "test/sa3", "revision": "a" * 40, "license": "other", "files": ["dit.tflite"], "dest": "sa3", "model": "."}],
+            "variant": [sa3_variant]}
+check("a CPU music runtime and instrumental recipe validate",
+      not a.validate_runtime("sa3", sa3_rt) and not a.validate_recipe("sa3-song", sa3_song, {"sa3": sa3_rt}),
+      "\n".join(a.validate_runtime("sa3", sa3_rt) + a.validate_recipe("sa3-song", sa3_song, {"sa3": sa3_rt})))
+check("a CPU runtime rejects GPU devices", any("can't use GPU devices" in e for e in a.validate_runtime("sa3", dict(sa3_rt, run={"devices": ["render"]}))))
+cpu_only_profile = {"platform": "x86", "ram_class": 32, "ram_gib": 16, "gpus": []}
+cpu_catalog = SimpleNamespace(root=str(repo), recipes={"model": recipe, "sa3-song": sa3_song, "sa3-song-cuda": sa3_cuda_song},
+                              runtimes={"server": runtime, "sa3": sa3_rt, "sa3-cuda": sa3_cuda_rt}, best={"class": []})
+cpu_rows = {row["id"]: row for row in a.recipe_listing(cpu_catalog, cpu_only_profile)}
+check("a CPU recipe is available on a machine with no supported GPU, while GPU recipes stay unavailable",
+      cpu_rows["sa3-song"]["available"] and cpu_rows["sa3-song"]["vocals"] is False and not cpu_rows["model"]["available"] and not cpu_rows["sa3-song-cuda"]["available"], repr(cpu_rows))
+check("a CPU recipe doesn't fit when RAM is below peak plus desktop reserve",
+      not {row["id"]: row for row in a.recipe_listing(cpu_catalog, dict(cpu_only_profile, ram_gib=8))}["sa3-song"]["available"])
+gb10_profile = {"platform": "aarch64-gb10", "ram_class": 128, "ram_gib": 128,
+                "gpus": [{"vendor": "nvidia", "family": "nvidia-gb10", "render_node": "/dev/dri/renderD128", "memory_gib": 110, "max_memory_gib": 110, "unified": True}]}
+gb10_rows = {row["id"]: row for row in a.recipe_listing(cpu_catalog, gb10_profile)}
+check("when a GPU build of the same model fits, the CPU fallback yields to it in listings",
+      gb10_rows["sa3-song-cuda"]["available"] and not gb10_rows["sa3-song"]["available"], repr(gb10_rows))
+sa3_manifest = {"schema": 1, "recipe_id": "sa3-song", "recipe": sa3_song, "runtime": sa3_rt, "runtime_id": "sa3", "image": sa3_rt["image"],
+                "variant": sa3_variant, "files": [], "roles": {"model": "sa3"}, "fileset": "d" * 16, "gpu": "cpu", "profile": cpu_only_profile}
+with patch.object(a, "unit_props", return_value={}), patch.object(a, "free_memory", return_value=(10, 16)):
+  sa3_row = a.model_record("sa3-song", sa3_manifest, cpu_only_profile)
+check("a CPU music model's status row carries vocals = False and fits by RAM",
+      sa3_row["kind"] == "music" and sa3_row["vocals"] is False and sa3_row["fits"] is True, repr(sa3_row))
+sa3_unit = a.render_container("sa3-song", sa3_song, sa3_rt, sa3_variant, {"model": "sa3"}, a.cpu_device(cpu_only_profile), "d" * 16)
+sa3_flags = json.loads(sa3_unit)["flags"]
+check("a CPU container unit adds no GPU devices", "--device" not in sa3_flags and "--tmpfs" in sa3_flags)
+
+# Vulkan Stable Audio 3 runtime for AMD GPUs: render node, tmpfs, api = "sa3", multi-artifact dir.
+sa3_vk_rt = {"image": "registry.example/test/sa3-vulkan@sha256:" + "e" * 64, "tier": "omarchy", "api": "sa3", "port": 8085,
+             "health": {"probe": ["curl", "http://127.0.0.1:8085/health"]}, "command": ["sa3-server"],
+             "reserved": ["--port", "SA3_API_KEY"], "run": {"devices": ["render"], "group_add": "keep-groups", "tmpfs": "/tmp"},
+             "gpus": ["amd"], "inputs": {"model": {"arg": "--models"}, "key": {"env": "SA3_API_KEY"}}}
+sa3_vk_variant = {"peak_ram_gib": 4, "peak_gpu_gib": 4}
+sa3_vk_song = {"name": "Stable Audio 3 Medium", "vendor": "stability", "kind": "music", "vocals": False, "runtime": "sa3-vulkan",
+               "hardware": [{"gpu": "amd-strix-halo", "ram_class": 192, "measured": "measurements/model.toml"}],
+               "artifacts": [
+                 {"repo": "test/sa3-m", "revision": "a" * 40, "license": "other", "files": ["dit.gguf", "same.gguf"], "dest": "sa3", "model": "."},
+                 {"repo": "test/t5gemma", "revision": "b" * 40, "license": "gemma", "files": ["t5.gguf", "vocab.gguf"], "dest": "sa3"},
+               ],
+               "variant": [sa3_vk_variant]}
+check("an AMD Vulkan sa3 runtime and multi-artifact instrumental recipe validate",
+      not a.validate_runtime("sa3-vulkan", sa3_vk_rt) and not a.validate_recipe("sa3-vk-song", sa3_vk_song, {"sa3-vulkan": sa3_vk_rt}),
+      "\n".join(a.validate_runtime("sa3-vulkan", sa3_vk_rt) + a.validate_recipe("sa3-vk-song", sa3_vk_song, {"sa3-vulkan": sa3_vk_rt})))
+amd_profile = {"platform": "x86", "ram_class": 192, "ram_gib": 188,
+               "gpus": [{"vendor": "amd", "family": "amd-strix-halo", "render_node": "/dev/dri/renderD128",
+                         "vram_gib": 0.5, "gtt_gib": 180, "unified": True, "memory_gib": 180.5, "max_memory_gib": 180.5, "sysfs": ""}]}
+sa3_vk_unit = a.render_container("sa3-vk-song", sa3_vk_song, sa3_vk_rt, sa3_vk_variant, {"model": "sa3"}, amd_profile["gpus"][0], "e" * 16)
+check("an AMD Vulkan sa3 container unit mounts the render node and tmpfs",
+      "/dev/dri/renderD128" in json.loads(sa3_vk_unit)["flags"] and "--tmpfs" in json.loads(sa3_vk_unit)["flags"] and "--models" in json.loads(sa3_vk_unit)["args"])
+
 
 # A runtime's warm-up: a malformed one is refused; one prompt of the model's own vocabulary goes
 # out with the key, nothing is sent without a tokenizer, and a failure doesn't fail the start.
@@ -1310,6 +1437,31 @@ with patch.object(a.urllib.request, "urlopen", side_effect=a.urllib.error.URLErr
 check("a failed warm-up leaves no marker behind", not a.warming("warm"))
 Path(a.warming_path("warm")).write_text("999999999\n")
 check("a marker whose process is gone holds nothing back", not a.warming("warm"))
+# An app holds a model while it runs; stop --unless-used leaves a held model, or one a tailnet
+# machine used lately, and stops the rest. The hold ends when the holder's input closes.
+holder = subprocess.Popen([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import agent_local as a; a.resolve_model = lambda rid: {'recipe_id': rid}; sys.exit(a.main(['hold', 'held']))", os.environ["ENGINE_ROOT"]],
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+for _ in range(200):
+  if a.hold_exclusively("held", []) is False:
+    break
+  __import__("time").sleep(0.05)
+Path(a.clients_path()).write_text(json.dumps({"models": {"shared": 1}}))
+stopped = []
+def stop_unless_used(*rids):
+  with patch.object(a, "resolve_model", side_effect=lambda rid: {"recipe_id": rid}), patch.object(a, "running_models", return_value={"held", "shared", "idle"}), \
+       patch.object(a, "load_catalog", return_value={}), patch.object(a, "machine_profile", return_value={}), patch.object(a, "write_status"), \
+       patch.object(a, "evict_idle_weights"), patch.object(a, "stop_unit", side_effect=stopped.append):
+    return a.cmd_stop(["--unless-used", *rids])
+stop_unless_used()
+check("stop --unless-used stops only what no app holds and no tailnet machine uses", stopped == ["idle"], repr(stopped))
+stopped.clear()
+stop_unless_used("idle", "idle")
+check("a model named twice is stopped once", stopped == ["idle"], repr(stopped))
+holder.communicate(b"", timeout=10)
+stopped.clear()
+stop_unless_used("held", "shared")
+check("a hold ends when the holder's input closes", holder.returncode == 0 and stopped == ["held"], repr((holder.returncode, stopped)))
+os.unlink(a.clients_path())
 
 # Omaxian: names of checks that fail on purpose here, one per line in tests/omaxian-expected-failures.txt.
 expected = set(Path(os.environ["ENGINE_ROOT"], "tests/omaxian-expected-failures.txt").read_text().splitlines()) if Path(os.environ["ENGINE_ROOT"], "tests/omaxian-expected-failures.txt").exists() else set()

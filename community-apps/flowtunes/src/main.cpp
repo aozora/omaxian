@@ -19,7 +19,6 @@ int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("flowtunes");
     app.setApplicationName("flowtunes");
-    app.setApplicationVersion("0.2.0");
 
     // Matches the window to flowtunes.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon. The compiled-in copy covers
@@ -41,6 +40,11 @@ int main(int argc, char *argv[]) {
         for (const Genre &genre : Genres::all())
             if (genre.id.compare(wanted, Qt::CaseInsensitive) == 0 || genre.name.compare(wanted, Qt::CaseInsensitive) == 0)
                 backend.setInitialGenre(genre.id);
+
+    // Quitting stops the music models nothing else uses. A window drawn
+    // offscreen leaves the user's models alone.
+    if (app.platformName() != "offscreen")
+        QObject::connect(&app, &QCoreApplication::aboutToQuit, &backend, [&backend] { backend.models()->release(); });
 
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);

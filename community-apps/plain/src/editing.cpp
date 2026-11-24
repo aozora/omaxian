@@ -33,6 +33,13 @@ int leadingWhitespace(const QString &text) {
         ++i;
     return i;
 }
+
+int trimmedEnd(const QString &text) {
+    int end = int(text.size());
+    while (end > 0 && text.at(end - 1).isSpace())
+        --end;
+    return end;
+}
 }
 
 Editing::Editing(Document *document, QObject *parent) : QObject(parent), m_document(document) {}
@@ -89,9 +96,15 @@ void Editing::toggleComment(int start, int end) {
         const int indent = leadingWhitespace(text);
         column = qMin(column, indent);
         // In CSS, a line only starts with /* when an inline comment opens
-        // it; commented means wrapped whole.
-        if (!text.mid(indent).startsWith(prefix) || (!suffix.isEmpty() && !text.trimmed().endsWith("*/")))
+        // it, or ends with */ when another closes it; commented means one
+        // comment wraps the whole line.
+        if (!text.mid(indent).startsWith(prefix)) {
             allCommented = false;
+        } else if (!suffix.isEmpty()) {
+            const int last = trimmedEnd(text);
+            if (text.indexOf(QStringLiteral("*/"), indent + prefix.size()) != last - 2)
+                allCommented = false;
+        }
     }
 
     QTextCursor cursor(doc);
@@ -103,13 +116,16 @@ void Editing::toggleComment(int start, int end) {
             int length = prefix.size();
             if (at + length < text.size() && text.at(at + length) == ' ')
                 ++length;
-            if (!suffix.isEmpty() && text.endsWith("*/")) {
-                const int cut = text.endsWith(suffix) ? suffix.size() : 2;
-                cursor.setPosition(block.position() + text.size() - cut);
-                cursor.setPosition(block.position() + text.size(), QTextCursor::KeepAnchor);
+            if (!suffix.isEmpty()) {
+                const int last = trimmedEnd(text);
+                const int cut = last - (at + length) >= suffix.size()
+                                && QStringView(text).left(last).endsWith(suffix)
+                                ? int(suffix.size()) : 2;
+                cursor.setPosition(block.position() + last - cut);
+                cursor.setPosition(block.position() + last, QTextCursor::KeepAnchor);
                 cursor.removeSelectedText();
                 // The closings inside it, escaped when it was commented.
-                escapeClosings(cursor, block.position(), text, at + length, int(text.size()) - cut, true);
+                escapeClosings(cursor, block.position(), text, at + length, last - cut, true);
             }
             cursor.setPosition(block.position() + at);
             cursor.setPosition(block.position() + at + length, QTextCursor::KeepAnchor);
@@ -209,13 +225,21 @@ QVariantList Editing::find(const QString &text, int from, bool backward, bool ca
 
 int Editing::matchCount(const QString &text, bool caseSensitive) const {
     QTextDocument *doc = document();
-    if (!doc || text.isEmpty())
+    if (!doc || text.isEmpty() || text.contains(u'\n') || text.contains(QChar::ParagraphSeparator))
         return 0;
+    const Qt::CaseSensitivity sensitivity = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
     int count = 0;
-    QTextCursor cursor(doc);
-    const auto flags = caseSensitive ? QTextDocument::FindCaseSensitively : QTextDocument::FindFlags();
-    while (!(cursor = doc->find(text, cursor, flags)).isNull())
-        ++count;
+    for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
+        QString line = block.text();
+        // Match QTextDocument::find(), which treats NBSP as an ordinary space.
+        if (line.contains(QChar::Nbsp))
+            line.replace(QChar::Nbsp, u' ');
+        qsizetype pos = 0;
+        while ((pos = line.indexOf(text, pos, sensitivity)) >= 0) {
+            ++count;
+            pos += text.size();
+        }
+    }
     return count;
 }
 

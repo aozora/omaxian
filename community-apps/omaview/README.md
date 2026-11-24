@@ -5,7 +5,7 @@ a photo, video, song, or a whole folder; step through with the arrows, zoom
 with the wheel, scrub videos with a timeline, and put the chrome away with Tab.
 
 Port of [omacom/omaview](https://github.com/omacom/omaview) (upstream commit
-`75bb5a0`, pinned in `.omaxian-upstream-commit`). Full upstream docs:
+`4cd158e`, pinned in `.omaxian-upstream-commit`). Full upstream docs:
 [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under

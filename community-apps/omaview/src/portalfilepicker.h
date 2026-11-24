@@ -13,6 +13,7 @@ class PortalFilePicker : public FilePicker {
 
 public:
     explicit PortalFilePicker(QObject *parent = nullptr);
+    ~PortalFilePicker() override;
 
     void openMedia() override;
     void saveImage(const QUrl &suggestedUrl) override;

@@ -34,22 +34,29 @@ QByteArray portalPathBytes(const QString &path) {
 }
 }
 
+PortalFilePicker::~PortalFilePicker() {
+    closePendingRequest();
+    clearPending();
+}
+
 void PortalFilePicker::openFile(const QString &folder) {
     QVariantMap options;
     options.insert(QStringLiteral("accept_label"), tr("Open"));
     options.insert(QStringLiteral("modal"), true);
     options.insert(QStringLiteral("multiple"), false);
     options.insert(QStringLiteral("current_folder"),
-                   portalPathBytes(QDir(folder).exists() ? folder : QDir::homePath()));
+                   portalPathBytes(!folder.isEmpty() && QDir(folder).exists() ? folder : QDir::homePath()));
     requestFile(QStringLiteral("OpenFile"), tr("Open File"), options, Action::Open);
 }
 
 void PortalFilePicker::saveFile(const QString &suggestedPath) {
     const QFileInfo target(suggestedPath.isEmpty() ? QDir::homePath() + "/untitled.txt" : suggestedPath);
+    const QString folder = target.absolutePath();
     QVariantMap options;
     options.insert(QStringLiteral("accept_label"), tr("Save"));
     options.insert(QStringLiteral("modal"), true);
-    options.insert(QStringLiteral("current_folder"), portalPathBytes(target.absolutePath()));
+    options.insert(QStringLiteral("current_folder"),
+                   portalPathBytes(QDir(folder).exists() ? folder : QDir::homePath()));
     options.insert(QStringLiteral("current_name"), target.fileName());
     requestFile(QStringLiteral("SaveFile"), tr("Save As"), options, Action::Save);
 }

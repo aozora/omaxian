@@ -9,3 +9,5 @@ QString cliSummary();
 
 // "90", "1:30", "1:02:03.5" as seconds; negative when it isn't a time.
 double parseTime(const QString &text);
+// Seconds formatted as "h:mm:ss.mmm", clamped at 0.
+QString formatTime(double seconds);

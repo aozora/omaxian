@@ -117,6 +117,10 @@ Info parse(const QByteArray &json, const QString &path) {
 Info run(const QString &path, int timeoutMs, const std::atomic_bool *cancelled) {
     Info info;
     info.path = path;
+    if (cancelled && *cancelled) {
+        info.error = Texts::tr("ffprobe took too long reading this file.");
+        return info;
+    }
     const QString ffprobe = toolPath("ffprobe");
     if (ffprobe.isEmpty()) {
         info.error = Texts::tr("ffprobe was not found. Install ffmpeg.");

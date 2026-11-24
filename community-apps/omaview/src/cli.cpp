@@ -7,6 +7,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 #include "frames.h"
@@ -39,16 +41,6 @@ struct Command {
     QString argument(int i) const { return parser.positionalArguments().value(i); }
 };
 
-QString clock(double seconds) {
-    const qint64 total = qint64(seconds);
-    const QString fraction = QString::number(seconds - total, 'f', 3).mid(1);
-    return QString("%1:%2:%3%4")
-        .arg(total / 3600)
-        .arg(total / 60 % 60, 2, 10, QChar('0'))
-        .arg(total % 60, 2, 10, QChar('0'))
-        .arg(fraction);
-}
-
 // A picture: its size, format and what the camera wrote.
 int pictureInfo(const QString &path, bool json) {
     const picture::Info info = picture::read(path);
@@ -72,7 +64,8 @@ int pictureInfo(const QString &path, bool json) {
         print(stdout, "  Lens      " + exif.lens);
     QStringList exposure;
     if (exif.exposure > 0)
-        exposure << (exif.exposure >= 1 ? QString::number(exif.exposure) : QString("1/%1").arg(qRound(1 / exif.exposure))) + " s";
+        exposure << (exif.exposure >= 1 ? QString::number(exif.exposure)
+                                        : QString("1/%1").arg(qRound64(1.0 / exif.exposure))) + " s";
     if (exif.aperture > 0)
         exposure << "f/" + QString::number(exif.aperture);
     if (exif.iso > 0)
@@ -111,7 +104,7 @@ int info(const QStringList &arguments) {
     if (!info.title.isEmpty())
         print(stdout, "  Title     " + info.title);
     print(stdout, "  Format    " + info.format);
-    print(stdout, "  Duration  " + clock(info.duration));
+    print(stdout, "  Duration  " + formatTime(info.duration));
     for (const probe::Stream &stream : info.streams) {
         QStringList parts{stream.codec};
         if (stream.type == "video" && stream.width > 0)
@@ -131,9 +124,9 @@ int info(const QStringList &arguments) {
         print(stdout, QString("  #%1 %2  %3").arg(stream.index).arg(stream.type, -8).arg(parts.join(", ")));
     }
     for (const probe::Chapter &chapter : info.chapters)
-        print(stdout, "  Chapter   " + clock(chapter.start) + "  " + chapter.title);
+        print(stdout, "  Chapter   " + formatTime(chapter.start) + "  " + chapter.title);
     if (resume >= 0)
-        print(stdout, "  Resumes   " + clock(resume / 1000.0));
+        print(stdout, "  Resumes   " + formatTime(resume / 1000.0));
     return 0;
 }
 
@@ -215,6 +208,17 @@ int help(const QStringList &arguments) {
 
 }  // namespace
 
+QString formatTime(double seconds) {
+    const double clamped = std::isfinite(seconds) ? std::clamp(seconds, 0.0, 1e12) : 0.0;
+    const qint64 ms = qRound64(clamped * 1000.0);
+    const qint64 total = ms / 1000;
+    return QString("%1:%2:%3.%4")
+        .arg(total / 3600)
+        .arg(total / 60 % 60, 2, 10, QChar('0'))
+        .arg(total % 60, 2, 10, QChar('0'))
+        .arg(ms % 1000, 3, 10, QChar('0'));
+}
+
 double parseTime(const QString &text) {
     const QStringList parts = text.trimmed().split(':');
     if (parts.isEmpty() || parts.size() > 3)
@@ -223,11 +227,11 @@ double parseTime(const QString &text) {
     for (const QString &part : parts) {
         bool ok = false;
         const double value = part.toDouble(&ok);
-        if (!ok || value < 0)
+        if (!ok || !std::isfinite(value) || value < 0)
             return -1;
         seconds = seconds * 60 + value;
     }
-    return seconds;
+    return std::isfinite(seconds) ? seconds : -1;
 }
 
 QString cliSummary() {

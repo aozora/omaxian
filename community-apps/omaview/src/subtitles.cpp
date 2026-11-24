@@ -83,8 +83,8 @@ QList<Cue> parseWebVtt(const QString &text) {
         cue.end = timestamp(match.captured(2));
         QStringList body;
         for (++i; i < lines.size() && !lines.at(i).trimmed().isEmpty(); ++i)
-            body << QString(lines.at(i)).remove(tags).replace("&amp;", "&").replace("&lt;", "<")
-                        .replace("&gt;", ">").replace("&nbsp;", QString(QChar(0xa0))).trimmed();
+            body << QString(lines.at(i)).remove(tags).replace("&lt;", "<").replace("&gt;", ">")
+                        .replace("&nbsp;", QString(QChar(0xa0))).replace("&amp;", "&").trimmed();
         body.removeAll(QString());
         cue.text = body.join('\n');
         if (cue.start >= 0 && cue.end > cue.start && !cue.text.isEmpty())
@@ -98,6 +98,8 @@ QList<Cue> parseWebVtt(const QString &text) {
 }
 
 QList<Cue> load(const QString &path, int stream, QString *error, const std::atomic_bool *cancelled) {
+    if (cancelled && *cancelled)
+        return {};
     const QString ffmpeg = probe::toolPath("ffmpeg");
     if (ffmpeg.isEmpty()) {
         if (error)
@@ -121,7 +123,8 @@ QList<Cue> load(const QString &path, int stream, QString *error, const std::atom
             break;
         }
     }
-    if (stopped || process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+    if (stopped || process.error() == QProcess::FailedToStart || process.exitStatus() != QProcess::NormalExit
+        || process.exitCode() != 0) {
         if (error)
             *error = Texts::tr("Could not read the subtitles in %1.").arg(QFileInfo(path).fileName());
         return {};

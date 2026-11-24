@@ -45,7 +45,23 @@ Flow::Flow(Models *models, const QString &musicFolder, QObject *parent)
     connect(&m_poll, &QTimer::timeout, this, &Flow::poll);
     m_again.setSingleShot(true);
     connect(&m_again, &QTimer::timeout, this, [this] { pump(); });
-    connect(m_models, &Models::changed, this, [this] { pump(); });
+    m_lastVocals = m_models->vocals();
+    connect(m_models, &Models::changed, this, [this] {
+        const bool vocals = m_models->vocals();
+        if (vocals != m_lastVocals) {
+            m_lastVocals = vocals;
+            if (!m_genre.isEmpty() && m_lyrics) {
+                const Track playing = m_current;
+                const int number = m_number;
+                reset();
+                m_current = playing;
+                m_number = number;
+                gather();
+                emit changed();
+            }
+        }
+        pump();
+    });
     m_lyrics = QSettings().value("lyrics", false).toBool();
     // A model that takes its start and then stays stopped says nothing more,
     // so it's given a while and then called what it is.
@@ -81,13 +97,16 @@ void Flow::play(const QString &genre) {
     pump();
 }
 
+bool Flow::effectiveLyrics() const { return m_lyrics && m_models->vocals(); }
+
 void Flow::gather() {
     // The tunes made before play first, in a new order every time: with
-    // lyrics on, every file but those named as instrumental, and with
-    // lyrics off, only those.
+    // lyrics on (and a vocal model), every file but those named as instrumental,
+    // and otherwise only those.
+    const bool sung = effectiveLyrics();
     const QDir tunes(folder(m_genre));
     for (const QString &tune : tunes.entryList({"*.mp3"}, QDir::Files))
-        if (sungOf(tune) == m_lyrics && tunes.filePath(tune) != m_current.path)
+        if (sungOf(tune) == sung && tunes.filePath(tune) != m_current.path)
             m_library << tunes.filePath(tune);
     std::shuffle(m_library.begin(), m_library.end(), *QRandomGenerator::global());
 }
@@ -342,10 +361,18 @@ void Flow::compose() {
     m_composing = true;
     m_filling = true;
     emit changed();
+    // An instrumental-only model has no lyric-writing stage: render straight from the caption.
+    if (!m_models->vocals()) {
+        Track track;
+        track.made = true;
+        track.title = Genres::title(m_genre, *QRandomGenerator::global());
+        render(track, {{"caption", Genres::caption(m_genre, *QRandomGenerator::global(), false)}, {"duration", trackSeconds}}, false);
+        return;
+    }
     // The model's language model writes the tune out first: how it sounds,
     // its tempo and key, and its notes, which go back to be rendered as they are.
     // Left without lyrics it writes its own, in the language asked for.
-    const bool sung = m_lyrics;
+    const bool sung = effectiveLyrics();
     submit("/lm", {{"caption", Genres::caption(m_genre, *QRandomGenerator::global(), sung)},
                    {"lyrics", sung ? "" : "[Instrumental]"}, {"duration", trackSeconds},
                    {"vocal_language", m_language.isEmpty() ? QString("en") : m_language.section('-', 0, 0)}},
@@ -372,32 +399,36 @@ void Flow::compose() {
         track.title = sung ? hookOf(song.value("lyrics").toString()) : QString();
         if (track.title.isEmpty())
             track.title = Genres::title(m_genre, *QRandomGenerator::global());
-        submit("/synth", song, [this, track, sung](const QByteArray &rendered) mutable {
-            // Parts between lines of a boundary, which the first line is:
-            // the MP3 is the first part's body.
-            const QByteArray boundary = "\r\n" + rendered.left(rendered.indexOf("\r\n"));
-            const qsizetype start = rendered.indexOf("\r\n\r\n") + 4;
-            const QByteArray sound = start < 4 ? QByteArray() : rendered.mid(start, rendered.indexOf(boundary, start) - start);
-            if (sound.isEmpty()) {
-                fail(tr("The tune couldn't be made"));
-                return;
-            }
-            const QByteArray named = titled(sound, track.title);
-            // Among the genre's tunes, under a name none of them has, and
-            // whole or not at all.
-            const QString tunes = folder(m_genre);
-            QString name = fileName(QDateTime::currentDateTime(), track.bpm, track.key, sung);
-            for (int copy = 2; QFile::exists(tunes + "/" + name); ++copy)
-                name = name.section('.', 0, -2).section('_', 0, 0) + QString("_%1.mp3").arg(copy);
-            track.path = tunes + "/" + name;
-            QSaveFile file(track.path);
-            file.setDirectWriteFallback(false);
-            if (!QDir().mkpath(tunes) || !file.open(QIODevice::WriteOnly) || file.write(named) != named.size() || !file.commit()) {
-                fail(tr("Couldn't save the tune in %1").arg(tunes));
-                return;
-            }
-            shape(track);
-        });
+        render(track, song, sung);
+    });
+}
+
+void Flow::render(Track track, const QJsonObject &body, bool sung) {
+    submit("/synth", body, [this, track, sung](const QByteArray &rendered) mutable {
+        // Parts between lines of a boundary, which the first line is:
+        // the MP3 is the first part's body.
+        const QByteArray boundary = "\r\n" + rendered.left(rendered.indexOf("\r\n"));
+        const qsizetype start = rendered.indexOf("\r\n\r\n") + 4;
+        const QByteArray sound = start < 4 ? QByteArray() : rendered.mid(start, rendered.indexOf(boundary, start) - start);
+        if (sound.isEmpty()) {
+            fail(tr("The tune couldn't be made"));
+            return;
+        }
+        const QByteArray named = titled(sound, track.title);
+        // Among the genre's tunes, under a name none of them has, and
+        // whole or not at all.
+        const QString tunes = folder(m_genre);
+        QString name = fileName(QDateTime::currentDateTime(), track.bpm, track.key, sung);
+        for (int copy = 2; QFile::exists(tunes + "/" + name); ++copy)
+            name = name.section('.', 0, -2).section('_', 0, 0) + QString("_%1.mp3").arg(copy);
+        track.path = tunes + "/" + name;
+        QSaveFile file(track.path);
+        file.setDirectWriteFallback(false);
+        if (!QDir().mkpath(tunes) || !file.open(QIODevice::WriteOnly) || file.write(named) != named.size() || !file.commit()) {
+            fail(tr("Couldn't save the tune in %1").arg(tunes));
+            return;
+        }
+        shape(track);
     });
 }
 

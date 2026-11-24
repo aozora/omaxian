@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QFileSystemWatcher>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
@@ -50,12 +51,28 @@ class Models : public QObject {
     Q_PROPERTY(bool video READ video NOTIFY changed)
     // The model in use makes songs.
     Q_PROPERTY(bool music READ music NOTIFY changed)
+    // Whether the music model in use sings with lyrics; false for instrumental-only models.
+    Q_PROPERTY(bool vocals READ vocals NOTIFY changed)
     // The clip lengths, in seconds, the video model in use makes here.
     Q_PROPERTY(QVariantList clipLengths READ clipLengths NOTIFY changed)
     // The model being started in place of the one in use, while it starts.
     Q_PROPERTY(QString switchingTo READ switchingTo NOTIFY changed)
     Q_PROPERTY(QString switchingVendor READ switchingVendor NOTIFY changed)
     Q_PROPERTY(QString error READ error NOTIFY changed)
+    // Every image, video and music model for this machine, by id: set up,
+    // being set up, there to set up, or not for this machine and why. The
+    // ids come in the order the manager lists them, and change only when
+    // a model comes or goes, so its rows stay put while one downloads.
+    Q_PROPERTY(QStringList libraryIds READ libraryIds NOTIFY libraryIdsChanged)
+    Q_PROPERTY(QVariantMap library READ library NOTIFY libraryChanged)
+    // The memory: the machine's, what's free for a model to load into, and
+    // the running models of every kind holding some, as {id, name, kind, gib}.
+    Q_PROPERTY(double memoryTotal READ memoryTotal NOTIFY libraryChanged)
+    Q_PROPERTY(double memoryFree READ memoryFree NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList holders READ holders NOTIFY libraryChanged)
+    // While the manager is open, memory is read every few seconds: it has no
+    // change signal, and what a running model holds moves as it works.
+    Q_PROPERTY(bool watching READ watching WRITE setWatching NOTIFY watchingChanged)
 
 public:
     struct Discovery {
@@ -90,15 +107,47 @@ public:
         bool video = false;
         // The model in use makes songs.
         bool music = false;
+        // Whether the music model in use sings with lyrics.
+        bool vocals = true;
         // The longest clip a video model makes on its machine now, as its
         // engine works it out; -1 from an engine that doesn't say.
         int maxSeconds = -1;
     };
 
+    // What's free for a model to load into, as the engine decides whether one
+    // fits (available memory plus what a GPU driver keeps pooled), in GiB, and
+    // what each running model holds now, by id, where the engine measured it.
+    struct Memory {
+        double total = 0;
+        double free = 0;
+        QHash<QString, double> held;
+    };
+    static Memory parseMeminfo(const QByteArray &meminfo);
+    // The running models of every kind, holding memory, biggest first.
+    static QVariantList holdersFrom(const QJsonObject &status, const QJsonArray &list, const Memory &memory);
+    // Which of the holders to stop so `needs` GiB fit: one that frees enough
+    // on its own, the smallest such, or else the biggest until enough is
+    // free. `shortBy` is what's still missing once all of them are stopped.
+    static QVariantList roomFor(double needs, double free, const QVariantList &holders, const QString &except,
+                                double *shortBy);
+    // The manager's rows, by id, each with its section (image, video, music
+    // or unavailable) and what it needs, holds and would take to start.
+    static QVariantMap libraryFrom(const QJsonObject &status, const QJsonArray &list, const Memory &memory,
+                                   const QString &inUse, QStringList *order);
+
     // The engine's state folder, its key file, and the command that drives
     // it; empty means the user's own.
     explicit Models(const QString &stateDirectory = {}, const QString &keyPath = {}, const QString &command = {},
                     QObject *parent = nullptr);
+    // A process still running when the window closes finishes as it's
+    // destroyed, after the state its handlers read is gone: they're let go first.
+    ~Models() override {
+        m_process.disconnect(this);
+        m_memoryProcess.disconnect(this);
+    }
+    // On quit: lets go of the models in use, then stops every media model
+    // running here that no other app holds, nor a tailnet machine uses.
+    void release();
 
     // What to use or offer, from the engine's two files. A row without a kind
     // is a text model, as every row was before the engine had image models.
@@ -116,6 +165,7 @@ public:
     bool canEdit() const { return !m_found.editEndpoint.isEmpty(); }
     bool video() const { return m_found.video; }
     bool music() const { return m_found.music; }
+    bool vocals() const { return m_found.vocals; }
     QVariantList clipLengths() const;
     // 2, 5, 10, then every 5 seconds, up to the longest that fits: 2, 5 and
     // 10 when the engine doesn't say, and 2 when not even that fits.
@@ -168,9 +218,32 @@ public:
     // Uses another set-up image model from now on: stops the running one
     // and starts it.
     Q_INVOKABLE void choose(const QString &id);
+    // A model's own actions in the manager. Starting one stops what's in
+    // its way first, and makes it the one in use.
+    Q_INVOKABLE void setUp(const QString &id);
+    Q_INVOKABLE void startModel(const QString &id);
+    Q_INVOKABLE void stop(const QString &id);
+    Q_INVOKABLE void update(const QString &id);
+    // Removes a model's weights, or cancels or dismisses its setup.
+    Q_INVOKABLE void remove(const QString &id);
+    // Reads the free memory again, as when the window comes to the front.
+    Q_INVOKABLE void readMemory();
+
+    QStringList libraryIds() const { return m_libraryIds; }
+    QVariantMap library() const { return m_library; }
+    double memoryTotal() const { return m_memory.total; }
+    double memoryFree() const { return m_memory.free; }
+    QVariantList holders() const { return m_holders; }
+    bool watching() const { return m_memoryTimer.isActive(); }
+    void setWatching(bool watching);
+    // /proc/meminfo, or a stand-in for tests.
+    void setMeminfoPath(const QString &path) { m_meminfoPath = path; reload(); }
 
 signals:
     void changed();
+    void libraryChanged();
+    void libraryIdsChanged();
+    void watchingChanged();
 
 private:
     void reload();
@@ -182,6 +255,13 @@ private:
     }
     void run(const QList<QStringList> &commands);
     void runNext();
+    void updateLibrary();
+    void readMeminfo();
+    // What starting a model takes: stopping what's in its way, then the start.
+    QList<QStringList> startCommands(const QString &id) const;
+    // Holds the models in use through the engine for as long as the app
+    // runs, so another app quitting leaves them running.
+    void hold();
 
     QString m_directory;
     QString m_keyPath;
@@ -195,4 +275,18 @@ private:
     // The model chosen, kept as the one to use once it has started.
     QString m_chosen;
     bool m_settingUp = false;
+    // The engine's own files as last read, for the manager.
+    QJsonObject m_status;
+    QJsonArray m_list;
+    Memory m_memory;
+    QString m_meminfoPath = "/proc/meminfo";
+    QProcess m_memoryProcess;
+    QProcess m_hold;
+    QStringList m_held;
+    QTimer m_memoryTimer;
+    QVariantMap m_library;
+    QStringList m_libraryIds;
+    QVariantList m_holders;
+    double m_shownTotal = -1;
+    double m_shownFree = -1;
 };

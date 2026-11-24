@@ -23,7 +23,7 @@ QImage picture(const QString &path, const QSize &requested) {
     QImageReader reader(path);
     reader.setAutoTransform(true);
     QSize size = reader.size();
-    if (size.isValid() && requested.isValid()) {
+    if (!size.isEmpty() && !requested.isEmpty()) {
         // Turned upright, the size it is shown at; decoded at just enough to
         // cover the tile, which JPEG does far faster than the whole picture.
         const bool turned = reader.transformation() & QImageIOHandler::TransformationRotate90;
@@ -31,7 +31,8 @@ QImage picture(const QString &path, const QSize &requested) {
         const double scale = std::max(double(requested.width()) / upright.width(),
                                       double(requested.height()) / upright.height());
         if (scale < 1)
-            reader.setScaledSize(size * scale);
+            reader.setScaledSize(QSize(std::max(1, qRound(size.width() * scale)),
+                                       std::max(1, qRound(size.height() * scale))));
     }
     return reader.read();
 }

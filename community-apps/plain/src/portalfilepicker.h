@@ -16,6 +16,7 @@ public:
     // The session bus; tests pass a private one.
     explicit PortalFilePicker(QObject *parent = nullptr, const QDBusConnection &bus = QDBusConnection::sessionBus())
         : QObject(parent), m_bus(bus) {}
+    ~PortalFilePicker() override;
 
     // Invokable, since QML's Ctrl+O and Ctrl+S call them.
     Q_INVOKABLE void openFile(const QString &folder);

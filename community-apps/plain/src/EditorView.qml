@@ -42,7 +42,8 @@ Item {
         const cursor = area.cursorRectangle
         if (area.cursorPosition !== pagedTo)
             pageX = cursor.x
-        const step = Math.max(1, Math.floor(flick.height / cursor.height) - 1) * cursor.height
+        const lineHeight = Math.max(1, cursor.height)
+        const step = Math.max(1, Math.floor(flick.height / lineHeight) - 1) * lineHeight
         flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height, flick.contentY + direction * step))
         const y = cursor.y + cursor.height / 2 + direction * step
         const position = y < 0 ? 0 : y > area.height ? area.length : area.positionAt(pageX, y)
@@ -69,7 +70,16 @@ Item {
         property int line: 1
         function onAboutToReload() { line = editing.lineOf(area.cursorPosition) }
         function onReloaded() { area.cursorPosition = editing.positionOfLine(line) }
-        function onFileChanged() { view.updateVisibleLines() }
+        function onFileChanged() {
+            // Qt's TextEdit puts the cursor at the end as it turns editable,
+            // as a file it refused to open opens anyway: it stays put instead.
+            if (area.readOnly === doc.editable) {
+                const position = area.cursorPosition
+                area.readOnly = !doc.editable
+                area.cursorPosition = position
+            }
+            view.updateVisibleLines()
+        }
     }
 
     Rectangle {
@@ -95,7 +105,7 @@ Item {
                 readonly property int line: view.firstLine + index
                 visible: line <= view.lastLine
                 // Re-read when anything moves the lines.
-                y: { flick.contentY; area.contentHeight; area.width; return area.positionToRectangle(editing.positionOfLine(line)).y - flick.contentY }
+                y: { if (!visible) return 0; flick.contentY; area.contentHeight; area.width; return area.positionToRectangle(editing.positionOfLine(line)).y - flick.contentY }
                 anchors.right: parent.right
                 anchors.rightMargin: 14
                 text: line
@@ -131,7 +141,7 @@ Item {
             id: area
             textFormat: TextEdit.PlainText
             wrapMode: view.wrap ? TextEdit.Wrap : TextEdit.NoWrap
-            readOnly: !doc.editable
+            // readOnly follows doc.editable through onFileChanged above.
             persistentSelection: true
             selectByMouse: true
             font.family: "monospace"
@@ -191,7 +201,7 @@ Item {
                     else
                         area.cursorPosition = editing.replace(area.selectionStart, area.selectionEnd, doc.indentUnit)
                     event.accepted = true
-                } else if (event.key === Qt.Key_Backtab) {
+                } else if (event.key === Qt.Key_Backtab && plain) {
                     editing.outdent(area.selectionStart, area.selectionEnd)
                     event.accepted = true
                 }

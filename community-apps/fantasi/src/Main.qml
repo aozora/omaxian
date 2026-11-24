@@ -137,6 +137,14 @@ ApplicationWindow {
     }
     // Set up but not running: the stage offers to start it, and the bar waits.
     readonly property bool asleep: ["installed", "blocked"].indexOf(models.state) >= 0 && !models.working
+    // What the model in use needs to start, and what's free for it.
+    readonly property string memoryNeeds: {
+        const row = models.library[models.modelId]
+        if (!row || !(row.needs > 0) || !(models.memoryTotal > 0))
+            return ""
+        const gb = value => Number(value).toLocaleString(Qt.locale(translator.language), 'f', 0)
+        return qsTr("Needs %1 GB RAM (%2 GB is free)").arg(gb(row.needs)).arg(gb(Math.floor(models.memoryFree)))
+    }
     readonly property string wakeText: models.state === "blocked"
         ? qsTr("Stop %1 and start %2").arg(models.blockers.join(", ")).arg(models.modelName)
         : qsTr("Start %1").arg(models.modelName)
@@ -182,7 +190,7 @@ ApplicationWindow {
         sentPictures = baseImages
         sentVideo = videoMode
         sentMusic = musicMode
-        sentLyrics = lyricsChoice === 1 ? lyrics.text : lyricsChoice === 2 ? "[Instrumental]" : ""
+        sentLyrics = models.vocals ? (lyricsChoice === 1 ? lyrics.text : lyricsChoice === 2 ? "[Instrumental]" : "") : ""
         if (musicMode)
             generator.makeSong(prompt.text, sentLyrics, songSeconds, translator.language)
         else if (videoMode)
@@ -288,6 +296,9 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+2"; enabled: !generator.busy; onActivated: win.sizeChoice = 1 }
     Shortcut { sequence: "Ctrl+3"; enabled: !generator.busy; onActivated: win.sizeChoice = 2 }
     Shortcut { sequence: "Ctrl+B"; onActivated: layout.historyShown = !layout.historyShown }
+    Shortcut { sequence: "Ctrl+M"; enabled: win.page === "studio"; onActivated: library.opened ? library.close() : library.open() }
+    // Memory has no change signal: what's free is read again on coming back.
+    onActiveChanged: if (active) models.readMemory()
     // What's in the frame alone on the screen: the window full screen, the
     // prompt and the history out of the way, and back as it was after.
     property bool fullView: false
@@ -542,8 +553,19 @@ ApplicationWindow {
                             width: Math.min(implicitWidth, stage.width * 0.6)
                             horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.Wrap
+                            id: wakeLabel
                             color: starting.offer && wake.containsMouse ? theme.foreground : win.muted
                             text: starting.offer ? win.wakeText : qsTr("Starting %1…").arg(starting.name)
+                        }
+                        Label {
+                            objectName: "memoryNeeds"
+                            anchors.top: wakeLabel.bottom
+                            anchors.topMargin: 6
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            visible: starting.offer && text !== ""
+                            font.pixelSize: 12
+                            color: win.muted
+                            text: win.memoryNeeds
                         }
                     }
 
@@ -729,7 +751,7 @@ ApplicationWindow {
                     objectName: "lyricsBar"
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.min(Math.max(lyrics.implicitHeight, 34), 160) + 10
-                    visible: win.musicMode && win.lyricsChoice === 1 && !win.choosing && !win.fullView
+                    visible: win.musicMode && models.vocals && win.lyricsChoice === 1 && !win.choosing && !win.fullView
                     color: win.panel
                     radius: Math.min(height / 2, theme.radius)
                     border.color: lyrics.activeFocus ? theme.accent : win.line
@@ -1064,7 +1086,7 @@ ApplicationWindow {
                             enabled: !win.locked
                             opacity: win.locked ? 0.4 : 1
                             Layout.alignment: Qt.AlignVCenter
-                            visible: win.musicMode
+                            visible: win.musicMode && models.vocals
                             Layout.preferredWidth: 32
                             Layout.preferredHeight: 32
                             padding: 0
@@ -1219,10 +1241,10 @@ ApplicationWindow {
                             }
                         }
 
-                        // The model in use, as its maker's mark. With more than one
-                        // set up, the others fan out beside it while the pointer is on
-                        // it or it has the keyboard, to pick from; with one, its
-                        // tooltip says what it's doing.
+                        // The model in use, as its maker's mark. The others set up
+                        // fan out beside it while the pointer is on it or it has the
+                        // keyboard, to pick from, after the way to every model; a
+                        // click on the mark opens them all too.
                         FocusScope {
                             id: picker
                             // The others, the next one nearest the mark in use.
@@ -1234,7 +1256,7 @@ ApplicationWindow {
                                     rest.push(all[(at + i) % all.length])
                                 return rest.reverse()
                             }
-                            readonly property bool open: others.length > 0 && enabled && (pickerHover.hovered || picker.activeFocus)
+                            readonly property bool open: enabled && (pickerHover.hovered || picker.activeFocus)
                             // Nothing changes while something is made: only stop works.
                             enabled: !generator.busy && !models.working
                             opacity: generator.busy ? 0.4 : 1
@@ -1248,12 +1270,37 @@ ApplicationWindow {
                                 height: 32
                                 Item {
                                     id: fan
-                                    width: picker.open ? picker.others.length * 32 : 0
+                                    width: picker.open ? (picker.others.length + 1) * 32 : 0
                                     height: 32
                                     clip: true
                                     Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                     Row {
                                         anchors.right: parent.right
+                                        ToolButton {
+                                            id: manage
+                                            objectName: "manage"
+                                            width: 32
+                                            height: 32
+                                            padding: 0
+                                            topInset: 0
+                                            bottomInset: 0
+                                            leftInset: 0
+                                            rightInset: 0
+                                            background: Item {}
+                                            focusPolicy: Qt.TabFocus
+                                            display: AbstractButton.IconOnly
+                                            icon.source: "qrc:/icons/models.svg"
+                                            icon.color: hovered || activeFocus ? theme.accent : win.muted
+                                            icon.width: 18
+                                            icon.height: 18
+                                            scale: hovered || activeFocus ? 1.15 : 1
+                                            Behavior on scale { NumberAnimation { duration: 120 } }
+                                            Accessible.name: ToolTip.text
+                                            ToolTip.visible: hovered || visualFocus
+                                            ToolTip.text: qsTr("All models") + "  Ctrl+M"
+                                            ToolTip.delay: 150
+                                            onClicked: library.open()
+                                        }
                                         Repeater {
                                             model: picker.others
                                             delegate: ToolButton {
@@ -1326,12 +1373,12 @@ ApplicationWindow {
                                     icon.width: 18
                                     icon.height: 18
                                     Accessible.name: win.modelStatus
-                                    // With others fanned out, their names say the rest.
-                                    ToolTip.visible: (hovered || visualFocus) && picker.others.length === 0
+                                    ToolTip.visible: hovered || visualFocus
                                     // What it makes once it's ready; until then, what it's doing.
                                     ToolTip.text: models.state !== "ready" ? win.modelStatus
                                         : (models.music ? qsTr("Music with %1") : models.video ? qsTr("Video with %1") : qsTr("Images with %1")).arg(models.modelName)
                                     ToolTip.delay: 300
+                                    onClicked: library.open()
                                 }
                             }
                         }
@@ -1682,6 +1729,14 @@ ApplicationWindow {
         }
     }
 
+    Library {
+        id: library
+        models: win.models
+        muted: win.muted
+        line: win.line
+        busy: generator.busy
+    }
+
     Popup {
         id: help
         objectName: "help"
@@ -1710,6 +1765,7 @@ ApplicationWindow {
                     { keys: "Ctrl+O", action: qsTr("Start from a picture of your own") },
                     { keys: "Ctrl+1 2 3", action: qsTr("Screen, square or portrait") },
                     { keys: "Ctrl+B", action: qsTr("Show or hide the history") },
+                    { keys: "Ctrl+M", action: qsTr("All models") },
                     { keys: "Ctrl+Shift+C", action: qsTr("Copy it") },
                     { keys: "Ctrl+S", action: qsTr("Save a copy somewhere else") },
                     { keys: "↑ ↓", action: qsTr("Move through the history") },

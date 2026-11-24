@@ -378,26 +378,32 @@ void Generator::makeSong(const QString &prompt, const QString &lyrics, int secon
     m_jobKey = m_key;
     m_video = false;
     m_song = true;
-    m_rendering = false;
+    const bool vocals = m_models->vocals();
+    m_rendering = !vocals;
+    m_lyrics.clear();
     m_prompt = prompt.trimmed();
     m_pending.clear();
     m_unposted.clear();
     m_error.clear();
     m_submitting = true;
     m_cancelling = false;
-    // Two steps: written, then rendered.
-    m_stage = "conditioning";
+    // Vocal models write lyrics first, then render; instrumental models render directly.
+    m_stage = vocals ? "conditioning" : "sampling";
     m_step = 0;
-    m_totalSteps = 2;
+    m_totalSteps = vocals ? 2 : 1;
     m_previews.clear();
     m_image.clear();
     m_locker = std::make_unique<QEventLoopLocker>();
     emit changed();
 
     startClock(QString("%1/song/%2").arg(m_models->modelId()).arg(seconds));
-    // The model takes a language by its plain code: pt, not pt-BR.
-    submit("/lm", {{"caption", m_prompt}, {"lyrics", lyrics.trimmed()}, {"duration", seconds},
-                   {"vocal_language", language.section('-', 0, 0)}});
+    if (vocals) {
+        // The model takes a language by its plain code: pt, not pt-BR.
+        submit("/lm", {{"caption", m_prompt}, {"lyrics", lyrics.trimmed()}, {"duration", seconds},
+                       {"vocal_language", language.section('-', 0, 0)}});
+    } else {
+        submit("/synth", {{"caption", m_prompt}, {"duration", seconds}});
+    }
 }
 
 QString Generator::jobPath(const QString &action) const {

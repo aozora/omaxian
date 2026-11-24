@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QVariantMap>
 
+#include <algorithm>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -37,6 +38,38 @@ bool replaceWithTemp(const QString &tmpPath, const QString &outPath) {
     const QByteArray outName = QFile::encodeName(outPath);
     return std::rename(tmpName.constData(), outName.constData()) == 0;
 }
+
+// Rejects non-local schemes, relative paths (which ffprobe could read as
+// options or URLs), and host-bearing or "//host/..." network paths.
+bool isLocalAbsolutePath(const QUrl &url, QString *path) {
+    *path = url.toLocalFile();
+    return url.isLocalFile() && url.host().isEmpty()
+        && QDir::isAbsolutePath(*path) && !path->startsWith(QLatin1String("//"));
+}
+
+constexpr double kFrameTolerance = 0.0005;
+
+// Resolve the adjacent displayed frame timestamp within clip from a sorted
+// frame-times table. Matches the player's millisecond resolution, including
+// rounded timestamps at fractional frame rates.
+double resolveStepTarget(const QList<double> &times, const edit::Clip &clip,
+                         double sourceTime, bool atClipEnd, int direction) {
+    if (direction > 0) {
+        const auto it = std::upper_bound(times.cbegin(), times.cend(), sourceTime + kFrameTolerance);
+        return it != times.cend() && *it < clip.out ? *it : clip.out;
+    }
+    const auto end = sourceTime + kFrameTolerance < clip.out
+        ? std::upper_bound(times.cbegin(), times.cend(), sourceTime + kFrameTolerance)
+        : std::lower_bound(times.cbegin(), times.cend(), clip.out);
+    const auto first = std::lower_bound(times.cbegin(), end, clip.in);
+    if (first == end)
+        return clip.in;
+    // Only at/past the actual end: treating a frame just before
+    // it as the end would keep returning that same frame.
+    if (atClipEnd)
+        return *(end - 1);
+    return end - first >= 2 ? *(end - 2) : clip.in;
+}
 }
 
 Backend::Backend(ThumbProvider *provider, QObject *parent)
@@ -50,7 +83,16 @@ Backend::Backend(ThumbProvider *provider, FilePicker *filePicker, QObject *paren
 }
 
 Backend::~Backend() {
-    // Quit mid-save: the ffmpeg writing it dies with us, so its file goes too.
+    // Stop any running export or frame-save children before removing m_framePart,
+    // so ffmpeg can neither recreate it nor log destruction warnings.
+    for (QProcess *proc : findChildren<QProcess *>(Qt::FindDirectChildrenOnly)) {
+        proc->disconnect(this);
+        if (proc->state() != QProcess::NotRunning) {
+            proc->kill();
+            proc->waitForFinished(1000);
+        }
+    }
+    // Quit mid-save: the ffmpeg writing it is gone now, so its file goes too.
     if (!m_framePart.isEmpty())
         QFile::remove(m_framePart);
 }
@@ -84,6 +126,8 @@ void Backend::setStatus(const QString &status) {
 
 bool Backend::isVideoPath(const QString &path) const {
     const QString target = QFileInfo(path).canonicalFilePath();
+    if (target.isEmpty())
+        return false;
     for (const Video &video : m_videos) {
         if (QFileInfo(video.info.path).canonicalFilePath() == target)
             return true;
@@ -100,10 +144,7 @@ QVariantList Backend::videoList() const {
 }
 
 bool Backend::checkedPath(const QUrl &url, QString *path) {
-    // Only absolute local paths reach ffprobe: "file:-report" would be read
-    // as an option, and "file:http://..." as a network address.
-    *path = url.toLocalFile();
-    if (!url.isLocalFile() || !QDir::isAbsolutePath(*path)) {
+    if (!isLocalAbsolutePath(url, path)) {
         emit loadError(tr("Only local files can be opened."));
         return false;
     }
@@ -287,58 +328,43 @@ void Backend::stepFrame(double t, int direction) {
     // An edge belongs to the following clip, but stepping left from it
     // should show the previous clip's last frame. The player can round
     // that edge up by half a millisecond when reporting its position.
-    constexpr double tolerance = 0.0005;
-    if (direction < 0 && index > 0 && t - m_timeline.clipStart(index) <= tolerance)
+    if (direction < 0 && index > 0 && t - m_timeline.clipStart(index) <= kFrameTolerance)
         --index;
     const edit::Clip clip = clips.at(index);
     const double clipStart = m_timeline.clipStart(index);
     const bool atClipEnd = t >= m_timeline.clipStart(index + 1);
-    const Video video = m_videos.at(clip.source);
+    const Video &video = m_videos.at(clip.source);
+    if (!video.frameTimes.isEmpty()) {
+        const double sourceTime = atClipEnd ? clip.out : clip.in + t - clipStart;
+        const double target = resolveStepTarget(video.frameTimes, clip, sourceTime, atClipEnd, direction);
+        emit frameStepped(t, clipStart + target - clip.in);
+        return;
+    }
+
     m_steppingFrame = true;
     const QPointer<Backend> guard(this);
-    QThreadPool::globalInstance()->start([guard, video, clips, clip, clipStart, atClipEnd, t, direction] {
-        const auto times = video.frameTimes.isEmpty()
-            ? ffmpeg::frameTimes(video.info.path, video.info.start) : video.frameTimes;
+    const int source = clip.source;
+    const QString path = video.info.path;
+    const double start = video.info.start;
+    const int thumbKey = video.thumbKey;
+    QThreadPool::globalInstance()->start([guard, source, path, start, thumbKey, clips, t, direction] {
+        const auto times = ffmpeg::frameTimes(path, start);
         QMetaObject::invokeMethod(QCoreApplication::instance(),
-            [guard, video, clips, clip, clipStart, atClipEnd, t, direction, times] {
+            [guard, source, thumbKey, clips, t, direction, times] {
                 if (!guard)
                     return;
                 guard->m_steppingFrame = false;
-                if (guard->m_timeline.clips() != clips || guard->m_videos.value(clip.source).thumbKey != video.thumbKey)
+                if (guard->m_videos.value(source).thumbKey != thumbKey)
+                    return;
+                if (!times.isEmpty())
+                    guard->m_videos[source].frameTimes = times;
+                if (guard->m_timeline.clips() != clips)
                     return;
                 if (times.isEmpty()) {
                     emit guard->frameStepFailed(tr("Could not read video frame times."));
                     return;
                 }
-                guard->m_videos[clip.source].frameTimes = times;
-                const double sourceTime = atClipEnd ? clip.out : clip.in + t - clipStart;
-                // Match the player's millisecond resolution, including rounded
-                // timestamps at fractional frame rates.
-                double target = direction < 0 ? clip.in : clip.out;
-                if (direction > 0) {
-                    for (double time : times) {
-                        if (time > sourceTime + tolerance && time < clip.out) {
-                            target = time;
-                            break;
-                        }
-                    }
-                } else {
-                    // First find the frame currently on screen, then its predecessor.
-                    double shown = clip.in;
-                    for (double time : times) {
-                        if (time > sourceTime + tolerance || time >= clip.out)
-                            break;
-                        if (time >= clip.in) {
-                            target = shown;
-                            shown = time;
-                        }
-                    }
-                    // Only at/past the actual end: treating a frame just before
-                    // it as the end would keep returning that same frame.
-                    if (atClipEnd)
-                        target = shown;
-                }
-                emit guard->frameStepped(t, clipStart + target - clip.in);
+                guard->stepFrame(t, direction);
             }, Qt::QueuedConnection);
     });
 }
@@ -371,7 +397,7 @@ void Backend::saveFrame(double t) {
                  [this, path, start, sourceTime, ffmpegBin](const QByteArray &packetTimes) {
         const ffmpeg::ShownFrame shown = ffmpeg::shownFrame(packetTimes, start + sourceTime);
         const double frameTime = shown.time - start;
-        const double keyframeTime = shown.keyframe >= 0.0 ? shown.keyframe - start : -1.0;
+        const double keyframeTime = shown.hasKeyframe ? shown.keyframe - start : -1.0;
         const QFileInfo source(path);
         // Written under a hidden name, then given the first free one, so a
         // failed or interrupted save leaves no half PNG and never replaces one.
@@ -470,15 +496,16 @@ void Backend::exportClips(const QUrl &dst, const edit::Clips &clips, int scaleHe
     QList<ffmpeg::Segment> segments;
     // The first clip that still has its video sets the frame.
     int frameSource = -1;
+    double clipLen = 0.0;
     for (const edit::Clip &clip : edit::merged(clips)) {
-        if (clip.source < 0 || clip.source >= m_videos.size())
+        if (clip.source < 0 || clip.source >= m_videos.size() || clip.out <= clip.in)
             continue;
         if (frameSource < 0)
             frameSource = clip.source;
         const ffmpeg::VideoInfo &info = m_videos[clip.source].info;
         segments.append({info.path, clip.in, clip.out, info.audio});
+        clipLen += clip.length();
     }
-    const double clipLen = edit::duration(clips);
     if (segments.isEmpty() || clipLen <= 0.0) {
         emit exportFailed(tr("The selected clip has no length."));
         return;
@@ -487,11 +514,8 @@ void Backend::exportClips(const QUrl &dst, const edit::Clips &clips, int scaleHe
     // Forcing the .mp4 suffix can redirect the write to a file the save
     // dialog never asked the user about overwriting — refuse rather than
     // silently replace it.
-    const QString selectedPath = dst.toLocalFile();
-    // Anything but an absolute local path would leave an empty or relative
-    // one, which the .mp4 suffix turns into a file in the working directory,
-    // or, with a host, "//host/..." that Linux reads as a local path.
-    if (!dst.isLocalFile() || !dst.host().isEmpty() || !QDir::isAbsolutePath(selectedPath)) {
+    QString selectedPath;
+    if (!isLocalAbsolutePath(dst, &selectedPath)) {
         emit exportFailed(QStringLiteral("Only local files can be exported to."));
         return;
     }
@@ -557,24 +581,31 @@ void Backend::exportClips(const QUrl &dst, const edit::Clips &clips, int scaleHe
                     failExport(tmpPath, tr("Could not write the exported file."));
                     return;
                 }
-                setBusy(false);
                 setStatus(QString());
                 // Written over one of its own videos: the clips' times point
                 // into a file that's gone, so start over from what was saved.
                 // The reopen probes in the background; if it fails, the probe
                 // result says the saved file couldn't be reopened.
                 if (!isVideoPath(outPath)) {
+                    setBusy(false);
                     m_timeline.markExported(clips);
                     emit exportDone(outPath);
                 } else {
-                    // exportDone waits for the reopen probe to settle.
+                    // exportDone waits for the reopen probe to settle. Hand off
+                    // directly from exporting to probing so busy() never drops
+                    // to false in between.
                     PendingVideo pending;
                     pending.url = QUrl::fromLocalFile(outPath);
                     pending.exportReload = true;
-                    if (checkedPath(pending.url, &pending.path))
+                    if (checkedPath(pending.url, &pending.path)) {
+                        // Safe because exportClips() refuses while probing;
+                        // enqueueVideo() immediately starts the probe and emits busyChanged().
+                        m_busy = false;
                         enqueueVideo(pending);
-                    else
+                    } else {
+                        setBusy(false);
                         emit exportDone(outPath);
+                    }
                 }
             });
     connect(proc, &QProcess::errorOccurred, this,

@@ -62,7 +62,11 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl, 
     m_roundingTimeout.setSingleShot(true);
     m_roundingTimeout.setInterval(500);
     connect(&m_roundingTimeout, &QTimer::timeout, &m_roundingProcess, &QProcess::kill);
-    connect(&m_roundingProcess, &QProcess::errorOccurred, this, [this] { m_roundingTimeout.stop(); });
+    connect(&m_roundingProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        m_roundingTimeout.stop();
+        if (error == QProcess::FailedToStart)
+            m_roundingAgain = false;
+    });
     connect(&m_roundingProcess, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
         m_roundingTimeout.stop();
         if (m_roundingAgain) {
@@ -82,7 +86,6 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl, 
     // live with hyprctl keyword. Never on a timer: as $EDITOR, Plain can sit
     // open for hours.
     if (!m_hyprctl.isEmpty()) {
-        refreshRounding();
         connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
             if (state == Qt::ApplicationActive)
                 refreshRounding();

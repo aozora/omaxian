@@ -13,6 +13,14 @@ Item {
     required property color line
 
     readonly property var locale: Qt.locale(translator.language)
+    readonly property var offers: models.offers
+    property var offerIds: []
+    // Keep the cards and their animations alive across progress updates.
+    onOffersChanged: {
+        const ids = offers.map(offer => offer.id)
+        if (ids.length !== offerIds.length || ids.some((id, index) => id !== offerIds[index]))
+            offerIds = ids
+    }
     // The first ready, by kind, which the title greets.
     readonly property var ready: models.offers.find(offer => offer.phase === "ready")
     readonly property bool busy: models.offers.some(offer => ["waiting", "downloading", "starting"].indexOf(offer.phase) >= 0)
@@ -20,9 +28,9 @@ Item {
     function kindName(kind) {
         return kind === "music" ? qsTr("Music") : kind === "video" ? qsTr("Video") : qsTr("Images")
     }
-    function blurb(kind) {
-        return kind === "music" ? qsTr("Songs with vocals, from a style and lyrics")
-             : kind === "video" ? qsTr("Clips with sound, from a prompt or a picture")
+    function blurb(offer) {
+        return offer.kind === "music" ? (offer.vocals === false ? qsTr("Instrumental music, from a description") : qsTr("Songs with vocals, from a style and lyrics"))
+             : offer.kind === "video" ? qsTr("Clips with sound, from a prompt or a picture")
              : qsTr("Pictures from a prompt, or changes to your own")
     }
     function size(bytes) {
@@ -89,13 +97,14 @@ Item {
                 columnSpacing: 18
                 rowSpacing: 12
                 Repeater {
-                    model: root.models.offers
+                    model: root.offerIds
                     delegate: Rectangle {
                         id: card
-                        required property var modelData
-                        readonly property string phase: modelData.phase
+                        required property string modelData
+                        readonly property var offer: root.offers.find(offer => offer.id === modelData) || ({})
+                        readonly property string phase: offer.phase || ""
                         readonly property bool working: ["waiting", "downloading", "starting"].indexOf(phase) >= 0
-                        objectName: "offer-" + modelData.kind
+                        objectName: "offer-" + offer.kind
                         Layout.preferredWidth: root.cardWidth
                         Layout.preferredHeight: cards.columns > 1 ? 290 : implicitHeight
                         implicitHeight: content.implicitHeight + 44
@@ -116,10 +125,10 @@ Item {
                                     Layout.preferredHeight: 28
                                     sourceSize: Qt.size(56, 56)
                                     fillMode: Image.PreserveAspectFit
-                                    source: root.models.logo(card.modelData.vendor, theme.light) || "qrc:/icons/model.svg"
+                                    source: root.models.logo(card.offer.vendor, theme.light) || "qrc:/icons/model.svg"
                                 }
                                 Label {
-                                    text: root.kindName(card.modelData.kind)
+                                    text: root.kindName(card.offer.kind)
                                     font.pixelSize: 21
                                     font.weight: Font.DemiBold
                                     color: theme.foreground
@@ -127,13 +136,13 @@ Item {
                             }
                             Label {
                                 Layout.topMargin: 4
-                                text: card.modelData.name
+                                text: card.offer.name || ""
                                 font.pixelSize: 15
                                 color: theme.foreground
                             }
                             Label {
                                 Layout.fillWidth: true
-                                text: root.blurb(card.modelData.kind)
+                                text: root.blurb(card.offer)
                                 font.pixelSize: 13
                                 wrapMode: Text.WordWrap
                                 color: root.muted
@@ -144,10 +153,10 @@ Item {
                                 columns: 2
                                 columnSpacing: 14
                                 rowSpacing: 3
-                                Label { visible: card.modelData.downloadBytes > 0; text: qsTr("Download"); font.pixelSize: 13; color: root.muted }
-                                Label { visible: card.modelData.downloadBytes > 0; text: root.size(card.modelData.downloadBytes); font.pixelSize: 13; color: theme.foreground }
-                                Label { visible: card.modelData.memoryBytes > 0; text: qsTr("Memory"); font.pixelSize: 13; color: root.muted }
-                                Label { visible: card.modelData.memoryBytes > 0; text: root.size(card.modelData.memoryBytes); font.pixelSize: 13; color: theme.foreground }
+                                Label { visible: card.offer.downloadBytes > 0; text: qsTr("Download"); font.pixelSize: 13; color: root.muted }
+                                Label { visible: card.offer.downloadBytes > 0; text: root.size(card.offer.downloadBytes); font.pixelSize: 13; color: theme.foreground }
+                                Label { visible: card.offer.memoryBytes > 0; text: qsTr("Memory"); font.pixelSize: 13; color: root.muted }
+                                Label { visible: card.offer.memoryBytes > 0; text: root.size(card.offer.memoryBytes); font.pixelSize: 13; color: theme.foreground }
                             }
                             Item { Layout.preferredHeight: 8 }
 
@@ -162,8 +171,8 @@ Item {
                                 enabled: !root.models.working
                                 Material.roundedScale: theme.radius
                                 text: card.phase === "failed" ? qsTr("Try again")
-                                    : card.modelData.downloadBytes > 0 ? qsTr("Download %1").arg(root.size(card.modelData.downloadBytes)) : qsTr("Download")
-                                onClicked: root.models.download(card.modelData.id)
+                                    : card.offer.downloadBytes > 0 ? qsTr("Download %1").arg(root.size(card.offer.downloadBytes)) : qsTr("Download")
+                                onClicked: root.models.download(card.offer.id)
                                 // A highlighted button colors its caption by Material's own
                                 // rule, which doesn't read on every accent.
                                 contentItem: Label {
@@ -179,15 +188,20 @@ Item {
                                 Layout.fillWidth: true
                                 spacing: 6
                                 Rectangle {
+                                    id: track
+                                    property real fraction: card.phase === "starting" ? 1
+                                        : card.phase === "downloading" && card.offer.totalBytes > 0
+                                        ? Math.max(0, Math.min(1, card.offer.doneBytes / card.offer.totalBytes)) : 0
                                     Layout.fillWidth: true
                                     implicitHeight: 4
                                     color: root.line
+                                    clip: true
+                                    // Keep layout changes out of the progress animation.
+                                    Behavior on fraction { NumberAnimation { duration: 400 } }
                                     Rectangle {
-                                        height: parent.height
-                                        width: parent.width * (card.phase === "downloading" && card.modelData.totalBytes > 0
-                                                               ? Math.min(1, card.modelData.doneBytes / card.modelData.totalBytes) : card.phase === "starting" ? 1 : 0)
+                                        height: track.height
+                                        width: track.width * track.fraction
                                         color: theme.accent
-                                        Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
                                     }
                                 }
                                 Label {
@@ -197,18 +211,18 @@ Item {
                                     elide: Text.ElideRight
                                     font.pixelSize: 12
                                     color: root.muted
-                                    text: card.phase === "downloading" && card.modelData.totalBytes > 0 ? root.progress(card.modelData)
-                                        : card.phase === "starting" ? qsTr("Starting %1…").arg(card.modelData.name)
+                                    text: card.phase === "downloading" && card.offer.totalBytes > 0 ? root.progress(card.offer)
+                                        : card.phase === "starting" ? qsTr("Starting %1…").arg(card.offer.name)
                                         : qsTr("Next, once the one before it is in")
                                 }
                             }
                             Label {
-                                visible: card.phase === "failed" && card.modelData.error !== ""
+                                visible: card.phase === "failed" && card.offer.error !== ""
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 font.pixelSize: 12
                                 color: theme.colors.red || theme.foreground
-                                text: card.modelData.error
+                                text: card.offer.error || ""
                             }
                             Button {
                                 objectName: "start"
@@ -217,8 +231,8 @@ Item {
                                 flat: true
                                 enabled: !root.models.working
                                 Material.roundedScale: theme.radius
-                                text: qsTr("Start %1").arg(card.modelData.name)
-                                onClicked: root.models.choose(card.modelData.id)
+                                text: qsTr("Start %1").arg(card.offer.name)
+                                onClicked: root.models.choose(card.offer.id)
                             }
                             Label {
                                 visible: card.phase === "ready"

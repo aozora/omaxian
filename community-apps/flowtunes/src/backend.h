@@ -23,6 +23,7 @@ public:
         QString engineKey;
         QString engineCommand;
         QString musicFolder;
+        QString meminfo;
     };
 
     explicit Backend(const Places &places = {}, QObject *parent = nullptr);
