@@ -57,7 +57,7 @@ prebuilt_qt_version() {
   local v
   v=$(dpkg-query -W -f '${Version}' libqt6core6t64 2>/dev/null || true)
   if [[ -z $v ]]; then
-    v=$(apt-cache policy libqt6core6t64 2>/dev/null | awk '/Candidate:/ { print $2; exit }')
+    v=$(apt-cache policy libqt6core6t64 2>/dev/null | awk '/Candidate:/ && !seen { print $2; seen=1 }')
     [[ $v == "(none)" ]] && v=""
   fi
   printf '%s\n' "$v"

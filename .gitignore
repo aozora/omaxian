@@ -144,9 +144,8 @@ vite.config.ts.timestamp-*
 
 
 # Upstream Omarchy — cloned into omarchy-quattro/ by setup.sh / install.sh
-# (pinned via OMARCHY_UPSTREAM_REF), not vendored. Keep the dir, ignore contents.
-/omarchy-quattro/*
-!/omarchy-quattro/.gitkeep
+# (pinned via OMARCHY_UPSTREAM_REF), not vendored.
+/omarchy-quattro/
 
 # Python bytecode (helpers under bin/ and shell/scripts/ are run, never imported as packages)
 __pycache__/
