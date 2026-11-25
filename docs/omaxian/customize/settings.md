@@ -139,12 +139,24 @@ Appearance in `~/.config/omarchy/lock-settings.json` (not overwritten by deploy)
   "image": "",
   "folder": "",
   "effect": "blur",
-  "greyscale": false
+  "greyscale": false,
+  "interval": 30
 }
 ```
 
-- **mode**: `blur` (screenshot), `image` (fixed path), `random` (folder)
-- **effect**: `none` / `blur` / `pixelate` — applies to every mode (blur a wallpaper by setting effect to `blur`)
+- **mode**: `blur` (screenshot), `image` (fixed path), `random` (folder), `slideshow` (folder)
+- **effect**: `none` / `blur` / `pixelate` — applies to every mode except `slideshow` (blur a wallpaper by setting effect to `blur`)
+- **slideshow**: locks with `xsecurelock` and its `saver_mpv`. Each monitor
+  shows shuffled images from `folder`, changing every `interval` seconds
+  (5–3600). The password prompt is xsecurelock's (theme colours, date/time).
+  Without `xsecurelock`, `mpv`, or images in the folder, the lock falls back
+  to `random`. xsecurelock blanks the screen after its own
+  `XSECURELOCK_BLANK_TIMEOUT` (default 600 s); export it in `~/.xsessionrc`
+  to change that
+- The lock image is composed per monitor (each gets its own crop / random
+  pick, with the padlock and prompt centred) in the active theme's colours,
+  with the time the screen was locked. Wallpaper tiles are cached in
+  `~/.cache/omaxian/lock/`
 - Choose file / Choose folder use the in-panel path picker (image filters: png/jpg/webp/bmp)
 - **Preview** composes the lock image without locking; **Test lock** runs the real locker
 - Idle auto-lock toggle / timeout writes `shell.json` `idle.enabled` + `idle.lock` and runs `omarchy-idle-lock-apply` (`xss-lock` + `xset`)
@@ -155,7 +167,7 @@ Appearance in `~/.config/omarchy/lock-settings.json` (not overwritten by deploy)
   The hardware power button’s xfpm **Ask** default (needs `xfce4-session`) is
   rewritten to **Shutdown** when still unset/Ask; other values from
   `xfce4-power-manager-settings` are left alone (`i3_autostart` does the same)
-- **Packages:** `i3lock` + `xss-lock` required; `imagemagick` (and preferably `maim`) for `i3lock-omaxian` compose/screenshot; `i3lock-fancy` optional fallback. Preview needs `imagemagick` only; lock needs `i3lock`.
+- **Packages:** `i3lock` + `xss-lock` required; `imagemagick` (and preferably `maim`) for `i3lock-omaxian` compose/screenshot; `xsecurelock` + `mpv` for slideshow; `i3lock-fancy` optional fallback. Preview needs `imagemagick` only; lock needs `i3lock`.
 
 ### Advanced
 

@@ -5,13 +5,14 @@ import QtQuick.Layouts
 import QtCore
 
 // The window: one bar across the top, under it the sidebar, one folder pane
-// or two side by side (Ctrl+Alt+N splits, Ctrl+W closes the right one),
-// and the details pane. Each pane's path sits in the bar above its files;
-// the sidebar and the details follow the pane used last.
+// or two side by side (Ctrl+Alt+N splits, Ctrl+W closes the right one).
+// Each pane's path sits in the bar above its files; the sidebar follows
+// the pane used last.
 ApplicationWindow {
     id: win
-    width: 1280
-    height: 800
+    // A file chooser's window is a dialog, the size of GTK's.
+    width: chooser ? 875 : 1280
+    height: chooser ? 600 : 800
     minimumWidth: 720
     minimumHeight: 460
     visible: true
@@ -19,6 +20,8 @@ ApplicationWindow {
     // retranslating QML doesn't redo, so the language is read here too.
     title: {
         translator.language
+        if (chooser && chooser.title.length > 0)
+            return chooser.title
         return activePane && activePane.paneBackend.title.length > 0 ? activePane.paneBackend.title : qsTr("Files")
     }
     color: theme.background
@@ -52,8 +55,14 @@ ApplicationWindow {
     property bool helpVisible: false
     // The shortcuts take the keyboard while they're shown, and give it back
     // to the files.
-    onHelpVisibleChanged: helpVisible ? help.forceActiveFocus() : activePane.focusView()
-    property bool previewVisible: true
+    onHelpVisibleChanged: {
+        if (helpVisible) {
+            if (help.item)
+                help.item.forceActiveFocus()
+        } else {
+            activePane.focusView()
+        }
+    }
     // Columns on a first launch; after that, whichever view was used last.
     property string viewMode: "columns"
     property real zoom: 1
@@ -65,11 +74,7 @@ ApplicationWindow {
     readonly property bool split: rightPane !== null
     // Whether keys are going into a text field. The right pane can go before
     // the window does when it closes, leaving activePane null.
-    readonly property bool typing: !!activePane && activePane.typing
-    // The rightmost pane's path bar reaches over the details column.
-    readonly property int detailsWidth: details.visible ? details.width : 0
-    // Whether the window is wide enough for the details column at all.
-    readonly property bool detailsFit: width >= (split ? 1400 : 960)
+    readonly property bool typing: (!!activePane && activePane.typing) || (!!chooserBar.item && chooserBar.item.typing)
 
     // The process works in the folder the window used last shows, in the
     // pane used last, for Omarchy's terminal key to open there.
@@ -94,7 +99,6 @@ ApplicationWindow {
             rightPane.closable = true
             rightPane.viewMode = activePane.viewMode
             rightPane.zoom = activePane.zoom
-            rightPane.barExtension = Qt.binding(() => win.detailsWidth)
             rightPane.closeRequested.connect(closeSplit)
         }
         rightPane.focusView()
@@ -113,19 +117,36 @@ ApplicationWindow {
     Shortcut { sequence: "Q"; enabled: !win.typing; onActivated: win.close() }
     Shortcut { sequence: "Ctrl+Alt+N"; enabled: !win.typing; onActivated: win.openSplit() }
     Shortcut { sequence: "Ctrl+W"; enabled: win.split; onActivated: win.closeSplit() }
-    Shortcut { sequence: "Ctrl+I"; onActivated: win.previewVisible = !win.previewVisible }
-    // Tab moves the keyboard: sidebar, left pane, right pane, the details
-    // (while there's an app to pick there), and around. Shift+Tab goes back.
+    // Tab moves the keyboard: sidebar, left pane and its details column
+    // (while there's an app to pick there), right pane and its details, and
+    // around. Shift+Tab goes back.
     Shortcut { sequence: "Tab"; enabled: !win.typing; onActivated: win.moveKeyboard(1) }
     Shortcut { sequence: "Shift+Backtab"; enabled: !win.typing; onActivated: win.moveKeyboard(-1) }
     function moveKeyboard(step) {
-        const stops = [sidebar, leftPane].concat(split ? [rightPane] : [], details.takesKeyboard ? [details] : [])
-        const here = sidebar.activeFocus ? sidebar : details.hasKeyboard ? details : activePane
+        // A file chooser's bar is the last stop: its name, or its answer.
+        const bar = chooserBar.item
+        // Each pane, then its details, the same way round whichever has the
+        // keyboard.
+        const stops = [sidebar]
+        const details = []
+        for (const pane of split ? [leftPane, rightPane] : [leftPane]) {
+            stops.push(pane)
+            if (pane.details && pane.details.takesKeyboard) {
+                stops.push(pane.details)
+                details.push(pane.details)
+            }
+        }
+        if (bar)
+            stops.push(bar)
+        const here = sidebar.activeFocus ? sidebar : details.find(d => d.hasKeyboard)
+                     ?? (bar && bar.hasKeyboard ? bar : activePane)
         const next = stops[(stops.indexOf(here) + step + stops.length) % stops.length]
         if (next === sidebar)
             sidebar.focusSidebar()
-        else if (next === details)
-            details.focusKeyboard()
+        else if (details.includes(next))
+            next.focusKeyboard()
+        else if (next === bar)
+            bar.focusKeyboard()
         else
             next.focusView()
     }
@@ -135,6 +156,9 @@ ApplicationWindow {
         enabled: win.settled
         opacity: win.settled ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 100 } }
+        // A file chooser cancels on Escape that nothing inside wanted.
+        Keys.enabled: !!chooser
+        Keys.onEscapePressed: chooser.cancel()
 
         // The bar across the top; the panes' path bars draw over it.
         readonly property int barHeight: 60
@@ -147,13 +171,17 @@ ApplicationWindow {
 
         RowLayout {
             anchors.fill: parent
+            anchors.bottomMargin: chooserBar.item ? chooserBar.item.barHeight : 0
             spacing: 0
 
             Sidebar {
                 id: sidebar
                 target: win.activePane ? win.activePane.paneBackend : backend
                 onFinished: win.activePane.focusView()
-                onHelpRequested: win.helpVisible = !win.helpVisible
+                onPlaceChosen: (path) => win.activePane.startAt(path)
+                onRenameRequested: (path) => win.activePane.renameFolder(path)
+                onDeleteRequested: (path) => win.activePane.confirmDelete([path])
+                onTrashRequested: (path) => win.activePane.paneFileOps.trash([path])
                 onFormatRequested: (disk) => win.activePane.formatDrive(disk)
                 Layout.topMargin: parent.parent.barHeight
                 Layout.preferredWidth: 190
@@ -163,7 +191,6 @@ ApplicationWindow {
 
             FolderPane {
                 id: leftPane
-                barExtension: win.split ? 0 : win.detailsWidth
                 barLeft: sidebar.width + 1
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -180,23 +207,26 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
             }
-
-            PreviewPane {
-                id: details
-                visible: win.previewVisible && win.detailsFit
-                Layout.topMargin: parent.parent.barHeight
-                Layout.preferredWidth: 300
-                Layout.fillHeight: true
-                folderPane: win.activePane
-                onFinished: win.activePane.focusView()
-            }
         }
 
-        HelpOverlay {
+        Loader {
+            id: chooserBar
+            anchors.fill: parent
+            active: !!chooser
+            sourceComponent: ChooserBar { pane: win.activePane }
+        }
+
+        Loader {
             id: help
             anchors.fill: parent
-            visible: win.helpVisible
-            onDismissed: win.helpVisible = false
+            active: win.helpVisible
+            visible: active
+            source: "HelpOverlay.qml"
+            onLoaded: item.forceActiveFocus()
+        }
+        Connections {
+            target: help.item
+            function onDismissed() { win.helpVisible = false }
         }
     }
 }

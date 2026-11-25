@@ -1,0 +1,956 @@
+/**
+ * Pure pixel manipulation filters — no CSS filter API.
+ * Works in all webkit2gtk versions.
+ */
+
+import {hexToRgb, rgbToHex, rgbToHsl01, hslToRgb01} from './color';
+
+export interface Filters {
+    blur: number;
+    brightness: number;
+    contrast: number;
+    saturation: number;
+    hueRotate: number;
+    sepia: number;
+    invert: number;
+    exposure: number;
+    vignette: number;
+    sharpen: number;
+    grain: number;
+    oilPaint: number;
+    pixelate: number;
+    shadows: number;
+    highlights: number;
+    temperature: number; // -100 (cool) to 100 (warm)
+    tint: number; // -100 (green) to 100 (magenta)
+    fade: number; // 0-100 (lift blacks)
+    clarity: number; // 0-100 (local contrast)
+    posterize: number; // 0-10 (color levels, 0=off)
+    noise: number; // 0-100 (color noise, not mono)
+    curvePoints: [number, number][]; // tone-curve control points in 0..1 range; empty = identity
+    paletteStops: string[]; // ordered hex colors forming a tone ramp (shadows→highlights); 0, 2, 3, or 4 entries
+    paletteStrength: number; // 0-100 blend of palette grade over original
+    cropX: number; // 0-1 percentage from left
+    cropY: number; // 0-1 percentage from top
+    cropW: number; // 0-1 width percentage
+    cropH: number; // 0-1 height percentage
+    resizeW: number; // target width in pixels, 0 = no resize
+    resizeH: number; // target height in pixels, 0 = no resize
+    rotate: number; // 0, 90, 180, 270 degrees clockwise
+    flipH: boolean; // mirror horizontally
+    flipV: boolean; // mirror vertically
+    strength: number; // 0-100 master adjustment strength; 100 = full effect
+}
+
+export const DEFAULT_FILTERS: Filters = {
+    blur: 0,
+    brightness: 100,
+    contrast: 100,
+    saturation: 100,
+    hueRotate: 0,
+    sepia: 0,
+    invert: 0,
+    exposure: 0,
+    vignette: 0,
+    sharpen: 0,
+    grain: 0,
+    oilPaint: 0,
+    pixelate: 0,
+    shadows: 0,
+    highlights: 0,
+    temperature: 0,
+    tint: 0,
+    fade: 0,
+    clarity: 0,
+    posterize: 0,
+    noise: 0,
+    curvePoints: [],
+    paletteStops: [],
+    paletteStrength: 70,
+    cropX: 0,
+    cropY: 0,
+    cropW: 1,
+    cropH: 1,
+    resizeW: 0,
+    resizeH: 0,
+    rotate: 0,
+    flipH: false,
+    flipV: false,
+    strength: 100,
+};
+
+/** Compute a 256-entry luminance histogram from an image element. */
+export function computeHistogram(img: HTMLImageElement): number[] {
+    const w = Math.min(img.naturalWidth, 512);
+    const h = Math.round(img.naturalHeight * (w / img.naturalWidth));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', {willReadFrequently: true})!;
+    ctx.drawImage(img, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const hist = new Array(256).fill(0);
+    for (let i = 0; i < d.length; i += 4) {
+        const lum = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+        hist[lum]++;
+    }
+    return hist;
+}
+
+/** Compute per-channel histograms (R, G, B, luminance) from a downsampled image. */
+export function computeChannelHistograms(img: HTMLImageElement): {
+    r: number[];
+    g: number[];
+    b: number[];
+    l: number[];
+} {
+    const w = Math.min(img.naturalWidth, 512);
+    const h = Math.round(img.naturalHeight * (w / img.naturalWidth));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', {willReadFrequently: true})!;
+    ctx.drawImage(img, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const r = new Array(256).fill(0);
+    const g = new Array(256).fill(0);
+    const b = new Array(256).fill(0);
+    const l = new Array(256).fill(0);
+    for (let i = 0; i < d.length; i += 4) {
+        r[d[i]]++;
+        g[d[i + 1]]++;
+        b[d[i + 2]]++;
+        const lum = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+        l[lum]++;
+    }
+    return {r, g, b, l};
+}
+
+function percentileIndex(hist: number[], pct: number): number {
+    let total = 0;
+    for (let i = 0; i < 256; i++) total += hist[i];
+    const target = total * pct;
+    let cum = 0;
+    for (let i = 0; i < 256; i++) {
+        cum += hist[i];
+        if (cum >= target) return i;
+    }
+    return 255;
+}
+
+function channelMean(hist: number[]): number {
+    let sum = 0;
+    let count = 0;
+    for (let i = 0; i < 256; i++) {
+        sum += hist[i] * i;
+        count += hist[i];
+    }
+    return count > 0 ? sum / count : 128;
+}
+
+/**
+ * Auto Levels: return curvePoints that stretch the 0.5–99.5 percentile
+ * luminance range to 0..1, giving the image full tonal span without clipping.
+ * Returns empty array if the image already occupies the full range.
+ */
+export function autoLevelsCurve(hist: number[]): [number, number][] {
+    const lo = percentileIndex(hist, 0.005);
+    const hi = percentileIndex(hist, 0.995);
+    if (hi - lo < 10) return []; // already close to full range
+    const points: [number, number][] = [];
+    if (lo > 2) points.push([lo / 255, 0.02]);
+    if (hi < 253) points.push([hi / 255, 0.98]);
+    return points;
+}
+
+/**
+ * Auto Contrast: mild S-curve pulling darks down and lights up. Uses midtone
+ * anchors rather than histogram analysis — a safer, predictable default.
+ */
+export function autoContrastCurve(): [number, number][] {
+    return [
+        [0.25, 0.18],
+        [0.75, 0.82],
+    ];
+}
+
+/**
+ * Auto White Balance via gray-world assumption: compute mean R/G/B and derive
+ * temperature + tint values that push channel means toward equality.
+ * Invertible relative to the applyFilters formulas:
+ *   temperature: R += t*30, B -= t*30  →  t = (B-R)*100/60
+ *   tint:        G -= t*20, R/B += t*10 → t = (G - (R+B)/2) * 5
+ */
+export function autoWhiteBalance(channelHist: {
+    r: number[];
+    g: number[];
+    b: number[];
+}): {temperature: number; tint: number} {
+    const mR = channelMean(channelHist.r);
+    const mG = channelMean(channelHist.g);
+    const mB = channelMean(channelHist.b);
+    const temp = Math.max(-100, Math.min(100, ((mB - mR) * 100) / 60));
+    const gMid = (mR + mB) / 2;
+    const tint = Math.max(-100, Math.min(100, (mG - gMid) * 5));
+    return {temperature: Math.round(temp), tint: Math.round(tint)};
+}
+
+export function hasActiveCrop(f: Filters): boolean {
+    return f.cropX !== 0 || f.cropY !== 0 || f.cropW !== 1 || f.cropH !== 1;
+}
+
+export function hasTransform(f: Filters): boolean {
+    return f.rotate !== 0 || f.flipH || f.flipV;
+}
+
+export function hasPaletteGrade(f: Filters): boolean {
+    return f.paletteStops.length >= 2 && f.paletteStrength > 0;
+}
+
+/** Apply a tone curve LUT to an array of hex colors (adjusts HSL lightness). */
+export function applyCurveToColors(
+    colors: string[],
+    lut: Uint8Array
+): string[] {
+    return colors.map(hex => {
+        if (!hex || hex.length < 7) return hex;
+        const {r, g, b} = hexToRgb(hex);
+        const hsl = rgbToHsl01(r, g, b);
+        const newL = lut[Math.round(hsl.l * 255)] / 255;
+        const [nr, ng, nb] = hslToRgb01(hsl.h, hsl.s, newL);
+        return rgbToHex(
+            Math.round(nr * 255),
+            Math.round(ng * 255),
+            Math.round(nb * 255)
+        );
+    });
+}
+
+export function hasCurve(f: Filters): boolean {
+    return f.curvePoints.length > 0;
+}
+
+/**
+ * Build a 256-entry tone-curve LUT from user control points using monotone
+ * cubic interpolation (Fritsch-Carlson). Endpoints (0,0) and (1,1) are
+ * implicit. Returns null when points is empty (identity curve).
+ */
+export function buildCurveLUT(points: [number, number][]): Uint8Array | null {
+    if (points.length === 0) return null;
+
+    // Merge user points with fixed endpoints, sort by x
+    const pts: {x: number; y: number}[] = [
+        {x: 0, y: 0},
+        ...points.map(([x, y]) => ({x, y})),
+        {x: 1, y: 1},
+    ].sort((a, b) => a.x - b.x);
+
+    const n = pts.length;
+    const dx: number[] = [];
+    const dy: number[] = [];
+    const m: number[] = [];
+
+    for (let i = 0; i < n - 1; i++) {
+        dx.push(pts[i + 1].x - pts[i].x);
+        dy.push(pts[i + 1].y - pts[i].y);
+        m.push(dx[i] === 0 ? 0 : dy[i] / dx[i]);
+    }
+
+    // Tangents via Fritsch-Carlson (monotone, no overshoot)
+    const tangents: number[] = new Array(n).fill(0);
+    tangents[0] = m[0];
+    tangents[n - 1] = m[n - 2];
+    for (let i = 1; i < n - 1; i++) {
+        if (m[i - 1] * m[i] <= 0) {
+            tangents[i] = 0;
+        } else {
+            tangents[i] = (m[i - 1] + m[i]) / 2;
+        }
+    }
+
+    // Fritsch-Carlson monotonicity correction
+    for (let i = 0; i < n - 1; i++) {
+        if (m[i] === 0) {
+            tangents[i] = 0;
+            tangents[i + 1] = 0;
+        } else {
+            const a = tangents[i] / m[i];
+            const b = tangents[i + 1] / m[i];
+            const s = a * a + b * b;
+            if (s > 9) {
+                const t = 3 / Math.sqrt(s);
+                tangents[i] = t * a * m[i];
+                tangents[i + 1] = t * b * m[i];
+            }
+        }
+    }
+
+    // Evaluate spline at 256 evenly spaced x values
+    const lut = new Uint8Array(256);
+    let seg = 0;
+    for (let i = 0; i < 256; i++) {
+        const x = i / 255;
+        while (seg < n - 2 && x > pts[seg + 1].x) seg++;
+        const p0 = pts[seg];
+        const p1 = pts[seg + 1];
+        const h = p1.x - p0.x;
+        if (h === 0) {
+            lut[i] = Math.round(p0.y * 255);
+            continue;
+        }
+        const t = (x - p0.x) / h;
+        const t2 = t * t;
+        const t3 = t2 * t;
+        // Cubic Hermite basis
+        const h00 = 2 * t3 - 3 * t2 + 1;
+        const h10 = t3 - 2 * t2 + t;
+        const h01 = -2 * t3 + 3 * t2;
+        const h11 = t3 - t2;
+        const val =
+            h00 * p0.y +
+            h10 * h * tangents[seg] +
+            h01 * p1.y +
+            h11 * h * tangents[seg + 1];
+        lut[i] = Math.max(0, Math.min(255, Math.round(val * 255)));
+    }
+    return lut;
+}
+
+/**
+ * Scale tonal/color filters toward their neutral defaults by a 0-100 master
+ * strength. 100 = full effect (no change). 0 = identity (all defaults).
+ * Structural properties (crop, resize, rotate, flip, palette stops) are not
+ * scaled — strength only dials stylistic intensity.
+ */
+function applyStrength(f: Filters): Filters {
+    const s = f.strength / 100;
+    if (s === 1) return f;
+    const lerp = (v: number, def: number) => def + (v - def) * s;
+    return {
+        ...f,
+        brightness: lerp(f.brightness, 100),
+        contrast: lerp(f.contrast, 100),
+        saturation: lerp(f.saturation, 100),
+        exposure: lerp(f.exposure, 0),
+        shadows: lerp(f.shadows, 0),
+        highlights: lerp(f.highlights, 0),
+        temperature: lerp(f.temperature, 0),
+        tint: lerp(f.tint, 0),
+        hueRotate: f.hueRotate * s,
+        fade: f.fade * s,
+        clarity: f.clarity * s,
+        sepia: f.sepia * s,
+        invert: f.invert * s,
+        vignette: f.vignette * s,
+        sharpen: f.sharpen * s,
+        grain: f.grain * s,
+        noise: f.noise * s,
+        blur: f.blur * s,
+        oilPaint: f.oilPaint * s,
+        pixelate: f.pixelate * s,
+        posterize: f.posterize * s,
+        paletteStrength: f.paletteStrength * s,
+        // Curve points scale their deviation from the y=x identity line
+        curvePoints: f.curvePoints.map(
+            ([x, y]) => [x, x + (y - x) * s] as [number, number]
+        ),
+    };
+}
+
+/**
+ * Render filters into a given destination canvas. No JPEG encoding, no data
+ * URL allocation — the dest canvas is resized and written in place, so the
+ * caller can display it directly as a <canvas> element. This is the hot path
+ * for live preview; dataURL-based rendering (applyFilters) is reserved for
+ * export.
+ *
+ * When no rotation/flip is requested, the destination is used as the working
+ * canvas — zero extra allocations per render.
+ */
+export function renderToCanvas(
+    img: HTMLImageElement,
+    filters: Filters,
+    dest: HTMLCanvasElement,
+    maxSize = 0
+): void {
+    renderInternal(img, filters, dest, maxSize);
+}
+
+export function applyFilters(
+    img: HTMLImageElement,
+    filters: Filters,
+    maxSize = 0
+): string {
+    const canvas = document.createElement('canvas');
+    renderInternal(img, filters, canvas, maxSize);
+    return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+function renderInternal(
+    img: HTMLImageElement,
+    filters: Filters,
+    dest: HTMLCanvasElement,
+    maxSize = 0
+): void {
+    filters = applyStrength(filters);
+    const natW = img.naturalWidth;
+    const natH = img.naturalHeight;
+    if (!natW || !natH) return;
+
+    // Crop source rect
+    const srcX = Math.round(filters.cropX * natW);
+    const srcY = Math.round(filters.cropY * natH);
+    const srcW = Math.max(1, Math.round(filters.cropW * natW));
+    const srcH = Math.max(1, Math.round(filters.cropH * natH));
+
+    // Output dimensions
+    let w = srcW;
+    let h = srcH;
+    if (filters.resizeW > 0 && filters.resizeH > 0) {
+        w = filters.resizeW;
+        h = filters.resizeH;
+    } else if (filters.resizeW > 0) {
+        w = filters.resizeW;
+        h = Math.round(srcH * (w / srcW));
+    } else if (filters.resizeH > 0) {
+        h = filters.resizeH;
+        w = Math.round(srcW * (h / srcH));
+    }
+
+    // Remember full-res dimensions before capping — spatial effects (blur,
+    // oil paint) scale their radius by this ratio so the preview at maxSize
+    // matches the final export pixel-for-pixel.
+    const fullLong = Math.max(w, h);
+
+    if (maxSize > 0 && (w > maxSize || h > maxSize)) {
+        const scale = maxSize / Math.max(w, h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+    }
+
+    const spatialScale = Math.max(w, h) / fullLong;
+
+    // When no rotate/flip is needed, the dest canvas IS the working canvas.
+    // Saves one canvas allocation per render (significant for live preview).
+    const needsTransform = hasTransform(filters);
+    const canvas = needsTransform ? document.createElement('canvas') : dest;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', {willReadFrequently: true})!;
+    ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, w, h);
+
+    // Pixelate (re-sample) — block size scaled so preview matches export
+    if (filters.pixelate > 0) {
+        const block = Math.max(
+            2,
+            Math.round((filters.pixelate / 5) * spatialScale)
+        );
+        const sw = Math.max(1, Math.round(w / block));
+        const sh = Math.max(1, Math.round(h / block));
+        const tmp = document.createElement('canvas');
+        tmp.width = sw;
+        tmp.height = sh;
+        tmp.getContext('2d')!.drawImage(canvas, 0, 0, sw, sh);
+        ctx.imageSmoothingEnabled = false;
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(tmp, 0, 0, w, h);
+        ctx.imageSmoothingEnabled = true;
+    }
+
+    // Blur (two-pass box blur) — radius scaled to match full-res output
+    if (filters.blur > 0) {
+        boxBlur(
+            ctx,
+            w,
+            h,
+            Math.max(1, Math.round((filters.blur / 4) * spatialScale))
+        );
+    }
+
+    // Oil paint (heavier box blur) — radius scaled to match full-res output
+    if (filters.oilPaint > 0) {
+        boxBlur(
+            ctx,
+            w,
+            h,
+            Math.max(2, Math.round(filters.oilPaint * 2 * spatialScale))
+        );
+    }
+
+    // Build LUTs once before the pixel loop
+    const curveLUT = hasCurve(filters)
+        ? buildCurveLUT(filters.curvePoints)
+        : null;
+    const paletteLUT = hasPaletteGrade(filters)
+        ? buildPaletteLUT(filters.paletteStops)
+        : null;
+
+    // Single-pass per-pixel adjustments
+    const needsPixel =
+        curveLUT !== null ||
+        filters.brightness !== 100 ||
+        filters.contrast !== 100 ||
+        filters.saturation !== 100 ||
+        filters.hueRotate !== 0 ||
+        filters.sepia > 0 ||
+        filters.invert > 0 ||
+        filters.exposure !== 0 ||
+        filters.shadows !== 0 ||
+        filters.highlights !== 0 ||
+        filters.grain > 0 ||
+        filters.temperature !== 0 ||
+        filters.tint !== 0 ||
+        filters.fade > 0 ||
+        filters.noise > 0 ||
+        filters.posterize > 0 ||
+        paletteLUT !== null;
+
+    if (needsPixel) {
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const d = imageData.data;
+
+        const bri = filters.brightness / 100;
+        const conFactor = filters.contrast / 100;
+        const sat = filters.saturation / 100;
+        const sepiaAmt = filters.sepia / 100;
+        const invertAmt = filters.invert / 100;
+        const gamma =
+            filters.exposure !== 0
+                ? filters.exposure > 0
+                    ? 1 / (1 + filters.exposure / 100)
+                    : 1 + Math.abs(filters.exposure) / 100
+                : 1;
+        const shadowAdj = filters.shadows / 200;
+        const highlightAdj = filters.highlights / 200;
+        const paletteBlend = paletteLUT ? filters.paletteStrength / 100 : 0;
+        const grainInt = filters.grain * 8;
+        const tempWarm = filters.temperature / 100; // -1 to 1
+        const tintShift = filters.tint / 100; // -1 to 1
+        const fadeAmt = filters.fade / 100; // 0 to 1
+        const noiseInt = filters.noise * 2.5;
+        const posterLevels =
+            filters.posterize > 0
+                ? Math.max(2, Math.round(11 - filters.posterize))
+                : 0;
+        const hueRad = (filters.hueRotate * Math.PI) / 180;
+        const cosH = Math.cos(hueRad);
+        const sinH = Math.sin(hueRad);
+
+        for (let i = 0; i < d.length; i += 4) {
+            let r = d[i],
+                g = d[i + 1],
+                b = d[i + 2];
+
+            // Tone curve — applied first to establish base tonality
+            if (curveLUT) {
+                r = curveLUT[r];
+                g = curveLUT[g];
+                b = curveLUT[b];
+            }
+
+            // Invert
+            if (invertAmt > 0) {
+                r = r + (255 - 2 * r) * invertAmt;
+                g = g + (255 - 2 * g) * invertAmt;
+                b = b + (255 - 2 * b) * invertAmt;
+            }
+
+            // Brightness
+            r *= bri;
+            g *= bri;
+            b *= bri;
+
+            // Contrast
+            r = 128 + (r - 128) * conFactor;
+            g = 128 + (g - 128) * conFactor;
+            b = 128 + (b - 128) * conFactor;
+
+            // Saturation
+            if (sat !== 1) {
+                const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                r = gray + (r - gray) * sat;
+                g = gray + (g - gray) * sat;
+                b = gray + (b - gray) * sat;
+            }
+
+            // Hue rotate
+            if (filters.hueRotate !== 0) {
+                const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                const u = -0.09991 * r - 0.33609 * g + 0.436 * b;
+                const v = 0.615 * r - 0.55861 * g - 0.05639 * b;
+                const u2 = u * cosH - v * sinH;
+                const v2 = u * sinH + v * cosH;
+                r = l + 1.28033 * v2;
+                g = l - 0.21482 * u2 - 0.38059 * v2;
+                b = l + 2.12798 * u2;
+            }
+
+            // Sepia
+            if (sepiaAmt > 0) {
+                const sr = 0.393 * r + 0.769 * g + 0.189 * b;
+                const sg = 0.349 * r + 0.686 * g + 0.168 * b;
+                const sb = 0.272 * r + 0.534 * g + 0.131 * b;
+                r = r + (sr - r) * sepiaAmt;
+                g = g + (sg - g) * sepiaAmt;
+                b = b + (sb - b) * sepiaAmt;
+            }
+
+            // Exposure (gamma)
+            if (gamma !== 1) {
+                r = Math.pow(Math.max(0, r) / 255, gamma) * 255;
+                g = Math.pow(Math.max(0, g) / 255, gamma) * 255;
+                b = Math.pow(Math.max(0, b) / 255, gamma) * 255;
+            }
+
+            // Shadows (dark tones)
+            if (shadowAdj !== 0) {
+                const rv = r / 255,
+                    gv = g / 255,
+                    bv = b / 255;
+                if (rv < 0.5) r = (rv + shadowAdj * (1 - rv / 0.5)) * 255;
+                if (gv < 0.5) g = (gv + shadowAdj * (1 - gv / 0.5)) * 255;
+                if (bv < 0.5) b = (bv + shadowAdj * (1 - bv / 0.5)) * 255;
+            }
+
+            // Highlights (bright tones)
+            if (highlightAdj !== 0) {
+                const rv = r / 255,
+                    gv = g / 255,
+                    bv = b / 255;
+                if (rv > 0.5)
+                    r = (rv + highlightAdj * ((rv - 0.5) / 0.5)) * 255;
+                if (gv > 0.5)
+                    g = (gv + highlightAdj * ((gv - 0.5) / 0.5)) * 255;
+                if (bv > 0.5)
+                    b = (bv + highlightAdj * ((bv - 0.5) / 0.5)) * 255;
+            }
+
+            // Temperature (warm = boost red, cool = boost blue)
+            if (tempWarm !== 0) {
+                r += tempWarm * 30;
+                b -= tempWarm * 30;
+            }
+
+            // Tint (positive = magenta/boost red+blue, negative = green/boost green)
+            if (tintShift !== 0) {
+                g -= tintShift * 20;
+                r += tintShift * 10;
+                b += tintShift * 10;
+            }
+
+            // Fade (lift blacks — add to all channels, more effect on darks)
+            if (fadeAmt > 0) {
+                const lift = fadeAmt * 60;
+                r += lift * (1 - r / 255);
+                g += lift * (1 - g / 255);
+                b += lift * (1 - b / 255);
+            }
+
+            // Palette grade — LUT is indexed by HSL lightness (max+min)/2,
+            // consistent with how the ramp was built.
+            if (paletteLUT) {
+                const cMax = r > g ? (r > b ? r : b) : g > b ? g : b;
+                const cMin = r < g ? (r < b ? r : b) : g < b ? g : b;
+                const y = ((cMax + cMin) / 2) | 0;
+                const yi = y < 0 ? 0 : y > 255 ? 255 : y;
+                const base = yi * 3;
+                const t = paletteBlend;
+                const inv = 1 - t;
+                r = r * inv + paletteLUT[base] * t;
+                g = g * inv + paletteLUT[base + 1] * t;
+                b = b * inv + paletteLUT[base + 2] * t;
+            }
+
+            // Posterize (reduce color levels)
+            if (posterLevels > 0) {
+                const step = 255 / (posterLevels - 1);
+                r = Math.round(r / step) * step;
+                g = Math.round(g / step) * step;
+                b = Math.round(b / step) * step;
+            }
+
+            // Grain (monochrome noise)
+            if (grainInt > 0) {
+                const noise = (Math.random() - 0.5) * grainInt;
+                r += noise;
+                g += noise;
+                b += noise;
+            }
+
+            // Color noise (per-channel random)
+            if (noiseInt > 0) {
+                r += (Math.random() - 0.5) * noiseInt;
+                g += (Math.random() - 0.5) * noiseInt;
+                b += (Math.random() - 0.5) * noiseInt;
+            }
+
+            d[i] = Math.max(0, Math.min(255, r));
+            d[i + 1] = Math.max(0, Math.min(255, g));
+            d[i + 2] = Math.max(0, Math.min(255, b));
+        }
+        ctx.putImageData(imageData, 0, 0);
+    }
+
+    // Sharpen (convolution kernel)
+    if (filters.sharpen > 0) {
+        const amount = filters.sharpen / 100;
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const d = imageData.data;
+        const src = new Uint8ClampedArray(d);
+
+        for (let y = 1; y < h - 1; y++) {
+            for (let x = 1; x < w - 1; x++) {
+                const idx = (y * w + x) * 4;
+                for (let c = 0; c < 3; c++) {
+                    const center = src[idx + c] * 5;
+                    const n =
+                        src[((y - 1) * w + x) * 4 + c] +
+                        src[((y + 1) * w + x) * 4 + c] +
+                        src[(y * w + x - 1) * 4 + c] +
+                        src[(y * w + x + 1) * 4 + c];
+                    d[idx + c] = Math.max(
+                        0,
+                        Math.min(
+                            255,
+                            src[idx + c] + (center - n) * amount * 0.25
+                        )
+                    );
+                }
+            }
+        }
+        ctx.putImageData(imageData, 0, 0);
+    }
+
+    // Clarity (local contrast — unsharp mask with large radius)
+    if (filters.clarity > 0) {
+        const amount = filters.clarity / 100;
+        // Create blurred copy
+        const blurCanvas = document.createElement('canvas');
+        blurCanvas.width = w;
+        blurCanvas.height = h;
+        const blurCtx = blurCanvas.getContext('2d', {
+            willReadFrequently: true,
+        })!;
+        blurCtx.drawImage(canvas, 0, 0);
+        boxBlur(blurCtx, w, h, Math.max(3, Math.round(w / 80)));
+
+        const sharp = ctx.getImageData(0, 0, w, h);
+        const blurred = blurCtx.getImageData(0, 0, w, h);
+        const sd = sharp.data,
+            bd = blurred.data;
+
+        for (let i = 0; i < sd.length; i += 4) {
+            for (let c = 0; c < 3; c++) {
+                const diff = sd[i + c] - bd[i + c];
+                sd[i + c] = Math.max(
+                    0,
+                    Math.min(255, sd[i + c] + diff * amount)
+                );
+            }
+        }
+        ctx.putImageData(sharp, 0, 0);
+    }
+
+    // Vignette
+    if (filters.vignette > 0) {
+        const strength = filters.vignette / 100;
+        const cx = w / 2,
+            cy = h / 2;
+        const maxR = Math.sqrt(cx * cx + cy * cy);
+        const grad = ctx.createRadialGradient(
+            cx,
+            cy,
+            maxR * 0.3,
+            cx,
+            cy,
+            maxR * 0.85
+        );
+        grad.addColorStop(0, 'rgba(0,0,0,0)');
+        grad.addColorStop(1, `rgba(0,0,0,${strength * 0.8})`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+    }
+
+    // Rotate / flip — applied last. When `needsTransform` is true, `canvas`
+    // is a throwaway temp and we write the transformed result into `dest`.
+    // When false, `canvas === dest` and we're already done.
+    if (needsTransform) {
+        const rot = ((filters.rotate % 360) + 360) % 360;
+        const swap = rot === 90 || rot === 270;
+        const outW = swap ? h : w;
+        const outH = swap ? w : h;
+
+        dest.width = outW;
+        dest.height = outH;
+        const dctx = dest.getContext('2d')!;
+        dctx.save();
+        dctx.translate(outW / 2, outH / 2);
+        if (filters.flipH) dctx.scale(-1, 1);
+        if (filters.flipV) dctx.scale(1, -1);
+        if (rot !== 0) dctx.rotate((rot * Math.PI) / 180);
+        dctx.translate(-w / 2, -h / 2);
+        dctx.drawImage(canvas, 0, 0);
+        dctx.restore();
+    }
+}
+
+function boxBlur(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    radius: number
+) {
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const src = new Uint8ClampedArray(imageData.data);
+    const dst = imageData.data;
+
+    // Horizontal
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            let rS = 0,
+                gS = 0,
+                bS = 0,
+                cnt = 0;
+            for (let dx = -radius; dx <= radius; dx++) {
+                const nx = Math.min(w - 1, Math.max(0, x + dx));
+                const j = (y * w + nx) * 4;
+                rS += src[j];
+                gS += src[j + 1];
+                bS += src[j + 2];
+                cnt++;
+            }
+            const j = (y * w + x) * 4;
+            dst[j] = rS / cnt;
+            dst[j + 1] = gS / cnt;
+            dst[j + 2] = bS / cnt;
+        }
+    }
+
+    const mid = new Uint8ClampedArray(dst);
+
+    // Vertical
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            let rS = 0,
+                gS = 0,
+                bS = 0,
+                cnt = 0;
+            for (let dy = -radius; dy <= radius; dy++) {
+                const ny = Math.min(h - 1, Math.max(0, y + dy));
+                const j = (ny * w + x) * 4;
+                rS += mid[j];
+                gS += mid[j + 1];
+                bS += mid[j + 2];
+                cnt++;
+            }
+            const j = (y * w + x) * 4;
+            dst[j] = rS / cnt;
+            dst[j + 1] = gS / cnt;
+            dst[j + 2] = bS / cnt;
+        }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+}
+
+export function hasActiveFilters(f: Filters): boolean {
+    return (
+        hasCurve(f) ||
+        f.blur !== 0 ||
+        f.brightness !== 100 ||
+        f.contrast !== 100 ||
+        f.saturation !== 100 ||
+        f.hueRotate !== 0 ||
+        f.sepia !== 0 ||
+        f.invert !== 0 ||
+        f.exposure !== 0 ||
+        f.vignette !== 0 ||
+        f.sharpen !== 0 ||
+        f.grain !== 0 ||
+        f.oilPaint !== 0 ||
+        f.pixelate !== 0 ||
+        f.shadows !== 0 ||
+        f.highlights !== 0 ||
+        f.temperature !== 0 ||
+        f.tint !== 0 ||
+        f.fade > 0 ||
+        f.clarity > 0 ||
+        f.posterize > 0 ||
+        f.noise > 0 ||
+        hasPaletteGrade(f) ||
+        hasActiveCrop(f) ||
+        hasTransform(f) ||
+        f.resizeW !== 0 ||
+        f.resizeH !== 0
+    );
+}
+
+/**
+ * Build a 256-entry RGB LUT from palette hex stops.
+ *
+ * For each possible source luminance Y ∈ [0,255], the LUT entry is the
+ * "colorize" output when a pixel of that luminance is graded through the ramp:
+ * hue+saturation are interpolated between stops at position Y/255, while
+ * lightness is pinned to Y/255 itself — matching ImageMagick's `-compose
+ * Colorize`, which preserves original brightness and only repaints chroma.
+ *
+ * Because the output depends solely on source luminance, one 1D table captures
+ * the entire grade. Per-pixel apply is then O(1): luminance → table lookup → lerp.
+ *
+ * Stops are auto-sorted by luminance before building the ramp, so click order
+ * doesn't matter — darkest color always anchors shadows, brightest anchors
+ * highlights. 2 stops = duotone, 3 stops = shadow/mid/highlight, 4+ = split-tone.
+ */
+export function buildPaletteLUT(stops: string[]): Uint8ClampedArray | null {
+    if (stops.length < 2) return null;
+
+    // Parse all stops to HSL (h, s, l in 0..1), then sort by lightness.
+    // Sorting here makes the UI's pick order irrelevant — users can click
+    // swatches in any order and the grade always runs shadow→highlight.
+    const hsl: {h: number; s: number; l: number}[] = [];
+    for (const hex of stops) {
+        const {r, g, b} = hexToRgb(hex);
+        if (r === 0 && g === 0 && b === 0 && hex !== '#000000') {
+            // hexToRgb returns {0,0,0} for invalid input
+            return null;
+        }
+        hsl.push(rgbToHsl01(r, g, b));
+    }
+    hsl.sort((a, b) => a.l - b.l);
+
+    const lut = new Uint8ClampedArray(256 * 3);
+    const segs = hsl.length - 1;
+
+    for (let y = 0; y < 256; y++) {
+        const t = y / 255;
+        // Find which segment t falls in and the local [0,1] interp factor
+        const pos = t * segs;
+        const i0 = Math.min(segs - 1, Math.floor(pos));
+        const f = pos - i0;
+        const a = hsl[i0];
+        const b = hsl[i0 + 1];
+
+        // Interpolate hue along shortest arc
+        const h = lerpHue(a.h, b.h, f);
+        const s = a.s * (1 - f) + b.s * f;
+        // Lightness = source luminance — this is the "keep original brightness" trick
+        const l = t;
+
+        const [rr, gg, bb] = hslToRgb01(h, s, l);
+        lut[y * 3] = Math.round(rr * 255);
+        lut[y * 3 + 1] = Math.round(gg * 255);
+        lut[y * 3 + 2] = Math.round(bb * 255);
+    }
+    return lut;
+}
+
+// Interpolate hue (0..1) along the shortest arc around the wheel.
+function lerpHue(a: number, b: number, t: number): number {
+    let d = b - a;
+    if (d > 0.5) d -= 1;
+    else if (d < -0.5) d += 1;
+    let h = a + d * t;
+    if (h < 0) h += 1;
+    if (h >= 1) h -= 1;
+    return h;
+}

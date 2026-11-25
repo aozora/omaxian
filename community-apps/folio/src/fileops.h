@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QObject>
+#include <QSet>
 #include <QStringList>
 #include <QUrl>
 #include <QVariantList>
@@ -24,6 +25,7 @@ class FileOps : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool canPaste READ canPaste NOTIFY clipboardChanged)
+    Q_PROPERTY(int cutCount READ cutCount NOTIFY clipboardChanged)
     Q_PROPERTY(QVariantMap clash READ clash NOTIFY clashChanged)
     Q_PROPERTY(QString undoName READ undoName NOTIFY historyChanged)
 
@@ -33,6 +35,9 @@ public:
 
     QString busy() const { return m_busy; }
     bool canPaste() const;
+    // How many items the clipboard holds cut, and whether `path` is one or inside one, which the views draw dimmer.
+    int cutCount() const { return int(m_cut.size()); }
+    Q_INVOKABLE bool isCut(const QString &path) const;
 
     // How far a piece of work has got, and whether it's been asked to stop:
     // the worker counts and checks, the UI thread shows and asks.
@@ -89,6 +94,7 @@ public:
     // plain text, so pasting into a terminal or editor gives the path.
     // Whether Shift is held right now, for menus that change with it.
     Q_INVOKABLE static bool shiftHeld();
+    Q_INVOKABLE static bool altHeld();
     Q_INVOKABLE void copy(const QStringList &paths);
     Q_INVOKABLE void cut(const QStringList &paths);
     Q_INVOKABLE void yank(const QStringList &paths);
@@ -116,6 +122,12 @@ public:
     // Unpacks each archive beside itself: an archive of one item gives
     // that item, one of several a folder named after the archive.
     Q_INVOKABLE void extract(const QStringList &paths);
+    // Whether these are all files of one's own that can be made to run or
+    // not: never a folder, whose x means something else, nor a link.
+    Q_INVOKABLE bool canSetExecutable(const QStringList &paths) const;
+    // Whether each of them runs as a program already.
+    Q_INVOKABLE bool executable(const QStringList &paths) const;
+    Q_INVOKABLE void setExecutable(const QStringList &paths, bool on);
 
     Q_INVOKABLE void trash(const QStringList &paths);
 
@@ -143,8 +155,9 @@ public:
     Q_INVOKABLE void newFolder(const QString &folder);
 
     // The apps that can open a file, from the desktop's MIME database:
-    // {id, name, isDefault}, the default first.
-    Q_INVOKABLE QVariantList appsFor(const QString &path) const;
+    // {id, name, isDefault}, the default first. When `knownMime` is given,
+    // uses it directly without opening the file on the UI thread.
+    Q_INVOKABLE QVariantList appsFor(const QString &path, const QString &knownMime = {}) const;
     Q_INVOKABLE void openWith(const QString &path, const QString &appId);
     // Makes the app what the file's type opens with from now on.
     Q_INVOKABLE void setDefaultApp(const QString &path, const QString &appId);
@@ -225,6 +238,15 @@ public:
     // "Open with Plain"; empty when none is set up. By the type the listing
     // already knows, so a slow drive is never read for it.
     Q_INVOKABLE static QString defaultAppName(const QString &mime);
+    // The editor Omarchy opens text files in (the command, such as code),
+    // read as omarchy-launch-editor reads it.
+    static QString omarchyEditor();
+    // Among visible apps ({executable, name}), the name of the one that runs
+    // omarchyEditor(), or empty.
+    static QString editorAppName(const QVariantList &apps);
+    // An Opens with list without the entries named like the editor handler,
+    // when that's its default and first entry.
+    static QVariantList foldHandlerRepeats(QVariantList apps);
     // Opens the file in that app; a sentence saying why not when it can't.
     static QString openInDefaultApp(const QString &path);
     // Whether the item at `path` is on the drive `folder` is on.
@@ -267,6 +289,8 @@ signals:
     void busyChanged();
     void clipboardChanged();
     void failed(const QString &message);
+    // Files whose permissions setExecutable changed.
+    void modesChanged(const QStringList &paths);
     void notice(const QString &notice);
     void clashChanged();
     void historyChanged();
@@ -277,6 +301,11 @@ signals:
     void drivesChanged();
     // Work finished in `folder`, which now holds `name` (to select it).
     void done(const QString &folder, const QString &name);
+    // An item renamed from `from` to `to`, by Rename or by undoing or
+    // redoing one, for the sidebar's pins and hidden folders to follow.
+    void renamed(const QString &from, const QString &to);
+    // A new folder was made in `folder`, named `name`, for naming right away.
+    void folderCreated(const QString &folder, const QString &name);
 
 private:
     void setBusy(const QString &busy);
@@ -325,6 +354,8 @@ private:
                       const QString &stopped, const std::function<void(QProcess *, int)> &finished);
 
     QString m_busy;
+    // The clipboard's cut items, read once each time it changes.
+    QSet<QString> m_cut;
     std::shared_ptr<Job> m_job;
     // The lane this pane's work under way is counted in.
     std::optional<Lane> m_lane;

@@ -1,0 +1,247 @@
+// Wallhaven search state
+// Loads defaults from ~/.config/aether/wallhaven.json (via Go),
+// persists changes back to both localStorage and the config file.
+
+import type {wallhaven} from '../../../wailsjs/go/models';
+
+type WallpaperInfo = wallhaven.WallpaperInfo;
+
+let query = $state('');
+let categories = $state('111');
+let purity = $state('100');
+let sorting = $state('date_added');
+let order = $state('desc');
+let page = $state(1);
+let atleast = $state('1920x1080');
+let resolutionExact = $state(false);
+let colorFilter = $state('');
+let apiKey = $state('');
+
+let results = $state<WallpaperInfo[]>([]);
+let totalPages = $state(0);
+let totalResults = $state(0);
+let isSearching = $state(false);
+let isLoadingMore = $state(false);
+let searchError = $state('');
+let hasSearched = false;
+let searchRequest = 0;
+let lastSearchParams: wallhaven.SearchParams | null = null;
+
+// Load config from ~/.config/aether/wallhaven.json on startup
+const configReady = loadConfigFromFile();
+
+async function loadConfigFromFile() {
+    try {
+        const {GetWallhavenConfig, SetWallhavenAPIKey} = await import(
+            '../../../wailsjs/go/main/App'
+        );
+        const config = await GetWallhavenConfig();
+        if (config) {
+            if (config.apiKey) {
+                apiKey = config.apiKey;
+                await SetWallhavenAPIKey(config.apiKey);
+            }
+            if (config.categories) categories = config.categories;
+            if (config.purity) purity = config.purity;
+            if (config.sorting) sorting = config.sorting;
+            if (typeof config.resolutions === 'string') atleast = config.resolutions;
+            if (config.resolutionExact) resolutionExact = true;
+            if (config.order) order = config.order;
+        }
+    } catch {}
+}
+
+function persist() {
+    // Save to Go config file
+    import('../../../wailsjs/go/main/App')
+        .then(({SaveWallhavenConfig}) => {
+            return SaveWallhavenConfig({
+                apiKey,
+                categories,
+                purity,
+                sorting,
+                order,
+                resolutions: atleast,
+                resolutionExact,
+                purityControlsEnabled: true,
+            });
+        })
+        .catch(() => {});
+}
+
+// --- Getters ---
+export function getQuery(): string {
+    return query;
+}
+export function getCategories(): string {
+    return categories;
+}
+export function getPurity(): string {
+    return purity;
+}
+export function getSorting(): string {
+    return sorting;
+}
+export function getOrder(): string {
+    return order;
+}
+export function getResolutionSelection(): string {
+    // The <select> needs one value that encodes both controls; persistence
+    // keeps them separate for backwards compatibility.
+    return resolutionExact && atleast ? `exact:${atleast}` : atleast;
+}
+export function getColorFilter(): string {
+    return colorFilter;
+}
+export function getApiKey(): string {
+    return apiKey;
+}
+export function getResults(): WallpaperInfo[] {
+    return results;
+}
+export function getTotalResults(): number {
+    return totalResults;
+}
+export function getIsSearching(): boolean {
+    return isSearching;
+}
+export function getIsLoadingMore(): boolean {
+    return isLoadingMore;
+}
+export function getHasMore(): boolean {
+    return totalPages > 0 && page < totalPages;
+}
+export function getSearchError(): string {
+    return searchError;
+}
+
+// --- Setters (all persist) ---
+export function setQuery(q: string): void {
+    query = q;
+}
+export function setSorting(s: string): void {
+    sorting = s;
+    persist();
+}
+export function setOrder(o: string): void {
+    order = o;
+    persist();
+}
+export function setResolution(value: string): void {
+    if (value.startsWith('exact:')) {
+        atleast = value.slice('exact:'.length);
+        resolutionExact = true;
+    } else {
+        atleast = value;
+        resolutionExact = false;
+    }
+    persist();
+}
+export function setColorFilter(c: string): void {
+    colorFilter = c;
+}
+export function setApiKey(k: string): void {
+    apiKey = k;
+    persist();
+    import('../../../wailsjs/go/main/App')
+        .then(({SetWallhavenAPIKey}) => {
+            return SetWallhavenAPIKey(k);
+        })
+        .catch(() => {});
+}
+
+// --- Category helpers (bitmask: General=1xx, Anime=x1x, People=xx1) ---
+export function toggleCategory(index: number): void {
+    const chars = categories.split('');
+    chars[index] = chars[index] === '1' ? '0' : '1';
+    if (chars.every(c => c === '0')) return;
+    categories = chars.join('');
+    persist();
+}
+
+// --- Purity helpers (bitmask: SFW=1xx, Sketchy=x1x, NSFW=xx1) ---
+export function togglePurity(index: number): void {
+    if (index === 2 && !apiKey) return;
+    const chars = purity.split('');
+    chars[index] = chars[index] === '1' ? '0' : '1';
+    if (chars.every(c => c === '0')) return;
+    purity = chars.join('');
+    persist();
+}
+
+// --- Actions ---
+export async function initializeSearch(): Promise<void> {
+    await configReady;
+    if (!hasSearched) await search();
+}
+
+export async function search(): Promise<void> {
+    await doSearch(false);
+}
+
+export async function loadMore(): Promise<void> {
+    if (isSearching || isLoadingMore) return;
+    if (!getHasMore()) return;
+    await doSearch(true);
+}
+
+async function doSearch(append: boolean): Promise<void> {
+    const request = ++searchRequest;
+    hasSearched = true;
+    searchError = '';
+    if (append) isLoadingMore = true;
+    else {
+        isSearching = true;
+        isLoadingMore = false;
+        results = [];
+        totalPages = 0;
+        totalResults = 0;
+        page = 1;
+    }
+    try {
+        await configReady;
+        if (request !== searchRequest) return;
+        // An exact selection uses Wallhaven's `resolutions` parameter instead
+        // of `atleast`, so ultrawide screens are not forced into a 16:9 match.
+        const exactResolution = resolutionExact ? atleast : '';
+        const params =
+            append && lastSearchParams
+                ? {...lastSearchParams, page: page + 1}
+                : {
+                      q: query,
+                      categories,
+                      purity,
+                      sorting,
+                      order,
+                      page: 1,
+                      atleast: exactResolution ? '' : atleast,
+                      resolutions: exactResolution,
+                      colors: colorFilter,
+                  };
+        const {SearchWallhaven} = await import('../../../wailsjs/go/main/App');
+        if (request !== searchRequest) return;
+        const result = await SearchWallhaven(params);
+        if (request !== searchRequest) return;
+        const data = result.data || [];
+        if (append) {
+            const seen = new Set(results.map(r => r.id));
+            results = [...results, ...data.filter(r => !seen.has(r.id))];
+        } else {
+            results = data;
+        }
+        totalPages = result.meta?.last_page || 0;
+        totalResults = result.meta?.total || 0;
+        page = params.page;
+        lastSearchParams = params;
+    } catch (e) {
+        if (request !== searchRequest) return;
+        console.error('Wallhaven search failed:', e);
+        searchError =
+            'Could not reach Wallhaven. Check your connection and filters, then retry.';
+    } finally {
+        if (request === searchRequest) {
+            isLoadingMore = false;
+            isSearching = false;
+        }
+    }
+}

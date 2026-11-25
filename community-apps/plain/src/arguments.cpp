@@ -33,7 +33,7 @@ Arguments Arguments::parse(const QStringList &arguments) {
                 return result;
             }
         }
-        if (scheme.match(argument).hasMatch()) {
+        if (!literal && scheme.match(argument).hasMatch()) {
             const QUrl url(argument);
             if (!url.isLocalFile()) {
                 result.error = QStringLiteral("can only open local files, not %1").arg(argument);

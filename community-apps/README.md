@@ -26,6 +26,7 @@ community-apps/
     install.sh             # user-local install for this host
     .omaxian-upstream-commit
     .omaxian-prebuilt      # pinned pre-built binary (optional; see below)
+    .qmllint-modules       # QML modules declared only in CMake (optional; for the lint)
     … upstream / patched sources …
 ```
 
@@ -38,6 +39,8 @@ human) should install. Extra keys used by apps:
   reachable from here: a downloaded binary gets **only** these (CI checks it).
 - `apt_build` — packages needed only to compile from this tree
 - `manual` — human follow-ups (models, agents, bar widget link)
+- `start_args` — arguments that open the window, for CI's headless start
+  check when the binary is a command-line tool without them (hype: `["open"]`)
 
 `install.sh` reads both lists from this file (`app_deps_read` in
 `lib/prebuilt.sh`), and so does the TUI. Do not repeat them in `install.sh`.
@@ -79,16 +82,23 @@ Plan and rationale:
 | Directory | App | Upstream | Status |
 | --------- | --- | -------- | ------ |
 | [`omarchy-meeting-recorder`](omarchy-meeting-recorder/) | Meeting Recorder (GTK4) | [jankeesvw/omarchy-meeting-recorder](https://github.com/jankeesvw/omarchy-meeting-recorder) `v1.8.0` | Ported |
-| [`monologue`](monologue/) | Monologue (Qt Quick webcam recorder) | [omacom/monologue](https://github.com/omacom/monologue) `0.4.0` | Ported |
+| [`monologue`](monologue/) | Monologue (Qt Quick webcam recorder) | [omacom/monologue](https://github.com/omacom/monologue) `0.4.1` | Ported |
 | [`signed`](signed/) | Signed (Qt Quick PDF signer) | [omacom/signed](https://github.com/omacom/signed) `0.3.2` | Ported |
 | [`disktree`](disktree/) | disktree (GPUI disk treemap) | [tobi/disktree](https://github.com/tobi/disktree) `0.11.0` | Ported |
-| [`plain`](plain/) | Plain (Qt Quick config/text editor) | [omacom/plain](https://github.com/omacom/plain) `0.3.3` | Ported |
+| [`plain`](plain/) | Plain (Qt Quick config/text editor) | [omacom/plain](https://github.com/omacom/plain) `0.4.2` | Ported |
 | [`omacalc`](omacalc/) | Omacalc (Qt Quick calculator) | [omacom/omacalc](https://github.com/omacom/omacalc) `0.4.2` | Ported |
-| [`omacut`](omacut/) | Omacut (Qt Quick video trimmer) | [omacom/omacut](https://github.com/omacom/omacut) `0.8.3` | Ported |
-| [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.5` | Ported |
-| [`folio`](folio/) | Folio (Qt Quick file manager) | [omacom/folio](https://github.com/omacom/folio) `61b7e20` | Ported |
-
-**Not ported:** [omareel](https://github.com/omacom/omareel) — Hyprland plugin + `gpu-screen-recorder` / layer-shell capture; not viable on X11/i3.
+| [`omacut`](omacut/) | Omacut (Qt Quick video trimmer) | [omacom/omacut](https://github.com/omacom/omacut) `0.8.4` | Ported |
+| [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.7` | Ported |
+| [`folio`](folio/) | Folio (Qt Quick file manager) | [omacom/folio](https://github.com/omacom/folio) `0.7.3` (`bd8ea0c`) | Ported |
+| [`omaview`](omaview/) | Omaview (Qt Quick picture viewer / media player) | [omacom/omaview](https://github.com/omacom/omaview) `0.1.2` (`4cd158e`) | Ported |
+| [`hype`](hype/) | Hype (Qt Quick Markdown presentations) | [omacom/hype](https://github.com/omacom/hype) `0.7.1` (`8c347fc`) | Ported |
+| [`cards`](cards/) | Cards (Qt Quick Klondike solitaire) | [omacom/cards](https://github.com/omacom/cards) `0.1.0` (`e1a01bf`) | Ported |
+| [`checkmate`](checkmate/) | Checkmate (Qt Quick 3D chess) | [omacom/checkmate](https://github.com/omacom/checkmate) `0.1.3` (`b4e6a86`) | Ported |
+| [`aether`](aether/) | Aether (Wails / WebKitGTK theme maker) | [omacom/aether](https://github.com/omacom/aether) `4.33.0` (`a7a7c37`) | Ported |
+| [`omarchy-local-ai`](omarchy-local-ai/) | omarchy-local-ai (local model engine, Podman; no systemd) | [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai) `0.13.0` (`63b3be9`) | Ported (music path; no pairing or tailnet sharing) |
+| [`flowtunes`](flowtunes/) | Flowtunes (Qt Quick endless music; needs omarchy-local-ai) | [omacom/flowtunes](https://github.com/omacom/flowtunes) `0.4.0` (`83dc86f`) | Ported (builds from source; no pre-built binary yet) |
+| [`fantasi`](fantasi/) | Fantasi (Qt Quick image, video and music maker; needs omarchy-local-ai) | [omacom/fantasi](https://github.com/omacom/fantasi) `0.3.0` (`f5a3fec`) | Ported (builds from source; only the music model has been run) |
+| [`omareel`](omareel/) | Omareel (Qt Quick + Rust screen recorder and editor) | [omacom/omareel](https://github.com/omacom/omareel) `0.5.0` (`b1610ac`) | Ported (X11 recording through Flatpak gpu-screen-recorder; overlays cannot be kept out of the capture) |
 
 ## Install
 
@@ -128,8 +138,15 @@ Review the tree before running it; apps run unsandboxed as your user.
    e.g. `Component.onCompleted: if (view.acceptedButtons !== undefined)
    view.acceptedButtons = Qt.NoButton`, and record the 6.8 fallback in the
    app's deltas table. `lib/qmllint-ignore.txt` is only for properties of the
-   app's own C++ types, which qmllint cannot see. CI's verify step (headless
-   start on Qt 6.8) is the final check.
+   app's own C++ types, which qmllint cannot see. When the app's QML imports
+   its own modules (`qt_add_qml_module` with no `qmldir` in the tree), list
+   them in `<app>/.qmllint-modules`, one `<URI> <directory>` per line, and the
+   lint generates their `qmldir` (omareel does). Read the property through an
+   id: a bare name 6.8 lacks throws instead of giving `undefined` (the lint
+   flags that). Neither the lint nor CI's headless start sees a newer-Qt
+   method called on a `Loader.item`, or code that runs only once a file is
+   open, so also run the app's tests on Qt 6.8 (a `debian:trixie`
+   container, as a normal user, in a UTF-8 locale).
 7. Add a catalog row above. Do not wire into `setup` / `install` / `deploy`
    (the TUI / `scripts/install-community-apps.sh` discover dirs with
    `install.sh` automatically).

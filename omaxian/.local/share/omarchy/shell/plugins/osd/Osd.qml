@@ -6,15 +6,19 @@ import qs.Commons as Commons
 import qs.Ui
 import "OsdModel.js" as OsdModel
 
-// X11 / picom note: upstream draws the OSD in a full-screen transparent
-// layer-shell overlay, which blacks out tiled windows under picom glx (the same
-// failure KeyboardPanel / CenteredModal already left behind). This OSD is a
-// content-sized PopupWindow anchored to a 1px top host strip, bottom-centred
-// on the screen. Visual-only: grabFocus stays false (Qt::ToolTip) so volume
-// keys never steal keyboard focus from the focused client.
+// X11 note: upstream draws the OSD in a full-screen transparent layer-shell
+// overlay. Mapping a full-screen (or even a transient 1px) PanelWindow as
+// `_NET_WM_WINDOW_TYPE_DOCK` makes i3 restack the real bar + dock — a one-frame
+// flash of tiled containers on every volume/brightness show. Prefer the live
+// bar PanelWindow as the PopupWindow anchor (same as CenteredModal /
+// ReminderFlow); keep a 1px top host strip only when the bar is missing.
+// Visual-only: grabFocus stays false (Qt::ToolTip) so volume keys never steal
+// keyboard focus from the focused client.
 
 Item {
   id: root
+
+  property var shell: null
 
   property bool opened: false
   property string icon: "󰕾"
@@ -71,6 +75,14 @@ Item {
   readonly property real _screenW: _screen ? _screen.width : 0
   readonly property real _screenH: _screen ? _screen.height : 0
   readonly property int bottomMargin: Style.space(67)
+
+  // Prefer the already-mapped bar PanelWindow so show/hide never maps a second
+  // DOCK surface (i3 restack flash of bar + dock / tiled containers).
+  readonly property var modalAnchorWindow: {
+    var bar = root.shell && root.shell.bar
+    if (!bar || typeof bar.panelWindowForScreen !== "function") return null
+    return bar.panelWindowForScreen(root._screen)
+  }
 
   function iconFor(name, percent) {
     return OsdModel.iconFor(name, percent)
@@ -148,11 +160,11 @@ Item {
     function ping(): string { return "ok" }
   }
 
-  // 1px full-width strip: anchor space for the popup, never a full-screen
-  // surface (picom glx unredirects those and paints clients black).
+  // Fallback only: 1px full-width strip when the bar PanelWindow is not up yet.
+  // Never map a full-screen PanelWindow (i3 sizes DOCKs to the output).
   PanelWindow {
     id: host
-    visible: root.opened || card.visible
+    visible: !root.modalAnchorWindow && (root.opened || card.visible)
     screen: root._screen
     anchors { top: true; left: true; right: true }
     implicitHeight: 1
@@ -173,12 +185,14 @@ Item {
     grabFocus: false
 
     anchor {
-      window: host
+      window: root.modalAnchorWindow || host
       edges: Edges.Top | Edges.Left
       gravity: Edges.Bottom | Edges.Right
       adjustment: PopupAdjustment.Slide
       rect.width: 1
       rect.height: 1
+      // Bar PanelWindow origin is the screen origin for a top bar, so these
+      // are screen coordinates (same as CenteredModal).
       rect.x: Math.round(Math.max(0, (root._screenW - card.implicitWidth) / 2))
       rect.y: Math.round(Math.max(0, root._screenH - card.implicitHeight - root.bottomMargin))
     }

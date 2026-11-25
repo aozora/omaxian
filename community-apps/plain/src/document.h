@@ -8,9 +8,8 @@
 #include <QTextDocument>
 #include <QTimer>
 
+#include "highlighter.h"
 #include "theme.h"
-
-class Highlighter;
 
 // The file behind the editor: loading it, saving it without damage, and
 // noticing when it changes underneath. The QTextDocument belongs to the QML
@@ -65,6 +64,7 @@ public:
     static QString detectIndent(const QString &text);
     static QByteArray hash(const QByteArray &bytes);
     static QByteArray stamp(const QString &path);
+    static QString cleanPath(const QString &path);
 
     explicit Document(QObject *parent = nullptr);
 
@@ -94,6 +94,13 @@ public:
 
     Q_INVOKABLE bool open(const QString &path);
     Q_INVOKABLE bool openUrl(const QUrl &url);
+    // Back to an empty, untitled document: after its file was deleted from
+    // the sidebar, which already asked about losing any unsaved changes.
+    Q_INVOKABLE void close();
+    // The file was moved from the sidebar: the same file, with its edits
+    // and the version seen kept, at a new path. A moved link keeps the
+    // file it pointed at, so Save asks if it points elsewhere now.
+    Q_INVOKABLE void relocate(const QString &from, const QString &to);
     // Saves to the current file; false with a problem set when it didn't.
     Q_INVOKABLE bool save();
     Q_INVOKABLE bool saveAsUrl(const QUrl &url);
@@ -124,7 +131,7 @@ private:
     bool load(bool reload);
     void setText(const QString &text, bool undoably);
     bool checkAndWrite(bool inPlace);
-    bool write(const QString &target, bool inPlace);
+    bool write(const QString &target, bool inPlace, const QString &display);
     void rememberDisk(const QByteArray &bytes);
     void forgetDisk();
     void acknowledgeDisk();
@@ -138,7 +145,7 @@ private:
     QPointer<QQuickItem> m_textEdit;
     QPointer<QTextDocument> m_document;
     QPointer<Theme> m_theme;
-    Highlighter *m_highlighter = nullptr;
+    QPointer<Highlighter> m_highlighter;
 
     QString m_path;              // what the user opened, as they wrote it (absolute)
     QString m_target;            // the regular file it resolves to, at open

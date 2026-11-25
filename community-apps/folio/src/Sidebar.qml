@@ -17,10 +17,20 @@ Rectangle {
     // rows, ⏎ (or →, toward the files) opens one and hands the keyboard
     // back to the files, and Delete does what a row's ✕ does.
     signal finished()
-    // The ? in the corner: show or hide the shortcuts.
-    signal helpRequested()
     // Format… in a drive's menu, with what udisks knows of the drive.
     signal formatRequested(var disk)
+    // Rename… and Delete… in a folder's menu.
+    signal renameRequested(string path)
+    signal deleteRequested(string path)
+    // Trash in a folder's menu, done by the pane used last, as the rest are.
+    signal trashRequested(string path)
+    // A place picked here: the columns start at it, rather than at the
+    // folders above it.
+    signal placeChosen(string path)
+    function go(path) {
+        placeChosen(path)
+        target.navigate(path)
+    }
     property int cursor: 0
     // The pane the sidebar acts on: the one used last.
     property var target: backend
@@ -67,7 +77,7 @@ Rectangle {
         if (row.root !== undefined)
             sidebar.target.open(row.path)
         else
-            sidebar.target.navigate(row.path)
+            sidebar.go(row.path)
         finished()
     }
     function reveal(item) {
@@ -97,28 +107,63 @@ Rectangle {
     // Rows taken away under the keyboard leave it on the last one.
     onRowsChanged: cursor = Math.max(0, Math.min(cursor, rows.length - 1))
 
-    // Alt+⏎ (or the Menu key) on a drive opens its menu beside it; the
-    // files' menu stands aside for it.
+    // Alt+⏎ (or the Menu key) on a drive or a folder of Home or Pinned
+    // opens its menu beside it; the files' menu stands aside for it.
     readonly property var keyedDrive: activeFocus && cursor >= devicesAt && cursor < pluginsAt
                                       ? driveRows.itemAt(cursor - devicesAt) : null
+    readonly property var keyedPlace: !activeFocus ? null
+                                    : cursor < pinnedAt ? homeRows.itemAt(cursor)
+                                    : cursor < viewsAt ? pinRows.itemAt(cursor - pinnedAt) : null
     function menuKey(event) {
         return ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & Qt.AltModifier))
             || event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))
     }
-    Keys.onShortcutOverride: (event) => event.accepted = menuKey(event) && keyedDrive !== null
+    Keys.onShortcutOverride: (event) => event.accepted = menuKey(event) && (keyedDrive !== null || keyedPlace !== null)
     // Return has its own handler, which Keys calls before this one.
     Keys.onPressed: (event) => event.accepted = openDriveMenu(event)
+    function showPlaceMenu(row, isPinned, near) {
+        placeMenuLoader.active = true
+        placeMenuLoader.item.show(row, isPinned, near)
+    }
+    function showDriveMenu(row, near) {
+        driveMenuLoader.active = true
+        driveMenuLoader.item.show(row, near)
+    }
     function openDriveMenu(event) {
-        if (!menuKey(event) || !keyedDrive)
+        if (!menuKey(event))
             return false
-        driveMenu.show(keyedDrive.modelData, keyedDrive)
+        if (keyedDrive)
+            showDriveMenu(keyedDrive.modelData, keyedDrive)
+        else if (keyedPlace)
+            showPlaceMenu(keyedPlace.modelData, cursor >= pinnedAt, keyedPlace)
+        else
+            return false
         return true
     }
 
-    DriveMenu {
-        id: driveMenu
-        onOpenRequested: (path) => { sidebar.target.navigate(path); sidebar.finished() }
-        onFormatRequested: (disk) => sidebar.formatRequested(disk)
+    Loader {
+        id: placeMenuLoader
+        active: false
+        visible: false
+        source: "PlaceMenu.qml"
+    }
+    Connections {
+        target: placeMenuLoader.item
+        function onRenameRequested(path) { sidebar.renameRequested(path) }
+        function onDeleteRequested(path) { sidebar.deleteRequested(path) }
+        function onTrashRequested(path) { sidebar.trashRequested(path) }
+    }
+
+    Loader {
+        id: driveMenuLoader
+        active: false
+        visible: false
+        source: "DriveMenu.qml"
+    }
+    Connections {
+        target: driveMenuLoader.item
+        function onOpenRequested(path) { sidebar.go(path); sidebar.finished() }
+        function onFormatRequested(disk) { sidebar.formatRequested(disk) }
     }
 
     // The deepest place the current folder sits under.
@@ -141,12 +186,12 @@ Rectangle {
         function onFailed(message) { sidebar.target.showMessage(message) }
     }
 
-    component SectionLabel: Text {
+    component SectionLabel: FolioText {
         Layout.topMargin: 21
         Layout.leftMargin: 14
         Layout.bottomMargin: 6
         color: theme.secondaryForeground
-        font.pixelSize: 11
+        size: 11
         font.letterSpacing: 1.3
         font.capitalization: Font.AllUppercase
     }
@@ -218,30 +263,31 @@ Rectangle {
                 spacing: 2
                 // Set, so that they're mirrored: left as they are, Latin
                 // text would follow its own script and stay on the left.
-                Text {
+                FolioText {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignLeft
                     text: row.text
+                    textFormat: Text.PlainText
                     elide: Text.ElideRight
                     color: row.active ? theme.brightForeground : theme.foreground
                 }
-                Text {
+                FolioText {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignLeft
                     visible: row.detail.length > 0
                     text: row.detail
                     elide: Text.ElideRight
                     color: theme.secondaryForeground
-                    font.pixelSize: 11
+                    size: 11
                 }
             }
-            Text {
+            FolioText {
                 readonly property string said: row.mark ? row.mark.status : row.status
                 visible: said.length > 0
                 text: said
                 color: !row.mark ? row.statusColor : row.mark.tone === "error" ? theme.red
                      : row.mark.tone === "warning" ? theme.yellow : theme.secondaryForeground
-                font.pixelSize: 11
+                size: 11
             }
         }
     }
@@ -256,13 +302,7 @@ Rectangle {
 
     Flickable {
         id: flick
-        // Stops above the ? in the corner, so a scrolled row never slides
-        // under it.
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: help.top
-        anchors.bottomMargin: 4
+        anchors.fill: parent
         contentHeight: column.implicitHeight + 20
         clip: true
         boundsBehavior: Flickable.StopAtBounds
@@ -282,11 +322,13 @@ Rectangle {
                      : homeHover.hovered ? theme.foreground : theme.secondaryForeground
                 Accessible.role: Accessible.Button
                 HoverHandler { id: homeHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: sidebar.target.navigate(places.home) }
+                TapHandler { onTapped: sidebar.go(places.home) }
             }
             Repeater {
+                id: homeRows
                 model: places.places
                 PlaceRow {
+                    id: homeRow
                     required property var modelData
                     required property int index
                     dropPath: modelData.path
@@ -296,7 +338,11 @@ Rectangle {
                     text: modelData.name
                     glyph: modelData.icon
                     active: sidebar.activePath === modelData.path
-                    onClicked: sidebar.target.navigate(modelData.path)
+                    onClicked: sidebar.go(modelData.path)
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: sidebar.showPlaceMenu(homeRow.modelData, false, null)
+                    }
                 }
             }
 
@@ -305,6 +351,7 @@ Rectangle {
             // empty) as the place to drop it.
             SectionLabel { text: qsTr("Pinned"); visible: places.pinned.length > 0 || sidebar.dragging }
             Repeater {
+                id: pinRows
                 model: places.pinned
                 PlaceRow {
                     id: pinRow
@@ -317,11 +364,15 @@ Rectangle {
                     text: modelData.name
                     glyph: modelData.icon
                     active: sidebar.activePath === modelData.path
-                    onClicked: sidebar.target.navigate(modelData.path)
+                    onClicked: sidebar.go(modelData.path)
                     // The name ends short of the unpin button while it shows:
                     // hovered, or on the keyboard's row, where Delete does
                     // the same.
                     endPadding: unpin.visible ? unpin.implicitWidth + 6 : 14
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: sidebar.showPlaceMenu(pinRow.modelData, true, null)
+                    }
                     IconButton {
                         id: unpin
                         anchors.right: parent.right
@@ -343,11 +394,11 @@ Rectangle {
                 border.width: pinDrop.containsDrag ? 2 : 1
                 border.color: theme.accent
                 radius: Math.min(4, theme.radius)
-                Text {
+                FolioText {
                     anchors.centerIn: parent
                     text: qsTr("Drop to pin")
                     color: theme.accent
-                    font.pixelSize: 12
+                    size: 12
                 }
                 DropArea {
                     id: pinDrop
@@ -376,7 +427,7 @@ Rectangle {
                     text: modelData.icon === "trash" ? qsTr("Trash") : qsTr("Recents")
                     glyph: modelData.icon
                     active: sidebar.activePath === modelData.path
-                    onClicked: sidebar.target.navigate(modelData.path)
+                    onClicked: sidebar.go(modelData.path)
                     keyed: sidebar.activeFocus && sidebar.cursor === sidebar.viewsAt + index
                     onKeyedChanged: if (keyed) sidebar.reveal(this)
                 }
@@ -401,14 +452,14 @@ Rectangle {
                     text: modelData.name
                     glyph: eject.visible ? "" : modelData.icon
                     active: sidebar.activePath === modelData.path
-                    onClicked: sidebar.target.navigate(modelData.path)
+                    onClicked: sidebar.go(modelData.path)
                     detail: {
                         translator.language // Re-read when the language (and so its digits) changes.
                         return modelData.free < 0 ? "" : Format.free(modelData.free)
                     }
                     TapHandler {
                         acceptedButtons: Qt.RightButton
-                        onTapped: driveMenu.show(driveRow.modelData, null)
+                        onTapped: sidebar.showDriveMenu(driveRow.modelData, null)
                     }
                     IconButton {
                         id: eject
@@ -479,47 +530,10 @@ Rectangle {
                             return section.modelData.view ? section.modelData.view.count.toLocaleString(Qt.locale(), "f", 0) : ""
                         }
                         statusColor: theme.secondaryForeground
-                        onClicked: sidebar.target.navigate(section.modelData.view.path)
+                        onClicked: sidebar.go(section.modelData.view.path)
                     }
                 }
             }
-        }
-    }
-
-    // A quiet ? in the corner, for finding the shortcuts without knowing
-    // the key that shows them.
-    AbstractButton {
-        id: help
-        anchors.left: parent.left
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: 18
-        anchors.bottomMargin: 12
-        implicitWidth: 24
-        implicitHeight: 24
-        focusPolicy: Qt.NoFocus
-        hoverEnabled: true
-        text: qsTr("Keyboard shortcuts")
-        Accessible.name: text
-        onClicked: sidebar.helpRequested()
-        ToolTip {
-            visible: help.hovered
-            delay: 600
-            text: help.text
-            enter: null
-            exit: null
-        }
-        contentItem: Text {
-            text: "?"
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            font.pixelSize: 13
-            color: help.hovered ? theme.foreground : Qt.alpha(theme.secondaryForeground, 0.6)
-        }
-        background: Rectangle {
-            radius: width / 2
-            color: "transparent"
-            border.width: 1
-            border.color: help.hovered ? theme.foreground : Qt.alpha(theme.secondaryForeground, 0.4)
         }
     }
 }

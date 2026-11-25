@@ -1,0 +1,13 @@
+<RCC>
+  <qresource prefix="/">
+    <file>Main.qml</file>
+    <file>CardTable.qml</file>
+    <file>PlayingCard.qml</file>
+    <file>CardBack.qml</file>
+    <file>Suit.qml</file>
+    <file alias="cards.svg">../share/cards.svg</file>
+    <file>i18n/en.json</file>
+    <file>i18n/da.json</file>
+    <file>i18n/ar.json</file>
+  </qresource>
+</RCC>

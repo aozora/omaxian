@@ -28,6 +28,32 @@ Item {
 
     function select(start, end) { area.select(start, end) }
 
+    // Where paging left the cursor, and the column it pages in: kept across
+    // Page Up and Down, so a short line on the way doesn't lose it, and
+    // forgotten once the cursor moves some other way.
+    property int pagedTo: -1
+    property real pageX: 0
+
+    // A screenful down (1) or up (-1) in whole lines, less one to keep its
+    // place: the view scrolls by it and the cursor moves by it, so the
+    // cursor stays where it was on screen; past the first or last
+    // screenful, it goes to the start or end.
+    function page(direction, extend) {
+        const cursor = area.cursorRectangle
+        if (area.cursorPosition !== pagedTo)
+            pageX = cursor.x
+        const lineHeight = Math.max(1, cursor.height)
+        const step = Math.max(1, Math.floor(flick.height / lineHeight) - 1) * lineHeight
+        flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height, flick.contentY + direction * step))
+        const y = cursor.y + cursor.height / 2 + direction * step
+        const position = y < 0 ? 0 : y > area.height ? area.length : area.positionAt(pageX, y)
+        if (extend)
+            area.moveCursorSelection(position, TextEdit.SelectCharacters)
+        else
+            area.cursorPosition = position
+        pagedTo = area.cursorPosition
+    }
+
     function updateVisibleLines() {
         firstLine = editing.lineOf(area.positionAt(0, flick.contentY))
         lastLine = editing.lineOf(area.positionAt(0, flick.contentY + flick.height))
@@ -44,7 +70,16 @@ Item {
         property int line: 1
         function onAboutToReload() { line = editing.lineOf(area.cursorPosition) }
         function onReloaded() { area.cursorPosition = editing.positionOfLine(line) }
-        function onFileChanged() { view.updateVisibleLines() }
+        function onFileChanged() {
+            // Qt's TextEdit puts the cursor at the end as it turns editable,
+            // as a file it refused to open opens anyway: it stays put instead.
+            if (area.readOnly === doc.editable) {
+                const position = area.cursorPosition
+                area.readOnly = !doc.editable
+                area.cursorPosition = position
+            }
+            view.updateVisibleLines()
+        }
     }
 
     Rectangle {
@@ -58,13 +93,19 @@ Item {
         color: theme.background
         clip: true
 
+        // As many numbers as lines could fit on screen, which changes only
+        // with the window's height or the text size. Following the lines
+        // actually shown instead rebuilt every number on most scroll steps
+        // with wrap on, where that count changes as long lines pass.
         Repeater {
-            model: Math.max(0, view.lastLine - view.firstLine + 1)
+            objectName: "lineNumbers"
+            model: Math.ceil(flick.height / Math.max(1, metrics.height)) + 2
             delegate: Text {
                 required property int index
                 readonly property int line: view.firstLine + index
+                visible: line <= view.lastLine
                 // Re-read when anything moves the lines.
-                y: { flick.contentY; area.contentHeight; area.width; return area.positionToRectangle(editing.positionOfLine(line)).y - flick.contentY }
+                y: { if (!visible) return 0; flick.contentY; area.contentHeight; area.width; return area.positionToRectangle(editing.positionOfLine(line)).y - flick.contentY }
                 anchors.right: parent.right
                 anchors.rightMargin: 14
                 text: line
@@ -77,6 +118,7 @@ Item {
 
     Flickable {
         id: flick
+        objectName: "editorFlick"
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.left: gutter.right
@@ -92,14 +134,14 @@ Item {
         onHeightChanged: view.updateVisibleLines()
 
         // Shown whenever there's more to scroll to, not only while scrolling.
-        ScrollBar.vertical: ScrollBar { policy: flick.visibleArea.heightRatio < 1 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
-        ScrollBar.horizontal: ScrollBar { policy: flick.visibleArea.widthRatio < 1 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
+        ScrollBar.vertical: ThinScrollBar { ratio: flick.visibleArea.heightRatio }
+        ScrollBar.horizontal: ThinScrollBar { ratio: flick.visibleArea.widthRatio }
 
         TextArea.flickable: TextArea {
             id: area
             textFormat: TextEdit.PlainText
             wrapMode: view.wrap ? TextEdit.Wrap : TextEdit.NoWrap
-            readOnly: !doc.editable
+            // readOnly follows doc.editable through onFileChanged above.
             persistentSelection: true
             selectByMouse: true
             font.family: "monospace"
@@ -132,7 +174,18 @@ Item {
             // Keys the editor handles itself. Left alone while an input
             // method is composing, so it can use Enter, Tab and Escape.
             Keys.onPressed: function(event) {
-                if (area.inputMethodComposing || area.readOnly)
+                if (area.inputMethodComposing)
+                    return
+                // Page Up/Down, which TextEdit leaves alone: a screenful,
+                // keeping the cursor at the same place on screen, and
+                // selecting with Shift. Read-only files page too.
+                if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown)
+                        && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
+                    view.page(event.key === Qt.Key_PageDown ? 1 : -1, event.modifiers & Qt.ShiftModifier)
+                    event.accepted = true
+                    return
+                }
+                if (area.readOnly)
                     return
                 const plain = !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
                 if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && plain) {
@@ -148,7 +201,7 @@ Item {
                     else
                         area.cursorPosition = editing.replace(area.selectionStart, area.selectionEnd, doc.indentUnit)
                     event.accepted = true
-                } else if (event.key === Qt.Key_Backtab) {
+                } else if (event.key === Qt.Key_Backtab && plain) {
                     editing.outdent(area.selectionStart, area.selectionEnd)
                     event.accepted = true
                 }

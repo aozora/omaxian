@@ -256,8 +256,15 @@ function serializeWallpaperSettings(settings) {
 
 function normalizeLockMode(mode) {
   var m = String(mode === undefined || mode === null ? "" : mode).trim()
-  if (m === "image" || m === "random" || m === "blur") return m
+  if (m === "image" || m === "random" || m === "blur" || m === "slideshow") return m
   return "blur"
+}
+
+// Seconds per slideshow image; matches i3lock-omaxian's 5–3600 clamp.
+function normalizeLockInterval(interval) {
+  var n = Number(interval)
+  if (!isFinite(n)) return 30
+  return Math.max(5, Math.min(3600, Math.round(n)))
 }
 
 function normalizeLockEffect(effect, mode) {
@@ -279,7 +286,8 @@ function parseLockSettings(raw) {
     image: (typeof source.image === "string") ? source.image.trim() : "",
     folder: (typeof source.folder === "string") ? source.folder.trim() : "",
     effect: normalizeLockEffect(source.effect, mode),
-    greyscale: source.greyscale === true
+    greyscale: source.greyscale === true,
+    interval: normalizeLockInterval(source.interval)
   }
 }
 
@@ -291,7 +299,8 @@ function serializeLockSettings(settings) {
     image: (typeof s.image === "string") ? s.image.trim() : "",
     folder: (typeof s.folder === "string") ? s.folder.trim() : "",
     effect: normalizeLockEffect(s.effect, mode),
-    greyscale: s.greyscale === true
+    greyscale: s.greyscale === true,
+    interval: normalizeLockInterval(s.interval)
   }, null, 2) + "\n"
 }
 
@@ -299,7 +308,8 @@ function lockModeOptions() {
   return [
     { value: "blur", label: "Screenshot" },
     { value: "image", label: "Fixed image" },
-    { value: "random", label: "Random from folder" }
+    { value: "random", label: "Random from folder" },
+    { value: "slideshow", label: "Slideshow from folder" }
   ]
 }
 

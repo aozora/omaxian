@@ -1,0 +1,91 @@
+# Blueprints
+
+Blueprints are saved theme configurations that you can restore anytime.
+
+## What's Saved
+
+A blueprint stores:
+
+- **16-color palette** (hex values)
+- **Extended colors** (accent, cursor, selection)
+- **Wallpaper path** (local file or wallhaven URL)
+- **Wallpaper blur choice**, with the original source path
+- **Color adjustments** (all slider values)
+- **App overrides** (per-app color customizations)
+- **Settings** (which apps to include)
+- **Light/dark mode** setting
+- **Locked colors** (which colors to preserve during re-extraction)
+
+## Saving a Blueprint
+
+1. Create your theme (wallpaper + colors)
+2. Click **Save Current** in the Blueprints tab
+3. Enter a name
+4. Blueprint appears in the list
+
+## Loading a Blueprint
+
+1. Open the **Blueprints** tab and load a saved theme, or press **Ctrl+P** and search its name.
+2. The palette, extended/native colors, wallpaper path, overrides, color locks, and light/dark mode load into the editor.
+3. Review the result, then apply it when ready. Loading a blueprint turns off Live Apply so browsing saved themes does not change your desktop.
+
+The command palette shows color previews beside blueprint results. Use the arrow keys and Enter to load, or Escape to close and return focus to the previous control. Commands remain available if the blueprint library cannot be loaded.
+
+Saved palettes contain the final, already-adjusted colors, not the original extraction baseline. The editor treats those colors as a fresh baseline and resets sliders and curves on load, so later adjustments do not apply the saved adjustments twice. Saved adjustment values remain in the blueprint file as metadata.
+
+## Storage Location
+
+Blueprints are JSON files at:
+
+```
+~/.config/aether/blueprints/
+├── my-theme.json
+├── dark-forest.json
+└── ocean-vibes.json
+```
+
+## Blueprint Format
+
+```json
+{
+  "name": "My Theme",
+  "timestamp": 1703001234567,
+  "palette": {
+    "colors": ["#1a1b26", "#f7768e", "..."],
+    "wallpaper": "/path/to/wallpaper.jpg",
+    "wallpaperBlur": false,
+    "wallpaperUrl": "https://wallhaven.cc/...",
+    "lightMode": false,
+    "extendedColors": {
+      "accent": "#89b4fa",
+      "cursor": "#cdd6f4",
+      "selection_foreground": "#1e1e2e",
+      "selection_background": "#cdd6f4"
+    },
+    "lockedColors": [0, 15]
+  },
+  "adjustments": {
+    "vibrance": 10,
+    "contrast": 5
+  },
+  "settings": {
+    "includeNeovim": true
+  }
+}
+```
+
+## Import an Omarchy theme
+
+Use `Import` on an Omarchy theme to load its colors, icon choice, and wallpapers into the editor.
+Aether creates its own managed output when you save the result.
+The source theme remains available in the theme library.
+
+The theme-folder dialog checks the selected name before it saves.
+An existing folder requires `Update and Apply` confirmation.
+Aether refuses to replace a theme folder that it does not manage.
+
+## Tips
+
+- Name blueprints descriptively (e.g., "Nord Dark", "Summer Vibes")
+- Delete unused blueprints to keep the list clean
+- Blueprints work across machines if wallpapers are accessible

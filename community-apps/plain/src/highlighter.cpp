@@ -7,7 +7,6 @@
 #include <QTextBlock>
 #include <QTextDocument>
 #include <QTextLayout>
-#include <cctype>
 #include <functional>
 
 namespace {
@@ -107,12 +106,17 @@ const Spec &spec(const QString &language) {
 }
 
 // Block states carried from line to line: inside a block comment, a TOML
-// multi-line string, or a Lua long comment or string of a given level.
-enum State { Normal = 0, InBlockComment = 1, InTripleDouble = 2, InTripleSingle = 3,
-             LuaLongComment = 100, LuaLongString = 200 };
+// multi-line string, or a Lua long comment (even) or string (odd) of a level.
+enum State { Normal = 0, InBlockComment = 1, InTripleDouble = 2, InTripleSingle = 3, LuaLong = 100 };
+
+int luaLongState(int level, bool string) { return LuaLong + level * 2 + (string ? 1 : 0); }
 
 bool isIdentStart(QChar c) { return c.isLetter() || c == '_'; }
 bool isIdent(QChar c) { return c.isLetterOrNumber() || c == '_' || c == '-' || c == '.'; }
+bool isHexDigit(QChar c) {
+    const ushort u = c.unicode();
+    return (u >= '0' && u <= '9') || (u >= 'a' && u <= 'f') || (u >= 'A' && u <= 'F');
+}
 
 // Lua's [[, [=[, [==[ ...: the level, or -1 when position isn't one.
 int longBracketLevel(const QString &text, qsizetype i) {
@@ -151,11 +155,12 @@ int scan(const Spec &s, const QString &text, int state, const Emit &emitToken) {
         return InTripleDouble;
     if (state == InTripleSingle && !closeLong("'''", Highlighter::String))
         return InTripleSingle;
-    if (state >= LuaLongComment && state < LuaLongString
-        && !closeLong(luaClose(state - LuaLongComment), Highlighter::Comment))
-        return state;
-    if (state >= LuaLongString && !closeLong(luaClose(state - LuaLongString), Highlighter::String))
-        return state;
+    if (state >= LuaLong) {
+        const bool string = (state - LuaLong) & 1;
+        const int level = (state - LuaLong) / 2;
+        if (!closeLong(luaClose(level), string ? Highlighter::String : Highlighter::Comment))
+            return state;
+    }
 
     // Views, not copies: the scan looks at every character, and copying the
     // rest of the line at each one made a long line quadratic.
@@ -199,7 +204,7 @@ int scan(const Spec &s, const QString &text, int state, const Emit &emitToken) {
                 const qsizetype end = text.indexOf(close, i);
                 if (end < 0) {
                     emitToken(start, n - start, Highlighter::Comment);
-                    return LuaLongComment + level;
+                    return luaLongState(level, false);
                 }
                 emitToken(start, end + close.size() - start, Highlighter::Comment);
                 i = end + close.size();
@@ -236,7 +241,7 @@ int scan(const Spec &s, const QString &text, int state, const Emit &emitToken) {
                 const qsizetype end = text.indexOf(close, i + level + 2);
                 if (end < 0) {
                     emitToken(i, n - i, Highlighter::String);
-                    return LuaLongString + level;
+                    return luaLongState(level, true);
                 }
                 emitToken(i, end + close.size() - i, Highlighter::String);
                 i = end + close.size();
@@ -292,7 +297,7 @@ int scan(const Spec &s, const QString &text, int state, const Emit &emitToken) {
         }
         if (s.hexColors && c == '#') {
             qsizetype j = i + 1;
-            while (j < n && isxdigit(text.at(j).toLatin1()))
+            while (j < n && isHexDigit(text.at(j)))
                 ++j;
             if (j - i == 4 || j - i == 7 || j - i == 9) {
                 emitToken(i, j - i, Highlighter::Number);

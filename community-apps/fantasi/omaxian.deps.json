@@ -1,0 +1,40 @@
+{
+  "apt": [
+    "qml6-module-qtcore",
+    "qml6-module-qtquick",
+    "qml6-module-qtquick-controls",
+    "qml6-module-qtquick-layouts",
+    "qml6-module-qtquick-templates",
+    "qml6-module-qtquick-window",
+    "qml6-module-qtquick-shapes",
+    "qml6-module-qtquick-effects",
+    "qml6-module-qtqml",
+    "qml6-module-qtqml-workerscript",
+    "qml6-module-qtmultimedia",
+    "libqt6multimedia6",
+    "libqt6network6",
+    "libqt6dbus6",
+    "libqt6concurrent6",
+    "qt6-qpa-plugins",
+    "qt6-svg-plugins",
+    "hicolor-icon-theme",
+    "xdg-desktop-portal",
+    "xdg-desktop-portal-gtk"
+  ],
+  "apt_build": [
+    "build-essential",
+    "cmake",
+    "pkg-config",
+    "qt6-base-dev",
+    "qt6-declarative-dev",
+    "qt6-multimedia-dev",
+    "qt6-shadertools-dev"
+  ],
+  "manual": [
+    "The models come from the local model engine: install community-apps/omarchy-local-ai/install.sh first (Podman). Only the music model (ACE-Step) has been run on Omaxian; image and video models are untested.",
+    "Needs omarchy-models on PATH (~/.local/bin).",
+    "Add-a-picture uses the xdg-desktop-portal FileChooser; install a portal backend (xdg-desktop-portal-gtk).",
+    "Hyprland monitor sizing is skipped without HYPRLAND_INSTANCE_SIGNATURE, so the default 1344x768 target is used on i3.",
+    "Audio and video go through Qt Multimedia's FFmpeg backend."
+  ]
+}

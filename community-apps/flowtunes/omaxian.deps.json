@@ -1,0 +1,34 @@
+{
+  "apt": [
+    "qml6-module-qtquick",
+    "qml6-module-qtquick-controls",
+    "qml6-module-qtquick-layouts",
+    "qml6-module-qtquick-templates",
+    "qml6-module-qtquick-window",
+    "qml6-module-qtqml",
+    "qml6-module-qtqml-workerscript",
+    "qml6-module-qtmultimedia",
+    "libqt6multimedia6",
+    "libqt6network6",
+    "libqt6dbus6",
+    "qt6-qpa-plugins",
+    "qt6-svg-plugins",
+    "hicolor-icon-theme"
+  ],
+  "apt_build": [
+    "build-essential",
+    "cmake",
+    "pkg-config",
+    "qt6-base-dev",
+    "qt6-declarative-dev",
+    "qt6-multimedia-dev",
+    "qt6-shadertools-dev"
+  ],
+  "manual": [
+    "The music comes from the local model engine: install community-apps/omarchy-local-ai/install.sh first (Podman, ~8 GiB of ACE-Step weights). Without it Flowtunes shows its set-up screen.",
+    "Needs omarchy-agent-local on PATH (~/.local/bin).",
+    "Audio goes through Qt Multimedia's FFmpeg backend to PulseAudio / PipeWire.",
+    "Media keys and the bar's now-playing use MPRIS on the session D-Bus.",
+    "Corner rounding from Hyprland is skipped without HYPRLAND_INSTANCE_SIGNATURE, so corners stay square on i3."
+  ]
+}

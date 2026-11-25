@@ -112,6 +112,8 @@ REQUIRED=(
 	qml6-module-qtquick-shapes
 	qml6-module-qt-labs-folderlistmodel
 	qml6-module-qtquick-effects
+	# Qt WebP/TIFF decoders — stock theme backgrounds are .webp (wallpaper thumbnails)
+	qt6-image-formats-plugins
 	# fonts + icons
 	fontconfig fonts-jetbrains-mono fonts-noto-color-emoji papirus-icon-theme
 )
@@ -135,8 +137,8 @@ RECOMMENDED=(
 	acpi qrencode gpick redshift
 	# power manager started by i3_autostart
 	xfce4-power-manager
-	# fancy locker + Intel backlight path + `light` fallback
-	i3lock-fancy xbacklight light
+	# fancy locker, slideshow lock (xsecurelock + mpv) + Intel backlight path + `light` fallback
+	i3lock-fancy xsecurelock mpv xbacklight light
 	# bar keyboard-layout click-to-cycle (falls back to xdotool / setxkbmap)
 	xkb-switch
 	# themed system fetch (omarchy-theme-set → ~/.config/fastfetch/config.jsonc)

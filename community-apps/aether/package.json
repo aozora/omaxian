@@ -1,0 +1,21 @@
+{
+  "private": true,
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.0.0",
+    "lint-staged": "^15.0.0",
+    "prettier": "^3.4.2",
+    "prettier-plugin-svelte": "^3.5.0",
+    "prettier-plugin-tailwindcss": "^0.6.0"
+  },
+  "lint-staged": {
+    "frontend/**/*.{ts,js,svelte,css,html}": [
+      "prettier --write"
+    ],
+    "*.go": [
+      "gofmt -w"
+    ]
+  }
+}

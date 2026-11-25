@@ -1,0 +1,33 @@
+#!/bin/bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+# Keep source checkouts buildable before the package recipe is published.
+if command -v pacman >/dev/null; then
+  deps=(cmake gcc make hicolor-icon-theme qt6-base qt6-declarative qt6-quick3d qt6-svg qt6-wayland xorg-server-xvfb xorg-xauth mesa ttf-dejavu)
+  missing=()
+  for dependency in "${deps[@]}"; do
+    if ! pacman -Q "$dependency" &>/dev/null; then
+      missing+=("$dependency")
+    fi
+  done
+  if (( ${#missing[@]} )); then
+    printf 'Installing missing build dependencies: %s\n' "${missing[*]}"
+    if command -v omarchy-pkg-add >/dev/null; then
+      omarchy-pkg-add "${missing[@]}"
+    elif (( EUID == 0 )); then
+      pacman -S --needed --noconfirm -- "${missing[@]}"
+    else
+      sudo pacman -S --needed --noconfirm -- "${missing[@]}"
+    fi
+    for dependency in "${missing[@]}"; do
+      if ! pacman -Q "$dependency" &>/dev/null; then
+        printf 'Dependency installation failed: %s\n' "$dependency" >&2
+        exit 1
+      fi
+    done
+  fi
+fi
+
+cmake -S "$root" -B "$root/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build "$root/build" -j"$(nproc)"

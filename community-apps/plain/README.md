@@ -2,10 +2,11 @@
 
 Qt Quick text editor for config files: one window, one file, conventional
 keys (Ctrl+S / Z / F), Omarchy theme and language. Atomic saves, symlink-safe,
-UTF-8 only.
+UTF-8 only. Upstream 0.4.x adds a folder sidebar (Ctrl+B), rename/duplicate
+in the files, and related editor polish.
 
-Port of [omacom/plain](https://github.com/omacom/plain) 0.3.3
-(upstream commit `9a24d38`, pinned in `.omaxian-upstream-commit`). Full upstream
+Port of [omacom/plain](https://github.com/omacom/plain) **0.4.1**
+(upstream commit `7ad163e`, pinned in `.omaxian-upstream-commit`). Full upstream
 docs: [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
@@ -61,6 +62,7 @@ Monologue/Signed), it uses that prefix via `CMAKE_PREFIX_PATH`.
 
 Open **Text Editor** from the launcher, or `plain path/to/file`. Works as
 `$EDITOR` / `$VISUAL` / `$SUDO_EDITOR` (foreground until the window closes).
+`plain path/to/folder` opens with the files sidebar shown.
 
 After install, make it the desktop default (config menu, MIME, `$EDITOR`):
 
@@ -76,13 +78,14 @@ missing). Setup → Default → Editor lists Plain first.
 
 1. `plain --version` prints a version without needing a display.
 2. `plain /tmp/plain-smoke.txt` opens a window; Ctrl+S writes the file; Ctrl+W closes.
-3. Switch theme (`omarchy-theme-set …`). The accent should follow. Corners stay square on i3.
-4. Ctrl+O / Ctrl+Shift+S need a working xdg-desktop-portal (GTK backend).
+3. Ctrl+B toggles the files sidebar; open a folder path to start with it shown.
+4. Switch theme (`omarchy-theme-set …`). The accent should follow. Corners stay square on i3.
+5. Ctrl+O / Ctrl+Shift+S need a working xdg-desktop-portal (GTK backend).
 
 ## Uninstall
 
 ```bash
-rm -f ~/.local/bin/plain
+rm -f ~/.local/bin/plain ~/.local/libexec/plain
 rm -f ~/.local/share/applications/plain.desktop
 rm -f ~/.local/share/icons/hicolor/scalable/apps/plain.svg
 ```

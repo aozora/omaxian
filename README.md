@@ -231,7 +231,8 @@ work differently or are missing:
   keybind, or a re-summon.
 - **Lock screen is `i3lock-omaxian`, not Omarchy’s Wayland session-lock plugin.**
   Settings → Lock screen sets appearance (screenshot / image / random, blur
-  effects) and optional idle auto-lock via `xss-lock` + `xset`. Manual lock
+  effects, or a rotating slideshow locked by `xsecurelock`) and optional idle
+  auto-lock via `xss-lock` + `xset`. Manual lock
   remains Super+Ctrl+L. There is no in-shell password UI or fingerprint PAM.
   Lid close / suspend locking is owned by `xss-lock -l` (not
   `xfce4-power-manager` / `xfce4-screensaver`), so you should not see a second
@@ -270,7 +271,8 @@ The full skip list is in [`docs/omarchy-port/deltas.md`](docs/omarchy-port/delta
   the bundled fonts (otherwise the bar shows tofu). A display manager is **not**
   packaged; use whatever already starts your X session.
 - **Recommended (default `setup.sh`):** `imagemagick` + `maim` (lock compose /
-  screenshots for `i3lock-omaxian`), `i3lock-fancy` (fallback locker),
+  screenshots for `i3lock-omaxian`), `xsecurelock` + `mpv` (slideshow lock),
+  `i3lock-fancy` (fallback locker),
   `fastfetch`, plus the other screenshot / media / Bluetooth tools in that script.
 - **`python3-xlib`:** without it, typing in the Omarchy menu does nothing.
 - **`python3-i3ipc`:** alternating split layout (`alternating_layouts.py`).
@@ -300,7 +302,8 @@ Instead of manually build it you can add the backports:
 sudo apt update
 sudo apt install -t trixie-backports quickshell
 sudo apt install qml6-module-qtquick-shapes \
-  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
+  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects \
+  qt6-image-formats-plugins
 ```
 
 ### Devuan Excalibur
@@ -311,7 +314,8 @@ sudo apt install qml6-module-qtquick-shapes \
 sudo apt update
 sudo apt install -t excalibur-backports quickshell
 sudo apt install qml6-module-qtquick-shapes \
-  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects
+  qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-effects \
+  qt6-image-formats-plugins
 ```
 
 ---
@@ -360,6 +364,7 @@ README (or Menu → Setup → Plugins).
 | [Omamail](community-plugins/omamail/) | Gmail / HEY / JMAP / IMAP client with Rust backend |
 | [Voxtype Aura](community-plugins/io.github.adamcbrewer.voxtype-aura/) | Voxtype dictation overlay |
 | [Calculator](community-plugins/io.github.canclini.calculator/) | Spotlight-style quick calculator |
+| [Bose QC Ultra](community-plugins/io.github.borferkic.bose/) | Bose headphone battery, modes, ANC and EQ |
 
 Details, upstream links, and install steps:
 [`community-plugins/README.md`](community-plugins/README.md).
@@ -383,6 +388,11 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | [Omacut](community-apps/omacut/) | Video trimmer/editor (ffmpeg export) |
 | [Omawrite](community-apps/omawrite/) | Markdown writing app with auto-save and Omarchy theme |
 | [Folio](community-apps/folio/) | File manager: grid/list/columns, Space previews, Omarchy theme |
+| [Omaview](community-apps/omaview/) | Picture viewer and media player (Media Viewer in the launcher) |
+| [Hype](community-apps/hype/) | Markdown presentations with a visual slide editor; export to PDF or PowerPoint |
+| [Cards](community-apps/cards/) | Klondike solitaire in four card series |
+| [Checkmate](community-apps/checkmate/) | 3D chess for one or two players |
+| [Aether](community-apps/aether/) | Theme maker: extract a palette from a wallpaper and apply it as an Omarchy theme |
 
 Details: [`community-apps/README.md`](community-apps/README.md).
 

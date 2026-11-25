@@ -131,7 +131,7 @@ QString detailsKey(const QString &plugin, const QString &path, const QDateTime &
     return plugin + '\n' + path + '\n' + QString::number(modified.toMSecsSinceEpoch());
 }
 
-// Rows for the details pane, [label, value] each: the label is the
+// Rows for the details column, [label, value] each: the label is the
 // plugin's text, translated; the value is shown as it is.
 QVariantList rowsOf(const Plugins::Manifest &plugin, const QJsonArray &rows) {
     QVariantList shown;
@@ -173,7 +173,7 @@ QStringList Plugins::defaultFolders() {
     const QString checkout = QCoreApplication::applicationDirPath() + "/..";
     if (packaged.isEmpty())
         packaged = QFileInfo::exists(checkout + "/CMakeLists.txt") ? QDir::cleanPath(checkout + "/plugins")
-                                                              : QStringLiteral("/usr/share/folio/plugins");
+                                                              : QStringLiteral(FOLIO_PACKAGED_PLUGINS);
     return {packaged, QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/folio/plugins"};
 }
 

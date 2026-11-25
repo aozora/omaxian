@@ -6,6 +6,13 @@
 folio/src/FolderColumns.qml|Property "path" does not exist
 folio/src/FolderColumns.qml|Property "showHidden" does not exist
 folio/src/FolderColumns.qml|Property "sortMode" does not exist
+folio/src/FolderColumns.qml|Property "filter" does not exist
+
+# Folio: KineticScroll (src/kineticscroll.h)
+folio/src/FileListView.qml|Property "target" does not exist
+folio/src/FolderGrid.qml|Property "target" does not exist
+folio/src/FolderColumns.qml|Property "target" does not exist
+folio/src/FolderColumns.qml|Property "horizontal" does not exist
 
 # Signed: TextItem (C++ QQuickPaintedItem)
 signed/src/PlacedItem.qml|Property "fill" does not exist
@@ -13,3 +20,22 @@ signed/src/PlacedItem.qml|Property "visible" does not exist
 signed/src/PlacedItem.qml|Property "text" does not exist
 signed/src/PlacedItem.qml|Property "fontSize" does not exist
 signed/src/PlacedItem.qml|Property "zoom" does not exist
+# Hype: hasChecks is declared on its own Menu (Main.qml), which qmllint types as QQuickMenu.
+hype/src/Main.qml|Member "hasChecks" not found on type "QQuickMenu"
+
+# Checkmate: SurfaceTexture (src/surfacetexture.h)
+checkmate/src/BoardView.qml|Property "style" does not exist
+# Checkmate: Repeater3D.objectAt returns QQuick3DObject; fidget() is on ChessPiece.qml
+checkmate/src/BoardView.qml|Member "fidget" not found on type "QQuick3DObject"
+
+# Omareel: FrameSource (src/render/FrameSource.h, a QQuickItem with cropRect / cornerRadiusRatio)
+omareel/src/ui/qml/CameraOverlay.qml|Property "objectName" does not exist
+omareel/src/ui/qml/CameraOverlay.qml|Property "visible" does not exist
+omareel/src/ui/qml/CameraOverlay.qml|Property "fill" does not exist
+omareel/src/ui/qml/CameraOverlay.qml|Property "cropRect" does not exist
+omareel/src/ui/qml/CameraOverlay.qml|Property "cornerRadiusRatio" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "objectName" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "fill" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "visible" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "cropRect" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "cornerRadiusRatio" does not exist

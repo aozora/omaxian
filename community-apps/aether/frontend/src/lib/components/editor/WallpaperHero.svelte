@@ -1,0 +1,514 @@
+<script lang="ts">
+    import {
+        getWallpaperPath,
+        getIsExtracting,
+        setWallpaperPath,
+        setColor,
+        setExtendedColor,
+        setAppOverride,
+        getAdditionalImages,
+        getBlurredWallpaperPath,
+        setBlurredWallpaper,
+        getWallpaperBlur,
+        setWallpaperBlur,
+        getWallpaperRevision,
+    } from '$lib/stores/theme.svelte';
+    import {extractColors} from '$lib/actions/themeActions';
+    import {
+        showToast,
+        getEyedropperActive,
+        setEyedropperActive,
+        getColorPickerIndex,
+        getColorPickerExtKey,
+        getColorPickerOverrideApp,
+        getColorPickerOverrideRole,
+    } from '$lib/stores/ui.svelte';
+    import {
+        getCachedFullImage,
+        loadFullImage,
+        isPending,
+    } from '$lib/stores/imagecache.svelte';
+    import ImagePreview from '$lib/components/shared/ImagePreview.svelte';
+
+    let {onedit, expanded = false}: {onedit?: () => void; expanded?: boolean} =
+        $props();
+
+    let wallpaperPath = $derived(getWallpaperPath());
+    let blurredPath = $derived(getBlurredWallpaperPath());
+    // The blurred variant is what gets applied, so it is what the hero shows.
+    // Extraction still uses wallpaperPath (the unblurred original).
+    let displayPath = $derived(blurredPath || wallpaperPath);
+    let wallpaperImage = $derived(getCachedFullImage(displayPath) || '');
+    let wallpaperName = $derived(wallpaperPath.split('/').pop() || '');
+    // Show the folder with the home directory as `~`.
+    let wallpaperFolder = $derived(
+        wallpaperPath
+            .slice(0, wallpaperPath.lastIndexOf('/'))
+            .replace(/^\/(?:home|Users)\/[^/]+/, '~')
+    );
+    let naturalSize = $state('');
+    let wallpaperMeta = $derived(
+        [naturalSize, wallpaperFolder].filter(Boolean).join(' · ')
+    );
+    let loading = $derived(isPending(displayPath));
+    let blurred = $derived(getWallpaperBlur());
+    let isBlurring = $state(false);
+    let previewOpen = $state(false);
+    let eyedropperActive = $derived(getEyedropperActive());
+    let containerHeight = $derived(expanded ? 'h-[70vh]' : 'h-[380px]');
+    let objectFit = $derived(expanded ? 'object-contain' : 'object-cover');
+    let extraCount = $derived(getAdditionalImages().length);
+    let extracting = $derived(getIsExtracting());
+
+    let imgEl = $state<HTMLImageElement | null>(null);
+
+    const LOUPE_SAMPLES = 11; // odd so one pixel is dead-center
+    const LOUPE_ZOOM = 10;
+    const LOUPE_SIZE = LOUPE_SAMPLES * LOUPE_ZOOM;
+    const LOUPE_MARGIN = 20;
+    const LOUPE_HEX_STRIP = 20; // approx height of hex readout strip
+    let loupeCanvas = $state<HTMLCanvasElement | null>(null);
+    let loupeVisible = $state(false);
+    let loupeX = $state(0);
+    let loupeY = $state(0);
+    let loupeFlipX = $state(false);
+    let loupeFlipY = $state(false);
+    let loupeHex = $state('#000000');
+
+    $effect(() => {
+        const path = displayPath;
+        if (path && !getCachedFullImage(path)) {
+            loadFullImage(path);
+        }
+    });
+
+    $effect(() => {
+        if (!eyedropperActive) loupeVisible = false;
+    });
+
+    function applySampledColor(hex: string) {
+        const overrideApp = getColorPickerOverrideApp();
+        const overrideRole = getColorPickerOverrideRole();
+        const extKey = getColorPickerExtKey();
+        if (overrideApp && overrideRole) {
+            setAppOverride(overrideApp, overrideRole, hex);
+        } else if (extKey) {
+            setExtendedColor(extKey, hex);
+        } else {
+            setColor(getColorPickerIndex(), hex);
+        }
+    }
+
+    type SourceCoords = {
+        source: HTMLImageElement;
+        srcX: number;
+        srcY: number;
+        naturalW: number;
+        naturalH: number;
+    };
+
+    function mapEventToSource(e: MouseEvent): SourceCoords | null {
+        const source = imgEl;
+        if (!source) return null;
+
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const naturalW = source.naturalWidth;
+        const naturalH = source.naturalHeight;
+        if (!naturalW || !naturalH) return null;
+
+        // CSS `zoom` on <html> scales getBoundingClientRect() but not e.clientX/Y
+        // on webkit2gtk — normalize rect into the same space as the mouse coords.
+        const zoom = parseFloat(document.documentElement.style.zoom) || 1;
+        const rectLeft = rect.left / zoom;
+        const rectTop = rect.top / zoom;
+        const rectWidth = rect.width / zoom;
+        const rectHeight = rect.height / zoom;
+
+        // object-cover uses max (crop-fill), object-contain uses min (letterbox).
+        const scale = expanded
+            ? Math.min(rectWidth / naturalW, rectHeight / naturalH)
+            : Math.max(rectWidth / naturalW, rectHeight / naturalH);
+        const offsetX = (rectWidth - naturalW * scale) / 2;
+        const offsetY = (rectHeight - naturalH * scale) / 2;
+        const localX = e.clientX - rectLeft - offsetX;
+        const localY = e.clientY - rectTop - offsetY;
+
+        // In contain mode, clicks on the letterbox lie outside the image — bail.
+        if (
+            expanded &&
+            (localX < 0 ||
+                localY < 0 ||
+                localX >= naturalW * scale ||
+                localY >= naturalH * scale)
+        ) {
+            return null;
+        }
+
+        const srcX = Math.max(
+            0,
+            Math.min(naturalW - 1, Math.floor(localX / scale))
+        );
+        const srcY = Math.max(
+            0,
+            Math.min(naturalH - 1, Math.floor(localY / scale))
+        );
+        return {source, srcX, srcY, naturalW, naturalH};
+    }
+
+    function handleSampleMove(e: MouseEvent) {
+        if (!eyedropperActive || !loupeCanvas) return;
+        const mapped = mapEventToSource(e);
+        if (!mapped) return;
+
+        const ctx = loupeCanvas.getContext('2d', {willReadFrequently: true});
+        if (!ctx) return;
+        ctx.imageSmoothingEnabled = false;
+
+        const half = Math.floor(LOUPE_SAMPLES / 2);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
+        try {
+            ctx.drawImage(
+                mapped.source,
+                mapped.srcX - half,
+                mapped.srcY - half,
+                LOUPE_SAMPLES,
+                LOUPE_SAMPLES,
+                0,
+                0,
+                LOUPE_SIZE,
+                LOUPE_SIZE
+            );
+            const center = Math.floor(LOUPE_SIZE / 2);
+            const [r, g, b] = ctx.getImageData(center, center, 1, 1).data;
+            loupeHex =
+                '#' +
+                [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+        } catch {
+            return;
+        }
+
+        loupeX = e.clientX;
+        loupeY = e.clientY;
+        // Flip loupe to the opposite side of the cursor when near the viewport
+        // edge, so the loupe + hex strip stay fully visible.
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        loupeFlipX = e.clientX + LOUPE_MARGIN + LOUPE_SIZE + 4 > vw;
+        loupeFlipY =
+            e.clientY + LOUPE_MARGIN + LOUPE_SIZE + LOUPE_HEX_STRIP > vh;
+        loupeVisible = true;
+    }
+
+    function handleSampleLeave() {
+        loupeVisible = false;
+    }
+
+    function handleSample(e: MouseEvent) {
+        if (!eyedropperActive) return;
+        const mapped = mapEventToSource(e);
+        if (!mapped) return;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        try {
+            ctx.drawImage(
+                mapped.source,
+                mapped.srcX,
+                mapped.srcY,
+                1,
+                1,
+                0,
+                0,
+                1,
+                1
+            );
+            const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+            const hex =
+                '#' +
+                [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+            applySampledColor(hex);
+            showToast(`Picked ${hex}`);
+        } catch {
+            showToast('Failed to sample pixel');
+        } finally {
+            setEyedropperActive(false);
+        }
+    }
+
+    function handleExtractColors() {
+        void extractColors();
+    }
+
+    function handleExtractAll() {
+        void extractColors({
+            allImages: true,
+        });
+    }
+
+    async function handleChange() {
+        try {
+            const {OpenFileDialog} = await import(
+                '../../../../wailsjs/go/main/App'
+            );
+            const path = await OpenFileDialog();
+            if (path) {
+                setWallpaperPath(path);
+                showToast(
+                    'Wallpaper changed — click Extract to generate palette'
+                );
+            }
+        } catch {
+            showToast('Failed to change wallpaper');
+        }
+    }
+
+    function handleToggleBlur() {
+        if (getWallpaperPath()) setWallpaperBlur(!getWallpaperBlur());
+    }
+
+    $effect(() => {
+        const source = getWallpaperPath();
+        const enabled = getWallpaperBlur();
+        const revision = getWallpaperRevision();
+        let current = true;
+        if (!source || !enabled) {
+            isBlurring = false;
+            return;
+        }
+        isBlurring = true;
+        const isCurrent = () =>
+            current &&
+            revision === getWallpaperRevision() &&
+            getWallpaperBlur();
+        void (async () => {
+            try {
+                const {BlurWallpaper} = await import(
+                    '../../../../wailsjs/go/main/App'
+                );
+                if (!isCurrent()) return;
+                const path = await BlurWallpaper(source);
+                if (isCurrent()) setBlurredWallpaper(source, path, revision);
+            } catch {
+                if (isCurrent())
+                    showToast(
+                        'Could not prepare the blurred wallpaper. Try again.'
+                    );
+            } finally {
+                if (current) isBlurring = false;
+            }
+        })();
+        return () => {
+            current = false;
+        };
+    });
+</script>
+
+{#snippet toolButton(
+    label: string,
+    title: string,
+    icon: string,
+    onclick: () => void,
+    active = false,
+    busy = false
+)}
+    <button
+        class="flex h-8 w-8 items-center justify-center transition-colors disabled:cursor-default disabled:opacity-50
+            {active
+            ? 'bg-white/22 text-white'
+            : 'text-white/82 hover:bg-white/14 hover:text-white'}"
+        {onclick}
+        {title}
+        aria-label={label}
+        aria-pressed={active || undefined}
+        aria-busy={busy || undefined}
+    >
+        <svg
+            class="h-[15px] w-[15px] {busy ? 'animate-spin' : ''}"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+        >
+            <path d={icon}></path>
+        </svg>
+    </button>
+{/snippet}
+
+<div class="group relative">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+        class="border-border flex w-full items-center justify-center overflow-hidden border bg-black transition-[height] duration-200 {containerHeight}"
+        class:cursor-crosshair={eyedropperActive}
+        onclick={handleSample}
+        onmousemove={handleSampleMove}
+        onmouseleave={handleSampleLeave}
+    >
+        {#if loading}
+            <span class="text-[11px] text-white/60">Loading preview…</span>
+        {:else if wallpaperImage}
+            <img
+                bind:this={imgEl}
+                src={wallpaperImage}
+                alt="Current wallpaper"
+                class="block h-full w-full {objectFit}"
+                onload={() =>
+                    (naturalSize = imgEl
+                        ? `${imgEl.naturalWidth} × ${imgEl.naturalHeight}`
+                        : '')}
+            />
+        {:else}
+            <span class="text-[11px] text-white/60">No preview available</span>
+        {/if}
+
+        {#if extracting}
+            <div
+                class="absolute inset-0 flex items-center justify-center bg-black/60"
+            >
+                <span class="text-[12px] font-medium text-white"
+                    >Extracting colors…</span
+                >
+            </div>
+        {/if}
+
+        {#if eyedropperActive}
+            <div
+                class="border-white/12 pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 border bg-[rgba(10,10,14,0.72)] px-3 py-1.5 text-[11.5px] font-medium text-white backdrop-blur-[10px]"
+            >
+                Click to pick a color · Esc to cancel
+            </div>
+        {/if}
+    </div>
+
+    {#if !eyedropperActive}
+        <div
+            class="pointer-events-none absolute inset-x-[1px] bottom-[1px] flex items-end justify-between gap-3 bg-[linear-gradient(to_top,rgba(0,0,0,0.72),rgba(0,0,0,0))] pb-3 pl-4 pr-3 pt-10"
+        >
+            <div
+                class="pointer-events-auto flex min-w-0 flex-col gap-0.5 text-white"
+            >
+                <span
+                    class="text-white/92 truncate font-mono text-[12px] font-medium"
+                    title={wallpaperPath}
+                >
+                    {wallpaperName}
+                </span>
+                {#if wallpaperMeta}
+                    <span class="text-white/62 truncate text-[11px]"
+                        >{wallpaperMeta}</span
+                    >
+                {/if}
+            </div>
+
+            <div class="pointer-events-auto flex shrink-0 items-center gap-2">
+                <div
+                    class="border-white/12 flex border bg-[rgba(10,10,14,0.55)] backdrop-blur-[10px]"
+                >
+                    {#if wallpaperImage}
+                        {@render toolButton(
+                            'View full-size',
+                            'View full-size',
+                            'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
+                            () => (previewOpen = true)
+                        )}
+                    {/if}
+                    {#if onedit}
+                        {@render toolButton(
+                            'Edit wallpaper',
+                            'Edit: crop, adjust, filters',
+                            'M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z',
+                            onedit
+                        )}
+                    {/if}
+                    {@render toolButton(
+                        blurred ? 'Remove blur' : 'Heavy blur wallpaper',
+                        blurred
+                            ? 'Use the original image without blur'
+                            : 'Apply a blurred copy. Extract colors from the original image.',
+                        'M12 2.7s6.5 7 6.5 11.3a6.5 6.5 0 1 1-13 0C5.5 9.7 12 2.7 12 2.7z',
+                        handleToggleBlur,
+                        blurred,
+                        isBlurring
+                    )}
+                    {@render toolButton(
+                        'Change wallpaper',
+                        'Change wallpaper',
+                        'M21 12a9 9 0 1 1-3-6.7L21 8 M21 3v5h-5',
+                        handleChange
+                    )}
+                </div>
+
+                {#if extraCount > 0}
+                    <button
+                        class="border-white/12 hover:bg-white/16 h-8 shrink-0 whitespace-nowrap border bg-[rgba(10,10,14,0.55)] px-3 text-[12px] font-medium text-white backdrop-blur-[10px] transition-colors disabled:opacity-50"
+                        onclick={handleExtractAll}
+                        disabled={extracting}
+                        title="Blend palette from main + {extraCount} additional image{extraCount ===
+                        1
+                            ? ''
+                            : 's'}"
+                    >
+                        Extract all
+                        <span class="text-white/55">· {1 + extraCount}</span>
+                    </button>
+                {/if}
+                <button
+                    class="bg-accent hover:bg-accent-hover text-accent-fg h-8 shrink-0 whitespace-nowrap px-4 text-[12px] font-semibold transition-colors disabled:opacity-50"
+                    onclick={handleExtractColors}
+                    disabled={extracting}
+                    title="Extract a 16-color palette from this wallpaper"
+                >
+                    Extract
+                </button>
+            </div>
+        </div>
+    {/if}
+</div>
+
+{#if eyedropperActive}
+    <div
+        class="pointer-events-none fixed z-50 transition-opacity"
+        class:opacity-0={!loupeVisible}
+        style:left="{loupeFlipX
+            ? loupeX - LOUPE_MARGIN - LOUPE_SIZE - 4
+            : loupeX + LOUPE_MARGIN}px"
+        style:top="{loupeFlipY
+            ? loupeY - LOUPE_MARGIN - LOUPE_SIZE - LOUPE_HEX_STRIP
+            : loupeY + LOUPE_MARGIN}px"
+    >
+        <div class="relative">
+            <canvas
+                bind:this={loupeCanvas}
+                width={LOUPE_SIZE}
+                height={LOUPE_SIZE}
+                class="border-fg-primary block border-2 shadow-lg"
+            ></canvas>
+            <div
+                class="border-fg-primary pointer-events-none absolute left-1/2 top-1/2 h-[10px] w-[10px] -translate-x-1/2 -translate-y-1/2 border"
+            ></div>
+        </div>
+        <div
+            class="border-fg-primary bg-bg-secondary text-fg-primary flex items-center justify-center gap-1.5 border-x-2 border-b-2 px-2 py-0.5 font-mono text-[10px] font-medium"
+        >
+            <span
+                class="border-border inline-block h-2.5 w-2.5 border"
+                style:background-color={loupeHex}
+            ></span>
+            {loupeHex.toUpperCase()}
+        </div>
+    </div>
+{/if}
+
+<ImagePreview
+    src={wallpaperImage}
+    alt="Wallpaper"
+    open={previewOpen}
+    onclose={() => (previewOpen = false)}
+/>

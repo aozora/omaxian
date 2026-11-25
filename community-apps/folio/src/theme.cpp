@@ -2,6 +2,8 @@
 #include "theme.h"
 
 #include <QDir>
+#include <QEvent>
+#include <QFontDatabase>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -9,7 +11,10 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <algorithm>
 #include <cmath>
+#include <utility>
+#include <fontconfig/fontconfig.h>
 
 namespace {
 
@@ -43,6 +48,51 @@ QColor mix(const QColor &a, const QColor &b, double t) {
                             a.blueF() * (1 - t) + b.blueF() * t);
 }
 
+double ratio(const QColor &a, const QColor &b) {
+    const double x = luminance(a), y = luminance(b);
+    return (std::max(x, y) + .05) / (std::min(x, y) + .05);
+}
+
+// WCAG's minimum contrast for text. A surface needs much less.
+constexpr double textFloor = 4.5;
+constexpr double surfaceFloor = 1.4;
+// The ground luminance where black and white read equally.
+constexpr double midLuminance = .179;
+// Bisection steps in ensureRatio, finer than one eight-bit level.
+constexpr int bisectionSteps = 18;
+// One eight-bit channel's range, so the rounding repair can never step further.
+constexpr int channelRange = 255;
+
+// The ink when it already reads at need, else the least mix toward black or
+// white that still does once rounded to eight-bit channels.
+QColor ensureRatio(const QColor &ink, const QColor &ground, double need) {
+    if (ratio(ink, ground) >= need)
+        return ink;
+    const QColor toward = luminance(ground) > midLuminance ? QColor(Qt::black) : QColor(Qt::white);
+    double low = 0, high = 1;
+    QColor best = toward;
+    for (int i = 0; i < bisectionSteps; ++i) {
+        const double middle = (low + high) / 2;
+        const QColor candidate = mix(ink, toward, middle);
+        if (ratio(candidate, ground) >= need) {
+            best = candidate;
+            high = middle;
+        } else {
+            low = middle;
+        }
+    }
+    best = QColor(best.red(), best.green(), best.blue());
+    const int step = toward == QColor(Qt::white) ? 1 : -1;
+    for (int i = 0; i < channelRange && ratio(best, ground) < need; ++i) {
+        const QColor next(qBound(0, best.red() + step, channelRange), qBound(0, best.green() + step, channelRange),
+                          qBound(0, best.blue() + step, channelRange));
+        if (next == best)
+            break;
+        best = next;
+    }
+    return best;
+}
+
 struct Palette {
     QHash<QString, QColor> colors;
     bool light = false;
@@ -68,9 +118,10 @@ Palette readPalette(const QString &path) {
 
 } // namespace
 
-Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
+Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl, const QString &events)
     : QObject(parent),
       m_directory(directory.isEmpty() ? QDir::homePath() + "/.local/state/omarchy/current" : directory) {
+    m_fontFamily = QGuiApplication::font().family();
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(80);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_debounce.start(); });
@@ -86,9 +137,20 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
     m_roundingTimeout.setSingleShot(true);
     m_roundingTimeout.setInterval(500);
     connect(&m_roundingTimeout, &QTimer::timeout, &m_roundingProcess, &QProcess::kill);
-    connect(&m_roundingProcess, &QProcess::errorOccurred, this, [this] { m_roundingTimeout.stop(); });
+    connect(&m_roundingProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        m_roundingTimeout.stop();
+        // No finished() follows a start that failed, and another try would
+        // fail the same way.
+        if (error == QProcess::FailedToStart)
+            m_roundingAgain = false;
+    });
     connect(&m_roundingProcess, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
         m_roundingTimeout.stop();
+        // Asked again meanwhile: what this read says may already be old.
+        if (std::exchange(m_roundingAgain, false)) {
+            refreshRounding();
+            return;
+        }
         const auto value = QJsonDocument::fromJson(m_roundingProcess.readAllStandardOutput()).object().value("int");
         if (code != 0 || status != QProcess::NormalExit || !value.isDouble() || value.toInt(-1) < 0)
             return;
@@ -97,25 +159,36 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
             emit changed();
         }
     });
-    m_roundingPoll.setInterval(1000);
-    connect(&m_roundingPoll, &QTimer::timeout, this, &Theme::refreshRounding);
     if (!m_hyprctl.isEmpty()) {
-        m_roundingPoll.start();
-        // The rounding only needs following while Folio is in use, and it's
-        // read again the moment Folio is back.
-        connect(qGuiApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-            if (state == Qt::ApplicationActive) {
+        // Read again when Hyprland has read its config again, which is how a
+        // theme switch or an edit reaches the rounding, rather than asking
+        // every second. A change made live (hyprctl eval) says nothing, so
+        // it's read again when Folio is back too.
+        const QString socket = !events.isEmpty() || !hyprctl.isEmpty()
+                                   ? events
+                                   : qEnvironmentVariable("XDG_RUNTIME_DIR") + "/hypr/"
+                                         + qEnvironmentVariable("HYPRLAND_INSTANCE_SIGNATURE") + "/.socket2.sock";
+        connect(&m_events, &QLocalSocket::readyRead, this, [this] {
+            bool reloaded = false;
+            while (m_events.canReadLine())
+                reloaded |= m_events.readLine().startsWith("configreloaded>>");
+            if (reloaded)
                 refreshRounding();
-                m_roundingPoll.start();
-            } else {
-                m_roundingPoll.stop();
-            }
+        });
+        m_events.connectToServer(socket, QIODevice::ReadOnly);
+        connect(qGuiApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+            if (state == Qt::ApplicationActive)
+                refreshRounding();
         });
     }
+    recomputeColors();
     reload();
 }
 
 Theme::~Theme() {
+    // Ending a read here must not start another, nor reach members
+    // already gone.
+    disconnect(&m_roundingProcess, nullptr, this, nullptr);
     if (m_roundingProcess.state() != QProcess::NotRunning) {
         m_roundingProcess.kill();
         m_roundingProcess.waitForFinished(1000);
@@ -123,8 +196,12 @@ Theme::~Theme() {
 }
 
 void Theme::refreshRounding() {
-    if (m_hyprctl.isEmpty() || m_roundingProcess.state() != QProcess::NotRunning)
+    if (m_hyprctl.isEmpty())
         return;
+    if (m_roundingProcess.state() != QProcess::NotRunning) {
+        m_roundingAgain = true;
+        return;
+    }
     m_roundingProcess.start(m_hyprctl, {"-j", "getoption", "decoration:rounding"});
     m_roundingTimeout.start();
 }
@@ -140,28 +217,28 @@ QColor Theme::color(const QString &key) const {
     return fallbackColors().value(key, QColor("#888888"));
 }
 
-// Folder cards, tiles and panels are drawn in the lighter background. Some
-// themes set it to the background itself (or leave it out), which would make
-// them invisible, so then it's the background nudged toward the foreground.
-QColor Theme::lighterBackground() const {
-    const QColor lighter = color("lighter_background");
+// Derived colors are computed once per palette load so QML bindings don't
+// rerun luminance and WCAG contrast bisection on every tile or tooltip read.
+void Theme::recomputeColors() {
     const QColor bg = background();
-    const double gap = qAbs(luminance(lighter) - luminance(bg));
-    if (gap > 0.004)
-        return lighter;
-    return mix(bg, foreground(), 0.08);
-}
-
-// Black or white, whichever reads on the accent (WCAG relative luminance).
-QColor Theme::accentForeground() const {
-    return luminance(accent()) > .179 ? QColor("black") : QColor("white");
-}
-
-// Themes' own dim foregrounds are often too faint for small text, so derive a
-// secondary color by mixing the foreground toward the background, keeping
-// roughly a 4.5:1 contrast for metadata and labels.
-QColor Theme::secondaryForeground() const {
-    return mix(background(), foreground(), 0.68);
+    const QColor fg = foreground();
+    const QColor lighter = color("lighter_background");
+    m_lighterBackground = qAbs(luminance(lighter) - luminance(bg)) > 0.004 ? lighter : mix(bg, fg, 0.08);
+    // Black or white, whichever reads on the accent (WCAG relative luminance).
+    m_accentForeground = luminance(accent()) > midLuminance ? QColor("black") : QColor("white");
+    // Themes' own dim foregrounds are often too faint for small text, so derive a
+    // secondary color by mixing the foreground toward the background, keeping
+    // roughly a 4.5:1 contrast for metadata and labels.
+    m_secondaryForeground = mix(bg, fg, 0.68);
+    // A tooltip is a small surface over the pane: darker in light themes,
+    // lighter in dark ones, lifted just enough to read as a card.
+    const QColor tipBase = m_light ? darkBackground() : m_lighterBackground;
+    m_tooltipBackground = ensureRatio(tipBase, bg, surfaceFloor);
+    // Tooltip words: the theme's foreground, raised to textFloor on that surface.
+    m_tooltipForeground = ensureRatio(fg, m_tooltipBackground, textFloor);
+    // A folder card's fill: the lighter background, raised to surfaceFloor so the
+    // card stands off the pane on themes where the two nearly match (#24).
+    m_folderFill = ensureRatio(m_lighterBackground, bg, surfaceFloor);
 }
 
 void Theme::reload() {
@@ -187,6 +264,102 @@ void Theme::reload() {
     if (palette.colors != m_colors || palette.light != m_light) {
         m_colors = palette.colors;
         m_light = palette.light;
+        recomputeColors();
         emit changed();
+    }
+}
+
+// Folio's text sizes are drawn for Omarchy's default text size, 11pt, at
+// which its base text is 13px; the system's size scales them, up to half
+// again or down by a quarter, past which the rows and columns no longer
+// hold their text.
+static constexpr qreal designPoints = 11;
+static constexpr int designPixels = 13;
+
+qreal Theme::textScaleFor(qreal points) {
+    return points > 0 ? std::clamp(points / designPoints, 0.75, 1.5) : 1.0;
+}
+
+static QString matchFamily(FcConfig *config, const QString &family) {
+    QString resolved = family;
+    if (FcPattern *pattern = FcNameParse(reinterpret_cast<const FcChar8 *>(family.toUtf8().constData()))) {
+        FcConfigSubstitute(config, pattern, FcMatchPattern);
+        FcDefaultSubstitute(pattern);
+        FcResult result;
+        if (FcPattern *match = FcFontMatch(config, pattern, &result)) {
+            FcChar8 *name = nullptr;
+            if (FcPatternGetString(match, FC_FAMILY, 0, &name) == FcResultMatch && name)
+                resolved = QString::fromUtf8(reinterpret_cast<const char *>(name));
+            FcPatternDestroy(match);
+        }
+        FcPatternDestroy(pattern);
+    }
+    return resolved;
+}
+
+QString Theme::resolveFamily(const QString &family) {
+    // Asked of a configuration loaded afresh, rather than of the one Qt read
+    // when Folio started, so a choice made since (omarchy-font-set) counts,
+    // and Qt's own is left alone.
+    FcConfig *config = FcInitLoadConfigAndFonts();
+    if (!config)
+        return family;
+    const QString resolved = matchFamily(config, family);
+    FcConfigDestroy(config);
+    return resolved;
+}
+
+void Theme::followSystemFont() {
+    m_fontDebounce.setSingleShot(true);
+    m_fontDebounce.setInterval(200);
+    connect(&m_fontDebounce, &QTimer::timeout, this, [this] { readSystemFont(true); });
+    // omarchy-font-set writes the user's fontconfig file; its folder is
+    // watched too, for when it's made.
+    const QString fontconfig = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/fontconfig";
+    QDir().mkpath(fontconfig);
+    m_fontWatcher.addPath(fontconfig);
+    if (QFileInfo::exists(fontconfig + "/fonts.conf"))
+        m_fontWatcher.addPath(fontconfig + "/fonts.conf");
+    connect(&m_fontWatcher, &QFileSystemWatcher::directoryChanged, this, [this, fontconfig] {
+        // A file written anew stops being watched; it's watched again.
+        if (QFileInfo::exists(fontconfig + "/fonts.conf") && !m_fontWatcher.files().contains(fontconfig + "/fonts.conf"))
+            m_fontWatcher.addPath(fontconfig + "/fonts.conf");
+        m_fontDebounce.start();
+    });
+    connect(&m_fontWatcher, &QFileSystemWatcher::fileChanged, this, [this] { m_fontDebounce.start(); });
+    // The platform theme (qtengine) tells each window when its fonts change.
+    qApp->installEventFilter(this);
+    // At startup Qt has already loaded the current fontconfig; only live
+    // changes need to parse fontconfig and all system fonts afresh.
+    readSystemFont(false);
+}
+
+bool Theme::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::ThemeChange)
+        m_fontDebounce.start();
+    return QObject::eventFilter(watched, event);
+}
+
+void Theme::readSystemFont(bool reloadConfig) {
+    const QFont fixed = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QString family;
+    if (!reloadConfig) {
+        if (FcConfig *current = FcConfigGetCurrent())
+            family = matchFamily(current, fixed.family());
+    }
+    if (family.isEmpty())
+        family = resolveFamily(fixed.family());
+    const qreal scale = textScaleFor(fixed.pointSizeF());
+    QFont font(family);
+    font.setStyleHint(QFont::Monospace);
+    font.setPixelSize(qRound(designPixels * scale));
+    // New controls and dialogs take the application's font; what's on screen
+    // follows fontFamily and textScale.
+    if (font != QGuiApplication::font())
+        QGuiApplication::setFont(font);
+    if (family != m_fontFamily || !qFuzzyCompare(scale, m_textScale)) {
+        m_fontFamily = family;
+        m_textScale = scale;
+        emit fontChanged();
     }
 }

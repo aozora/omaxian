@@ -31,19 +31,33 @@ apt-get update
 apt-get install -y --no-install-recommends "${packages[@]}"
 echo "::endgroup::"
 
-if [[ -f $SRC/Cargo.toml ]]; then
+install_rustup() {
   echo "::group::rustup (rust-toolchain.toml)"
   curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
   # shellcheck source=/dev/null
   source "$HOME/.cargo/env"
   (cd "$SRC" && rustup show)
   echo "::endgroup::"
+}
+
+# A Cargo.toml with a bin/build beside it is a Qt app with Rust inside (omareel):
+# CMake builds it and links the crates in, so it takes the Qt branch below.
+if [[ -f $SRC/Cargo.toml && ! -x $SRC/bin/build ]]; then
+  install_rustup
   echo "::group::cargo build"
   (cd "$SRC" && cargo build --release --locked)
   echo "::endgroup::"
   BIN="$SRC/target/release/$APP"
   QT=""
+elif [[ -f $SRC/go.mod ]]; then
+  # Go (Wails) apps: bin/build builds the frontend and the binary; no Qt.
+  echo "::group::bin/build"
+  "$SRC/bin/build"
+  echo "::endgroup::"
+  BIN="$SRC/build/$APP"
+  QT=""
 else
+  [[ -f $SRC/Cargo.toml ]] && install_rustup
   echo "::group::bin/build"
   "$SRC/bin/build"
   echo "::endgroup::"

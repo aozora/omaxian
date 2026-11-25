@@ -18,11 +18,15 @@ Rectangle {
     // changing rather than on every keystroke, since it searches the whole file.
     function recount() { matches = visible ? editing.matchCount(findField.text, caseSensitive) : 0 }
     onVisibleChanged: recount()
-    onCaseSensitiveChanged: recount()
+    onCaseSensitiveChanged: { replaced = ""; recount() }
     Timer { id: recountLater; interval: 150; onTriggered: bar.recount() }
     Connections {
         target: bar.editor.area
         function onTextChanged() { if (bar.visible) recountLater.restart() }
+    }
+    Connections {
+        target: doc
+        function onFileChanged() { bar.replaced = "" }
     }
 
     visible: false
@@ -31,16 +35,29 @@ Rectangle {
 
     function show(replace) {
         replacing = replace
-        visible = true
+        replaced = ""
         const area = editor.area
         if (area.selectionStart !== area.selectionEnd && area.selectedText.indexOf("\u2029") < 0)
             findField.text = area.selectedText
+        const wasVisible = visible
+        visible = true
         findField.forceActiveFocus()
         findField.selectAll()
-        recount()
+        if (wasVisible)
+            recount()
+    }
+
+    // Ctrl+F and Ctrl+H: open in that mode, or switch to it, or close
+    // when it's already what's open.
+    function toggle(replace) {
+        if (visible && replacing === replace)
+            hide()
+        else
+            show(replace)
     }
 
     function hide() {
+        recountLater.stop()
         visible = false
         editor.focusText()
     }
@@ -65,6 +82,9 @@ Rectangle {
     // Backward leaves the cursor before the replacement, so the search back
     // doesn't find the match inside what was just put in.
     function replaceOne(backward) {
+        if (!doc.editable)
+            return
+        replaced = ""
         const area = editor.area
         if (findField.text.length > 0 && selectionMatches()) {
             const start = area.selectionStart

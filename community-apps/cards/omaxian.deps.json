@@ -1,0 +1,31 @@
+{
+  "apt": [
+    "qml6-module-qtquick",
+    "qml6-module-qtquick-controls",
+    "qml6-module-qtquick-layouts",
+    "qml6-module-qtquick-templates",
+    "qml6-module-qtquick-shapes",
+    "qml6-module-qtqml",
+    "qml6-module-qtqml-workerscript",
+    "libqt6network6",
+    "qt6-qpa-plugins",
+    "qt6-svg-plugins",
+    "hicolor-icon-theme",
+    "xdg-desktop-portal",
+    "xdg-desktop-portal-gtk"
+  ],
+  "apt_build": [
+    "build-essential",
+    "cmake",
+    "pkg-config",
+    "qt6-base-dev",
+    "qt6-declarative-dev"
+  ],
+  "start_args": ["open"],
+  "manual": [
+    "Build with community-apps/cards/install.sh (CMake). Stock Devuan Excalibur Qt 6.8 is enough.",
+    "Icon loading needs qt6-svg-plugins; the window uses XCB via qt6-qpa-plugins (no qt6-wayland).",
+    "Hyprland corner rounding is skipped when HYPRLAND_INSTANCE_SIGNATURE is unset, so corners stay square on i3.",
+    "Theme and language follow Omarchy paths under ~/.local/state/omarchy/current/."
+  ]
+}

@@ -1,0 +1,45 @@
+<RCC>
+    <qresource prefix="/FolioUI">
+        <file alias="Band.qml">Band.qml</file>
+        <file alias="ChooserBar.qml">ChooserBar.qml</file>
+        <file alias="ClashDialog.qml">ClashDialog.qml</file>
+        <file alias="ConfirmDialog.qml">ConfirmDialog.qml</file>
+        <file alias="DriveMenu.qml">DriveMenu.qml</file>
+        <file alias="FileListView.qml">FileListView.qml</file>
+        <file alias="FileMenu.qml">FileMenu.qml</file>
+        <file alias="FileRow.qml">FileRow.qml</file>
+        <file alias="FileTile.qml">FileTile.qml</file>
+        <file alias="FolderColumns.qml">FolderColumns.qml</file>
+        <file alias="FolderDrop.qml">FolderDrop.qml</file>
+        <file alias="FolderGrid.qml">FolderGrid.qml</file>
+        <file alias="FolderList.qml">FolderList.qml</file>
+        <file alias="FolderPane.qml">FolderPane.qml</file>
+        <file alias="FolioDialog.qml">FolioDialog.qml</file>
+        <file alias="FolioMenuItem.qml">FolioMenuItem.qml</file>
+        <file alias="FolioMenu.qml">FolioMenu.qml</file>
+        <file alias="FolioScrollBar.qml">FolioScrollBar.qml</file>
+        <file alias="FolioText.qml">FolioText.qml</file>
+        <file alias="FolioToolTip.qml">FolioToolTip.qml</file>
+        <file alias="FormatDialog.qml">FormatDialog.qml</file>
+        <file alias="Glyph.qml">Glyph.qml</file>
+        <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
+        <file alias="IconButton.qml">IconButton.qml</file>
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="MediaPreview.qml">MediaPreview.qml</file>
+        <file alias="MenuLine.qml">MenuLine.qml</file>
+        <file alias="MountPrompt.qml">MountPrompt.qml</file>
+        <file alias="PathBar.qml">PathBar.qml</file>
+        <file alias="PdfPreview.qml">PdfPreview.qml</file>
+        <file alias="PlaceMenu.qml">PlaceMenu.qml</file>
+        <file alias="PlainButton.qml">PlainButton.qml</file>
+        <file alias="PlainField.qml">PlainField.qml</file>
+        <file alias="PreviewPane.qml">PreviewPane.qml</file>
+        <file alias="PreviewWindow.qml">PreviewWindow.qml</file>
+        <file alias="RenameDialog.qml">RenameDialog.qml</file>
+        <file alias="Selecting.qml">Selecting.qml</file>
+        <file alias="Sidebar.qml">Sidebar.qml</file>
+        <file alias="SortMenu.qml">SortMenu.qml</file>
+        <file alias="Spinner.qml">Spinner.qml</file>
+        <file alias="Format.js">Format.js</file>
+    </qresource>
+</RCC>

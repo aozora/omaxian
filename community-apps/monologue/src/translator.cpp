@@ -88,12 +88,15 @@ QString Translator::pluralCategory(const QString &language, long long count) {
 // app's numbers and dates match the desktop's (Arabic there uses Western
 // digits); without Omarchy, Qt's own locale for the code.
 QLocale Translator::formatLocale(const QString &language) {
-    QFile registry(qEnvironmentVariable("OMARCHY_PATH") + "/default/i18n/locales.json");
-    if (registry.open(QIODevice::ReadOnly)) {
-        const QString name = QJsonDocument::fromJson(registry.readAll()).object()
-                                 .value(language).toObject().value("formatLocale").toString();
-        if (!name.isEmpty())
-            return QLocale(name);
+    const QString omarchy = qEnvironmentVariable("OMARCHY_PATH");
+    if (!omarchy.isEmpty()) {
+        QFile registry(omarchy + "/default/i18n/locales.json");
+        if (registry.open(QIODevice::ReadOnly)) {
+            const QString name = QJsonDocument::fromJson(registry.readAll()).object()
+                                     .value(language).toObject().value("formatLocale").toString();
+            if (!name.isEmpty())
+                return QLocale(name);
+        }
     }
     return QLocale(language);
 }
@@ -101,6 +104,8 @@ QLocale Translator::formatLocale(const QString &language) {
 QString Translator::translate(const char *, const char *sourceText, const char *, int n) const {
     // A null string tells Qt there is no translation, so it shows the English.
     QReadLocker locker(&m_lock);
+    if (m_strings.isEmpty())
+        return {};
     const Entry entry = m_strings.value(QString::fromUtf8(sourceText));
     const QJsonValue &value = entry.value;
     if (value.isString())

@@ -2,7 +2,6 @@
 
 #include <QDir>
 #include <QFileInfo>
-#include <QFont>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
@@ -11,9 +10,13 @@
 #include <QQuickStyle>
 #include <QUrl>
 #include <cstdio>
+#include <memory>
 
+#include "chooser.h"
+#include "dragpicture.h"
 #include "filemanager1.h"
 #include "foldermodel.h"
+#include "kineticscroll.h"
 #include "places.h"
 #include "plugins.h"
 #include "previewer.h"
@@ -40,18 +43,16 @@ static QString startPath(const QStringList &args, QString *select) {
     return QDir::homePath();
 }
 
-// Omarchy points fontconfig's monospace at the font picked in its menu, so
-// asking for "monospace" follows the user's choice.
 static void setUp(QGuiApplication &app) {
     app.setApplicationName("folio");
     // Settings (the chosen view) go to ~/.config/folio/folio.conf.
     app.setOrganizationName("folio");
     app.setWindowIcon(QIcon::fromTheme("folio"));
-    QFont font("monospace");
-    font.setStyleHint(QFont::Monospace);
-    font.setPixelSize(13);
-    app.setFont(font);
     QQuickStyle::setStyle("Material");
+    // Creatable too: the column view lists each folder on the way here.
+    qmlRegisterType<FolderModel>("Folio", 1, 0, "FolderModel");
+    qmlRegisterType<DragPicture>("Folio", 1, 0, "DragPicture");
+    qmlRegisterType<KineticScroll>("Folio", 1, 0, "KineticScroll");
 }
 
 // `folio preview [--hidden] [--sort name|kind|modified|oldest|size] [--follow] FILE`:
@@ -95,6 +96,9 @@ static int preview(QGuiApplication &app) {
     Translator translator;
     app.installTranslator(&translator);
     Theme theme;
+    // The system's fixed-width font (Omarchy's pick) and its size, followed
+    // live: Folio's own font.
+    theme.followSystemFont();
     Thumbnails thumbnails;
     Previewer previewer;
     previewer.start(path, showHidden, sort);
@@ -108,52 +112,83 @@ static int preview(QGuiApplication &app) {
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("previewer", &previewer);
-    engine.load(QUrl("qrc:/PreviewWindow.qml"));
+    engine.load(QUrl("qrc:/FolioUI/PreviewWindow.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;
     return app.exec();
 }
 
+// Folio's shared UI and backend state, built lazily by `folio chooser` on
+// its first dialog so D-Bus activation at login stays fast.
+struct Session {
+    Translator translator;
+    Theme theme;
+    Places places;
+    Thumbnails thumbnails;
+    Plugins plugins;
+    QQmlEngine engine;
+    Windows windows;
+
+    Session() : plugins(translator.language()), windows(&engine, &plugins) {
+        // Installed before anything is translated, and every qsTr() binding is
+        // re-evaluated when the Omarchy language changes.
+        QCoreApplication::installTranslator(&translator);
+        theme.followSystemFont();
+        // Plugins' text follows the language too.
+        QObject::connect(&translator, &Translator::changed, &plugins, [this] { plugins.setLanguage(translator.language()); });
+        QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
+        engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
+        engine.addImageProvider("plugin-icon", new PluginIconProvider);
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("places", &places);
+        engine.rootContext()->setContextProperty("plugins", &plugins);
+    }
+};
+
 int main(int argc, char *argv[]) {
+    // `folio chooser`: other apps' Open and Save dialogs. xdg-desktop-portal
+    // waits for it as the portal starts, so it mustn't wait on the portal,
+    // as Omarchy's platform theme does; Folio sets its own look anyway.
+    const bool chooser = argc > 1 && qstrcmp(argv[1], "chooser") == 0;
+    if (chooser)
+        qputenv("QT_QPA_PLATFORMTHEME", "generic");
     QGuiApplication app(argc, argv);
     setUp(app);
     if (app.arguments().value(1) == "preview")
         return preview(app);
 
     // Matches the window to folio.desktop, so the compositor (Wayland app_id)
-    // and the launcher pick up the installed icon.
-    app.setDesktopFileName("folio");
+    // and the launcher pick up the installed icon. A chooser's windows have
+    // their own, so a window rule can float them. Omaxian: also set
+    // applicationName so i3 matches WM_CLASS on X11 (same as folio-preview).
+    if (chooser)
+        app.setApplicationName("folio-chooser");
+    app.setDesktopFileName(chooser ? "folio-chooser" : "folio");
 
-    // Installed before anything is translated, and every qsTr() binding is
-    // re-evaluated when the Omarchy language changes.
-    Translator translator;
-    app.installTranslator(&translator);
+    std::unique_ptr<Session> session;
+    const auto ensureSession = [&]() -> Windows * {
+        if (!session)
+            session = std::make_unique<Session>();
+        return &session->windows;
+    };
 
-    Theme theme;
-    Places places;
-    Thumbnails thumbnails;
-    // Plugins' text follows the language too.
-    Plugins plugins(translator.language());
-    QObject::connect(&translator, &Translator::changed, &plugins, [&] { plugins.setLanguage(translator.language()); });
+    if (chooser) {
+        // Its windows come and go with its dialogs; it quits a minute after
+        // the last one instead (see Chooser).
+        app.setQuitOnLastWindowClosed(false);
+        QObject portal;
+        if (!Chooser::registerOn(&portal, ensureSession))
+            return 1;
+        return app.exec();
+    }
 
+    Windows *windows = ensureSession();
     QString select;
     const QString start = startPath(app.arguments(), &select);
-
-    QQmlEngine engine;
-    QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
-    engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
-    engine.addImageProvider("plugin-icon", new PluginIconProvider);
-    // Creatable too: the column view lists each folder on the way here.
-    qmlRegisterType<FolderModel>("Folio", 1, 0, "FolderModel");
-    engine.rootContext()->setContextProperty("translator", &translator);
-    engine.rootContext()->setContextProperty("theme", &theme);
-    engine.rootContext()->setContextProperty("places", &places);
-    engine.rootContext()->setContextProperty("plugins", &plugins);
-
-    Windows windows(&engine, &plugins);
-    if (!windows.open(start, select))
+    if (!windows->open(start, select))
         return 1;
-    FileManager1::registerOn(&windows);
+    FileManager1::registerOn(windows);
 
     return app.exec();
 }

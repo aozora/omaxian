@@ -17,7 +17,9 @@
 # To use a newer-Qt property while still running on 6.8, set it from
 # JavaScript behind a check on the same line, e.g.
 #   Component.onCompleted: if (view.acceptedButtons !== undefined) view.acceptedButtons = Qt.NoButton
-# Lines containing "!== undefined" are not reported.
+# Lines containing "!== undefined" are not reported, unless the guard reads a
+# bare name (qmllint [unqualified]): on 6.8 that throws a ReferenceError
+# rather than giving undefined, and the rest of the handler is skipped.
 #
 # Known false positives are dropped: Qt.application typed as its base class,
 # and untyped lookups on QQuickItem / QObject. Properties of an app's own C++
@@ -65,15 +67,33 @@ raw=$("$engine" run --rm -e APPS="${apps[*]}" -v "$APPS_DIR:/apps:ro,Z" -w /apps
   echo "# Qt $(dpkg-query -W -f "\${Version}" libqt6core6t64)" >&2
   for app in $APPS; do
     [ -d "$app/src" ] || continue
+    # QML modules the app declares only in CMake (qt_add_qml_module, no qmldir in the tree):
+    # <app>/.qmllint-modules lists "<URI> <directory>"; each gets a generated qmldir.
+    mods=""
+    if [ -f "$app/.qmllint-modules" ]; then
+      mods="/tmp/qmlmods/$app"
+      while read -r uri dir; do
+        case "$uri" in ""|\#*) continue ;; esac
+        d="$mods/$(printf %s "$uri" | tr . /)"
+        mkdir -p "$d"
+        echo "module $uri" > "$d/qmldir"
+        for q in "$app/$dir"/*.qml; do
+          n=$(basename "$q" .qml)
+          ln -s "/apps/$q" "$d/$n.qml"
+          echo "$n 1.0 $n.qml" >> "$d/qmldir"
+        done
+      done < "$app/.qmllint-modules"
+    fi
     find "$app/src" -name "*.qml" | sort | while read -r f; do
-      /usr/lib/qt6/bin/qmllint -I "$(dirname "$f")" "$f" 2>&1 | grep "\[missing-property\]" || true
+      /usr/lib/qt6/bin/qmllint -I "$(dirname "$f")" ${mods:+-I "$mods"} "$f" 2>&1 | grep -E "\[(missing-property|unqualified)\]" || true
     done
   done
 ' lint "${packages[@]}" 2>&1 | sed 's/^Warning: //')
 
 # The container prints its Qt version to stderr, merged above.
 grep '^# Qt' <<<"$raw" || true
-findings=$(grep -v '^# Qt' <<<"$raw" \
+unqualified=$(grep '\[unqualified\]' <<<"$raw" || true)
+findings=$(grep -v '^# Qt' <<<"$raw" | grep -v '\[unqualified\]' \
   | grep -vE 'not found on type "(QQmlApplication|QQuickItem|QObject)"' || true)
 
 # Ignore entries: <file>|<message text>, matched on lines for that file.
@@ -95,6 +115,11 @@ while IFS= read -r f; do
   [[ -z $f ]] && continue
   guarded "$f" || kept+="$f"$'\n'
 done <<<"$findings"
+# A guard on a bare name: report it even though the line is "guarded".
+while IFS= read -r f; do
+  [[ -z $f ]] && continue
+  guarded "$f" && kept+="${f/Unqualified access/Guard reads a bare name; use <id>.<property> !== undefined}"$'\n'
+done <<<"$unqualified"
 findings=$(sed '/^$/d' <<<"$kept" | sort -u)
 
 if [[ -n $findings ]]; then

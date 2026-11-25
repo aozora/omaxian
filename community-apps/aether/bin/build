@@ -1,0 +1,44 @@
+#!/bin/bash
+# Build Aether for Omaxian → build/aether.
+#
+# What `wails build` does, without the wails CLI: the Wails bindings
+# (frontend/wailsjs) are committed upstream, so it is the Vite frontend and
+# then `go build` with Wails' production tags, which embeds frontend/dist.
+#
+# Go: go.mod needs 1.25 and Debian trixie ships 1.24, so GOTOOLCHAIN=auto lets
+# the go command fetch the go.mod toolchain (checksum-verified by the Go
+# project's sumdb). Node: Debian's nodejs; package.json's engines range is
+# newer than trixie's, but Vite only needs 20.19.
+
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+version=$(<"$root/.omaxian-upstream-version")
+# Shown by `aether upgrade`: Omaxian updates the app, not Aether itself.
+update_command="scripts/install-community-apps.sh aether (in your Omaxian checkout)"
+
+for tool in go node npm pkg-config; do
+  command -v "$tool" >/dev/null || { echo "bin/build: $tool not found" >&2; exit 1; }
+done
+
+tags=desktop,production
+if ! pkg-config --exists webkit2gtk-4.0; then
+  tags+=,webkit2_41
+fi
+
+echo ">> frontend (npm ci, vite build)"
+(
+  cd "$root/frontend"
+  npm ci --no-audit --no-fund --loglevel=error
+  npm run build
+)
+
+echo ">> go build ($tags)"
+mkdir -p "$root/build"
+(
+  cd "$root"
+  GOTOOLCHAIN=auto CGO_ENABLED=1 go build -trimpath -tags "$tags" \
+    -ldflags "-s -w -X aether/cli.Version=$version -X 'aether/internal/update.packageUpdateCommand=$update_command'" \
+    -o build/aether .
+)
+echo ">> $root/build/aether"

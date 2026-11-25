@@ -10,6 +10,7 @@
     "qml6-module-qtqml",
     "qml6-module-qtqml-workerscript",
     "qt6-qpa-plugins",
+    "qt6-svg-plugins",
     "xdg-desktop-portal",
     "xdg-desktop-portal-gtk",
     "xdg-terminal-exec",
@@ -17,12 +18,14 @@
     "gvfs-backends",
     "udisks2",
     "libglib2.0-0t64",
+    "libfontconfig1",
     "libarchive-tools",
     "libqt6multimedia6",
     "qml6-module-qtmultimedia",
     "qml6-module-qtquick-pdf",
     "poppler-utils",
-    "ffmpegthumbnailer"
+    "ffmpegthumbnailer",
+    "heif-thumbnailer"
   ],
   "apt_build": [
     "build-essential",
@@ -32,6 +35,7 @@
     "qt6-base-dev",
     "qt6-declarative-dev",
     "libglib2.0-dev",
+    "libfontconfig-dev",
     "zlib1g-dev"
   ],
   "manual": [
@@ -40,6 +44,8 @@
     "Space preview needs qml6-module-qtmultimedia and qml6-module-qtquick-pdf; without them Folio still browses files.",
     "Hyprland corner rounding is skipped when HYPRLAND_INSTANCE_SIGNATURE is unset.",
     "Optional: xdg-mime default folio.desktop inode/directory so omarchy-launch-files opens Folio.",
+    "Optional Open/Save: set org.freedesktop.impl.portal.FileChooser=folio in ~/.config/xdg-desktop-portal/portals.conf, then restart xdg-desktop-portal.",
+    "Optional Show in folder from other apps: install share/org.freedesktop.FileManager1.service into ~/.local/share/dbus-1/services (see README).",
     "If apt cannot match libqt6core for QML modules, place them under ~/.local/lib/qt6/qml/ — install.sh wraps the binary."
   ]
 }

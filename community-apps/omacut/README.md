@@ -3,7 +3,7 @@
 Open a video, trim/split/reorder clips, preview, and export MP4 via ffmpeg.
 
 Port of [omacom/omacut](https://github.com/omacom/omacut) 0.8.3
-(upstream commit `fc452f1`, pinned in `.omaxian-upstream-commit`). Full upstream
+(upstream commit `d222d31`, pinned in `.omaxian-upstream-commit`). Full upstream
 docs: [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under

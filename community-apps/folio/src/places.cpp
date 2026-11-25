@@ -6,6 +6,8 @@
 #include <QCollator>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QSaveFile>
 #include <QUrl>
 #include <QFileInfo>
@@ -24,12 +26,23 @@
 
 namespace {
 
-// Home's own folders, all but the hidden ones (as refreshPlaces lists them),
-// are already under Home.
-bool listedUnderHome(const QString &path, const QString &home) {
+// Whether `path` is one of home's own folders, which only Home lists.
+bool inHome(const QString &path, const QString &home) {
+    return QFileInfo(path).absolutePath() == QDir::cleanPath(home);
+}
+
+// Home's own folders, all but the dot-hidden ones and those hidden from
+// Home (as refreshPlaces lists them), are already under Home.
+bool listedUnderHome(const QString &path, const QString &home, const QStringList &hidden) {
     const QString clean = QDir::cleanPath(home);
     const QFileInfo info(path);
-    return path == clean || (info.absolutePath() == clean && !info.isHidden());
+    return path == clean || (inHome(path, home) && !info.isHidden() && !hidden.contains(info.fileName()));
+}
+
+// Home's folders read capitalized there, as the XDG ones are: go as Go,
+// omarchy as Omarchy.
+QString homeName(const QString &name) {
+    return name.isEmpty() ? name : name.left(1).toUpper() + name.mid(1);
 }
 
 // Omarchy's own folder reads as the name it goes by.
@@ -39,7 +52,7 @@ QString displayName(const QString &name) {
 
 // Reads bookmark lines ("file:///path Label") into pinned entries, leaving
 // out folders already listed under Home and missing folders.
-QVariantList parseBookmarks(const QStringList &lines, const QString &home) {
+QVariantList parseBookmarks(const QStringList &lines, const QString &home, const QStringList &hidden) {
     QVariantList pinned;
     QStringList seen;
     for (const QString &raw : lines) {
@@ -56,7 +69,7 @@ QVariantList parseBookmarks(const QStringList &lines, const QString &home) {
         const QString path = QDir::cleanPath(url.toLocalFile());
         // Home's visible folders are already under Home; Omarchy also seeds
         // a few of those as bookmarks for the file dialogs.
-        if (listedUnderHome(path, home) || seen.contains(path) || !QFileInfo(path).isDir())
+        if (listedUnderHome(path, home, hidden) || seen.contains(path) || !QFileInfo(path).isDir())
             continue;
         seen << path;
         pinned << QVariantMap{{"name", label.isEmpty() ? displayName(QFileInfo(path).fileName()) : label},
@@ -131,10 +144,14 @@ Places::Places(const QString &home, QObject *parent)
 }
 
 void Places::refresh() {
+    // Told only when a list changed: each time it's told, the sidebar
+    // makes all its rows again, and the poll mostly finds nothing new.
+    const QVariantList places = m_places, pinned = m_pinned, views = m_views;
     refreshPlaces();
     refreshPinned();
     refreshDevices();
-    emit changed();
+    if (m_places != places || m_pinned != pinned || m_views != views)
+        emit changed();
 }
 
 QString Places::userDirectory(int location, const QString &fallback) const {
@@ -169,9 +186,13 @@ void Places::refreshPlaces() {
     collator.setNumericMode(true);
     collator.setCaseSensitivity(Qt::CaseInsensitive);
     std::sort(names.begin(), names.end(), [&](const QString &a, const QString &b) { return collator.compare(a, b) < 0; });
+    m_hidden = readHidden();
     for (const QString &name : names) {
+        if (m_hidden.contains(name))
+            continue;
         const QString path = m_home + "/" + name;
-        add(displayName(name), path, icons.value(path, "folder"));
+        // Omarchy's own folder shows Omarchy's mark.
+        add(homeName(name), path, icons.value(path, name == "omarchy" ? QStringLiteral(":/omarchy.svg") : QStringLiteral("folder")));
     }
 
     m_places = places;
@@ -182,11 +203,102 @@ void Places::refreshPlaces() {
                QVariantMap{{"path", QDir::cleanPath(FileOps::homeTrash() + "/files")}, {"icon", "trash"}}};
 }
 
+QString Places::configPath() const {
+    // Tests use a temporary home, whose settings live inside it.
+    return m_realHome ? QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+                      : m_home + "/.config";
+}
+
 QString Places::bookmarksPath() const {
-    // Tests use a temporary home, whose bookmarks live inside it.
-    const QString config = m_realHome ? QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
-                                      : m_home + "/.config";
-    return config + "/gtk-3.0/bookmarks";
+    return configPath() + "/gtk-3.0/bookmarks";
+}
+
+QString Places::hiddenPath() const {
+    return configPath() + "/folio/hidden-in-home";
+}
+
+// A JSON array of names, so a name with any character in it (a newline
+// even) is kept whole.
+QStringList Places::readHidden() const {
+    QFile file(hiddenPath());
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QStringList names;
+    for (const QJsonValue &name : QJsonDocument::fromJson(file.readAll()).array())
+        if (!name.toString().isEmpty())
+            names << name.toString();
+    return names;
+}
+
+bool Places::writeHidden(const QStringList &names) {
+    QDir().mkpath(QFileInfo(hiddenPath()).absolutePath());
+    QSaveFile file(hiddenPath());
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    file.write(QJsonDocument(QJsonArray::fromStringList(names)).toJson());
+    return file.commit();
+}
+
+bool Places::hiddenFromHome(const QString &path) const {
+    const QString clean = QDir::cleanPath(path);
+    return inHome(clean, m_home) && m_hidden.contains(QFileInfo(clean).fileName());
+}
+
+void Places::hideFromHome(const QString &path) {
+    const QString clean = QDir::cleanPath(path);
+    if (!inHome(clean, m_home) || hiddenFromHome(clean))
+        return;
+    QStringList names = readHidden();
+    names << QFileInfo(clean).fileName();
+    if (!writeHidden(names)) {
+        emit failed(tr("Couldn't save the hidden folders to %1.").arg(hiddenPath()));
+        return;
+    }
+    refreshPlaces();
+    refreshPinned();
+    emit changed();
+}
+
+void Places::showInHome(const QString &path) {
+    const QString clean = QDir::cleanPath(path);
+    QStringList names = readHidden();
+    if (!inHome(clean, m_home) || names.removeAll(QFileInfo(clean).fileName()) == 0)
+        return;
+    if (!writeHidden(names)) {
+        emit failed(tr("Couldn't save the hidden folders to %1.").arg(hiddenPath()));
+        return;
+    }
+    refreshPlaces();
+    refreshPinned();
+    emit changed();
+}
+
+void Places::renamed(const QString &from, const QString &to) {
+    const QString before = QDir::cleanPath(from), after = QDir::cleanPath(to);
+    if (hiddenFromHome(before)) {
+        QStringList names = readHidden();
+        names.removeAll(QFileInfo(before).fileName());
+        if (inHome(after, m_home))
+            names << QFileInfo(after).fileName();
+        if (!writeHidden(names))
+            emit failed(tr("Couldn't save the hidden folders to %1.").arg(hiddenPath()));
+    }
+    // A pin keeps its label, and only its path changes.
+    QStringList lines = readBookmarkLines();
+    bool moved = false;
+    for (QString &line : lines) {
+        const int space = line.indexOf(' ');
+        const QUrl url(space < 0 ? line : line.left(space));
+        if (url.isLocalFile() && QDir::cleanPath(url.toLocalFile()) == before) {
+            line = QString::fromUtf8(QUrl::fromLocalFile(after).toEncoded()) + (space < 0 ? QString() : line.mid(space));
+            moved = true;
+        }
+    }
+    if (moved && !writeBookmarkLines(lines))
+        emit failed(tr("Couldn't save the pin to %1.").arg(bookmarksPath()));
+    refreshPlaces();
+    refreshPinned();
+    emit changed();
 }
 
 QStringList Places::readBookmarkLines() const {
@@ -210,7 +322,7 @@ bool Places::writeBookmarkLines(const QStringList &lines) {
 }
 
 void Places::refreshPinned() {
-    m_pinned = parseBookmarks(readBookmarkLines(), m_home);
+    m_pinned = parseBookmarks(readBookmarkLines(), m_home, m_hidden);
 }
 
 bool Places::isPinned(const QString &path) const {
@@ -226,7 +338,7 @@ QString Places::pin(const QString &path) {
     const QFileInfo info(clean);
     if (!info.isDir())
         return tr("Only folders can be pinned.");
-    if (listedUnderHome(clean, m_home))
+    if (listedUnderHome(clean, m_home, m_hidden))
         return tr("%1 is already under Home.").arg(displayName(info.fileName()));
     if (isPinned(clean))
         return {};
@@ -280,15 +392,25 @@ QVariantList Places::physicalDrives(const QList<Mount> &mounts, const QString &s
 }
 
 QList<Places::Mount> Places::readMounts() {
+    static const QStringList pseudo{"tmpfs", "devtmpfs", "squashfs", "overlay", "ramfs", "fuse.portal",
+                                    "fuse.gvfsd-fuse", "efivarfs", "autofs"};
     QList<Mount> mounts;
     auto volumes = QStorageInfo::mountedVolumes();
     // Shortest path first, so a drive mounted twice is listed at its top.
     std::sort(volumes.begin(), volumes.end(),
               [](const QStorageInfo &a, const QStorageInfo &b) { return a.rootPath().size() < b.rootPath().size(); });
     for (const QStorageInfo &v : volumes) {
+        const QString root = v.rootPath();
+        const QString device = QString::fromUtf8(v.device());
+        const QString type = QString::fromUtf8(v.fileSystemType());
+        // Skip pseudo, non-block and system mounts before calling isReady()/bytesAvailable()
+        // so we never issue statvfs() on virtual or unresponsive network filesystems.
+        if (Disks::isSystemMount(root) || !device.startsWith("/dev/") || device.startsWith("/dev/loop")
+            || device.startsWith("/dev/zram") || pseudo.contains(type))
+            continue;
         if (!v.isValid() || !v.isReady())
             continue;
-        Mount mount{v.rootPath(), QString::fromUtf8(v.device()), QString::fromUtf8(v.fileSystemType()), v.name()};
+        Mount mount{root, device, type, v.name()};
         // A read-only medium (an installer image, a DVD) has nothing free to
         // speak of; it says nothing rather than "0 B free".
         mount.free = v.isReadOnly() ? -1 : v.bytesAvailable();
@@ -314,13 +436,28 @@ void Places::refreshDevices() {
 void Places::mountsRead() {
     QList<Mount> mounts = m_mounts.result();
     // What GIO can do with each drive is asked here, on the UI thread, where
-    // GIO's volume monitor lives; it already knows, so asking is quick.
-    for (Mount &mount : mounts)
-        if (GMount *gmount = mount.device.startsWith("/dev/") ? mountAt(mount.root) : nullptr) {
-            mount.canEject = g_mount_can_eject(gmount);
-            mount.canUnmount = g_mount_can_unmount(gmount);
-            g_object_unref(gmount);
+    // GIO's volume monitor lives; fetch the mount list once for all drives.
+    if (!mounts.isEmpty()) {
+        static GVolumeMonitor *const monitor = g_volume_monitor_get();
+        GList *gmounts = g_volume_monitor_get_mounts(monitor);
+        QHash<QString, GMount *> byRoot;
+        for (GList *l = gmounts; l; l = l->next) {
+            GFile *root = g_mount_get_root(G_MOUNT(l->data));
+            char *rootPath = g_file_get_path(root);
+            if (rootPath) {
+                byRoot.insert(QString::fromUtf8(rootPath), G_MOUNT(l->data));
+                g_free(rootPath);
+            }
+            g_object_unref(root);
         }
+        for (Mount &mount : mounts) {
+            if (GMount *gmount = byRoot.value(mount.root)) {
+                mount.canEject = g_mount_can_eject(gmount);
+                mount.canUnmount = g_mount_can_unmount(gmount);
+            }
+        }
+        g_list_free_full(gmounts, g_object_unref);
+    }
     const QVariantList devices = physicalDrives(mounts, m_systemDevice);
     if (devices != m_devices) {
         m_devices = devices;

@@ -14,6 +14,7 @@ public:
     void setTheme(bool darkMode, const QString &background, const QString &foreground,
                   const QString &accent, const QString &codeBackground);
     void setSearch(const QString &query, int currentMatchStart);
+    void clearCurrentMatch();
     void setCaret(int position);
     void refreshFont();
 
@@ -62,6 +63,16 @@ protected:
     void highlightBlock(const QString &text) override;
 
 private:
+    struct SearchPattern {
+        QString foldedQuery;
+        QList<std::pair<qsizetype, QChar>> exact;
+        qsizetype length = 0;
+    };
+
+    static SearchPattern buildSearchPattern(const QString &query);
+    static QList<int> findMatches(const QString &text, const SearchPattern &pattern);
+    static QList<InlineMarkup> inlineMarkup(const QString &text, const QList<Span> &code);
+
     void rebuildFormats();
     void rehighlightAll();
     void highlightMarkers(const QString &text);
@@ -83,6 +94,7 @@ private:
     QTextCharFormat m_quoteFormat;
     QTextCharFormat m_linkFormat;
     QString m_searchQuery;
+    SearchPattern m_searchPattern;
     int m_currentMatchStart = -1;
     // Moves with edits, so it still finds the block the current match was
     // painted in after text above it changes.

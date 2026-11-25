@@ -4,9 +4,14 @@ import QtQuick.Controls
 // The quiet strip under the text, laid out like Omawrite's: the file's path
 // on the left, with a lock when saving it needs sudo, and Save, Open and the
 // shortcuts on the right. No background of its own, and faded until needed.
+// While the files are hidden, the icon that shows them leads the path; while
+// they show, the sidebar has its own at its foot.
 Item {
     id: footer
 
+    property bool sidebarButton: true
+
+    signal sidebarRequested()
     signal saveRequested()
     signal openRequested()
     signal helpRequested()
@@ -22,11 +27,24 @@ Item {
         anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
         spacing: 8
-        opacity: 0.55
+
+        FooterIconButton {
+            id: sidebarButton
+            objectName: "sidebarButton"
+            visible: footer.sidebarButton
+            iconName: "sidebar"
+            iconColor: footer.muted
+            opacity: 0.55
+            tooltip: qsTr("Files (Ctrl+B)")
+            onClicked: footer.sidebarRequested()
+        }
 
         Label {
             id: path
-            width: Math.min(implicitWidth, parent.width - (lock.visible ? lock.width + parent.spacing : 0))
+            opacity: 0.55
+            width: Math.min(implicitWidth, parent.width
+                - (lock.visible ? lock.width + parent.spacing : 0)
+                - (sidebarButton.visible ? sidebarButton.width + parent.spacing : 0))
             height: 16
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideMiddle
@@ -38,6 +56,7 @@ Item {
         FooterIconButton {
             id: lock
             visible: doc.locked
+            opacity: 0.55
             iconName: "lock"
             iconColor: footer.muted
             tooltip: qsTr("Saving this file needs administrator rights: use sudoedit")

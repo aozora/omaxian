@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.cache/
+/blueprints/
+temp/
+build/bin/
+frontend/dist/
+build/darwin/
+/build/aether

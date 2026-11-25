@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -39,6 +40,7 @@
 static QList<FileOps::Change> s_undo, s_redo;
 static QList<FileOps *> s_everyone;
 static constexpr int historyLength = 50;
+static constexpr int stopCheckMs = 100;
 
 // Work under way in this Folio, whichever pane started it. Panes work side
 // by side, but an undo or redo runs alone, so nothing changes the items it
@@ -53,8 +55,20 @@ static void tellEveryone() {
 }
 
 FileOps::FileOps(QObject *parent) : QObject(parent) {
-    if (auto *clipboard = QGuiApplication::clipboard())
-        connect(clipboard, &QClipboard::dataChanged, this, &FileOps::clipboardChanged);
+    if (auto *clipboard = QGuiApplication::clipboard()) {
+        const auto readCut = [this, clipboard] {
+            bool cut = false;
+            const QMimeData *data = clipboard->mimeData();
+            const QStringList paths = data && data->hasFormat("x-special/gnome-copied-files") ? pathsFrom(data, &cut) : QStringList();
+            m_cut.clear();
+            if (cut)
+                for (const QString &path : paths)
+                    m_cut.insert(QDir::cleanPath(path));
+            emit clipboardChanged();
+        };
+        readCut();
+        connect(clipboard, &QClipboard::dataChanged, this, readCut);
+    }
     s_everyone << this;
 }
 
@@ -145,8 +159,20 @@ bool FileOps::canPaste() const {
     return clipboard && !pathsFrom(clipboard->mimeData(), nullptr).isEmpty();
 }
 
+bool FileOps::isCut(const QString &path) const {
+    // The item itself or a folder above it, which takes it along.
+    for (QString at = QDir::cleanPath(path); at.size() > 1; at = QFileInfo(at).path())
+        if (m_cut.contains(at))
+            return true;
+    return false;
+}
+
 bool FileOps::shiftHeld() {
     return QGuiApplication::queryKeyboardModifiers() & Qt::ShiftModifier;
+}
+
+bool FileOps::altHeld() {
+    return QGuiApplication::queryKeyboardModifiers() & Qt::AltModifier;
 }
 
 void FileOps::copy(const QStringList &paths) {
@@ -223,8 +249,14 @@ static bool writeAll(int fd, const char *data, qint64 size) {
 // it's made with them, so a private file is never open to others while it's
 // copied.
 static bool copyFile(const QString &from, const QString &to, FileOps::Job *job) {
-    QFile in(from), out(to);
-    if (!in.open(QIODevice::ReadOnly) || !out.open(QIODevice::WriteOnly | QIODevice::NewOnly, in.permissions()))
+    QFile in, out(to);
+    // An open that waits would hold a pipe nobody writes to, or a file another program holds a lease on, out of Stop's reach; the lease is asked for again until it's given up.
+    int source;
+    while ((source = ::open(QFile::encodeName(from).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC)) < 0
+           && errno == EWOULDBLOCK && !(job && job->cancelled))
+        ::usleep(stopCheckMs * 1000);
+    if (source < 0 || !in.open(source, QIODevice::ReadOnly, QFileDevice::AutoCloseHandle)
+        || !out.open(QIODevice::WriteOnly | QIODevice::NewOnly, in.permissions()))
         return false;
     bool kernel = true, ok = true;
     QByteArray buffer;
@@ -245,12 +277,16 @@ static bool copyFile(const QString &from, const QString &to, FileOps::Job *job) 
                 continue;
             }
         } else {
+            // Read only what's there: a pipe with no writer yet reads as ended, and a silent one would hold the copy out of Stop's reach.
+            pollfd waiting{in.handle(), POLLIN, 0};
+            if (::poll(&waiting, 1, stopCheckMs) <= 0)
+                continue;
             buffer.resize(1 << 20);
             n = ::read(in.handle(), buffer.data(), buffer.size());
             if (n > 0 && !writeAll(out.handle(), buffer.constData(), n))
                 n = -1;
         }
-        if (n < 0 && errno == EINTR)
+        if (n < 0 && (errno == EINTR || errno == EAGAIN))
             continue;
         if (n <= 0) {
             ok = n == 0;
@@ -1027,6 +1063,68 @@ void FileOps::compress(const QStringList &selected) {
     connect(process, &QProcess::readyReadStandardError, this, [process, read] { read(process); });
 }
 
+// Only the owner may change a file's mode, so it's offered for one's own.
+static bool ownFile(const QString &path, struct stat *st) {
+    return ::lstat(QFile::encodeName(path).constData(), st) == 0 && S_ISREG(st->st_mode) && st->st_uid == ::geteuid();
+}
+
+bool FileOps::canSetExecutable(const QStringList &paths) const {
+    struct stat st;
+    return !paths.isEmpty() && std::all_of(paths.begin(), paths.end(), [&st](const QString &path) { return ownFile(path, &st); });
+}
+
+bool FileOps::executable(const QStringList &paths) const {
+    struct stat st;
+    return !paths.isEmpty() && std::all_of(paths.begin(), paths.end(), [&st](const QString &path) {
+        return ownFile(path, &st) && (st.st_mode & S_IXUSR);
+    });
+}
+
+void FileOps::setExecutable(const QStringList &paths, bool on) {
+    // A copy still being written takes its source's mode once it's done.
+    if (paths.isEmpty() || !idle())
+        return;
+    QStringList changed, failures;
+    const auto fail = [&](const QString &path, int why) {
+        failures << tr("%1 (%2)").arg(QFileInfo(path).fileName(), QString::fromLocal8Bit(strerror(why)));
+    };
+    for (const QString &path : paths) {
+        // Looked at and changed through one handle, so a link put anywhere
+        // in the path after the menu opened can't send the change elsewhere.
+        const int fd = ::open(QFile::encodeName(path).constData(), O_PATH | O_NOFOLLOW | O_CLOEXEC);
+        struct stat st;
+        // One gone or out of reach since the menu opened says why; a
+        // folder, link or someone else's file is just left alone.
+        if (fd < 0 || ::fstat(fd, &st) != 0) {
+            fail(path, errno);
+            if (fd >= 0)
+                ::close(fd);
+            continue;
+        }
+        if (!S_ISREG(st.st_mode) || st.st_uid != ::geteuid()) {
+            ::close(fd);
+            continue;
+        }
+        // Whoever may read it may run it, so a file kept private stays so;
+        // off, no one may.
+        const mode_t read = st.st_mode & (S_IRUSR | S_IRGRP | S_IROTH);
+        const mode_t mode = on ? (st.st_mode | read >> 2) : (st.st_mode & ~(S_IXUSR | S_IXGRP | S_IXOTH));
+        // fchmod() can't take an O_PATH handle; its /proc link can be changed.
+        const bool done = ::chmod(("/proc/self/fd/" + QByteArray::number(fd)).constData(), mode & 07777) == 0;
+        const int why = errno;
+        ::close(fd);
+        if (done)
+            changed << path;
+        else
+            fail(path, why);
+    }
+    if (!changed.isEmpty())
+        emit modesChanged(changed);
+    if (!failures.isEmpty())
+        emit failed((on ? tr("Couldn't make %1 executable.") : tr("Couldn't make %1 not executable."))
+                        .arg(QLocale().createSeparatedList(failures)));
+}
+
 bool FileOps::canExtract(const QStringList &paths) const {
     // A lone compressed file (notes.txt.gz) is no archive to bsdtar, and a
     // disk image is for burning, not unpacking.
@@ -1378,7 +1476,11 @@ QString FileOps::trashOne(const QString &path, QString *error) {
 }
 
 QString FileOps::homeTrash() {
-    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/Trash";
+    // The trash is told from paths once they're cleaned, and cleaning takes
+    // link/.. to the folder beside link, not to where link leads.
+    const QString data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    const QString real = data.split('/').contains("..") ? QFileInfo(data).canonicalFilePath() : QString();
+    return (real.isEmpty() ? data : real) + "/Trash";
 }
 
 QStringList FileOps::trashDirs() {
@@ -1394,12 +1496,29 @@ QStringList FileOps::trashDirs() {
     return dirs;
 }
 
-bool FileOps::inTrash(const QString &path) const {
+// The trash folder whose files `path` is among, read from the path: asking
+// every mounted drive would stall the window on one that doesn't answer.
+static QString trashFor(const QString &path) {
     const QString clean = QDir::cleanPath(path);
-    for (const QString &dir : trashDirs())
-        if (clean == dir + "/files" || clean.startsWith(dir + "/files/"))
-            return true;
-    return false;
+    const auto under = [&clean](const QString &dir) { return clean == dir + "/files" || clean.startsWith(dir + "/files/"); };
+    if (const QString home = QDir::cleanPath(FileOps::homeTrash()); under(home))
+        return home;
+    // A drive's own, at its top; the innermost, as a drive can be mounted in
+    // another's trash. The only drive asked is the one named there.
+    const QString uid = QString::number(getuid());
+    QString found;
+    for (const QString &marker : {"/.Trash-" + uid, "/.Trash/" + uid}) {
+        for (qsizetype at = clean.indexOf(marker + "/files"); at >= 0; at = clean.indexOf(marker + "/files", at + 1)) {
+            const QString dir = clean.left(at + marker.size()), top = at == 0 ? QStringLiteral("/") : clean.left(at);
+            if (dir.size() > found.size() && under(dir) && QStorageInfo(top).rootPath() == top)
+                found = dir;
+        }
+    }
+    return found;
+}
+
+bool FileOps::inTrash(const QString &path) const {
+    return !trashFor(path).isEmpty();
 }
 
 QString FileOps::infoFileFor(const QString &trashedPath) {
@@ -1409,10 +1528,8 @@ QString FileOps::infoFileFor(const QString &trashedPath) {
     // happens to be called "info".
     const QFileInfo item(trashedPath);
     const QString folder = QDir::cleanPath(item.absolutePath());
-    for (const QString &dir : trashDirs())
-        if (folder == QDir::cleanPath(dir + "/files"))
-            return dir + "/info/" + item.fileName() + ".trashinfo";
-    return {};
+    const QString dir = trashFor(folder);
+    return !dir.isEmpty() && folder == dir + "/files" ? dir + "/info/" + item.fileName() + ".trashinfo" : QString();
 }
 
 QString FileOps::originalPath(const QString &trashedPath) {
@@ -1426,9 +1543,8 @@ QString FileOps::originalPath(const QString &trashedPath) {
         if (path.startsWith('/'))
             return path;
         // A drive's own trash records paths from the top of that drive.
-        const QString trashDir = QFileInfo(QFileInfo(trashedPath).absolutePath()).absolutePath();
-        const QString top = trashDir.contains("/.Trash/") ? trashDir.section("/.Trash/", 0, 0)
-                                                          : QFileInfo(trashDir).absolutePath();
+        const QString up = QFileInfo(QFileInfo(QFileInfo(trashedPath).absolutePath()).absolutePath()).absolutePath();
+        const QString top = QFileInfo(up).fileName() == ".Trash" ? QFileInfo(up).absolutePath() : up;
         return QDir(top).filePath(path);
     }
     return {};
@@ -1627,6 +1743,7 @@ QString FileOps::rename(const QString &path, const QString &name) {
         return QFileInfo::exists(destination) ? tr("%1 already exists here.").arg(clean)
                                               : tr("Couldn't rename %1.").arg(info.fileName());
     remember({Renaming, info.fileName(), 1, {identified({false, destination, path})}});
+    emit renamed(path, destination);
     emit done(info.absolutePath(), clean);
     return {};
 }
@@ -1651,6 +1768,7 @@ void FileOps::newFolder(const QString &folder) {
     }
     remember({MakingFolder, name, 1, {identified({true, QDir(folder).filePath(name), {}})}});
     emit done(folder, name);
+    emit folderCreated(folder, name);
 }
 
 // Undo and redo.
@@ -1930,6 +2048,12 @@ void FileOps::step(bool undoing) {
                 sayStopped(job);
             else
                 emit notice(didMessage(change, undoing));
+            // A rename undone or redone moves the item back or on again;
+            // each flipped step is now at `path`, from `other`.
+            if (change.kind == Renaming)
+                for (const Step &step : result.steps.mid(result.left))
+                    if (!step.trash && !step.folder)
+                        emit renamed(step.other, step.path);
             // What's back in a folder is selected there, as after a paste.
             for (const Step &step : result.steps.mid(result.left))
                 if (!step.folder && (!step.trash || step.other.isEmpty())) {
@@ -1947,18 +2071,137 @@ static QString mimeFor(const QString &path) {
     return QFileInfo(path).isDir() ? QStringLiteral("inode/directory") : QMimeDatabase().mimeTypeForFile(path).name();
 }
 
+QString FileOps::omarchyEditor() {
+    QFile setting(QDir::homePath() + "/.local/state/omarchy/defaults/editor");
+    QString editor = setting.open(QIODevice::ReadOnly) ? QString::fromUtf8(setting.readLine()).trimmed() : QString();
+    // sublime-text-4 ships subl; older settings say sublime_text.
+    if (editor == "sublime_text")
+        editor = "subl";
+    if (editor.isEmpty() || QStandardPaths::findExecutable(editor).isEmpty())
+        editor = "nvim";
+    return editor;
+}
+
+QString FileOps::editorAppName(const QVariantList &apps) {
+    const QString editor = omarchyEditor();
+    for (const QVariant &app : apps)
+        if (QFileInfo(app.toMap().value("executable").toString()).fileName() == editor)
+            return app.toMap().value("name").toString();
+    return {};
+}
+
+QVariantList FileOps::foldHandlerRepeats(QVariantList apps) {
+    if (apps.isEmpty() || apps.first().toMap().value("id") != "omarchy-launch-editor.desktop"
+        || !apps.first().toMap().value("isDefault").toBool())
+        return apps;
+    const QString name = apps.first().toMap().value("name").toString();
+    for (qsizetype i = apps.size() - 1; i > 0; --i)
+        if (apps.at(i).toMap().value("name").toString() == name)
+            apps.removeAt(i);
+    return apps;
+}
+
+// App metadata lookups (g_app_info_get_all, g_app_info_get_all_for_type,
+// g_app_info_get_default_for_type) scan desktop files on disk and run on the
+// UI thread whenever the selection changes in Columns view. Cache them keyed
+// by the mtimes of the config/applications locations and a local epoch bumped
+// by setDefaultApp().
+struct AppCache {
+    QByteArray stamp;
+    QString editorName;
+    bool hasEditorName = false;
+    QHash<QString, QString> defaultNames;
+    QHash<QString, QVariantList> appsByMime;
+};
+
+static quint64 s_appCacheEpoch = 0;
+
+static void appendStatStamp(QByteArray &out, const QString &path) {
+    struct stat st{};
+    if (::stat(QFile::encodeName(path).constData(), &st) == 0) {
+        out += QByteArray::number(qint64(st.st_mtim.tv_sec));
+        out += ':';
+        out += QByteArray::number(qint64(st.st_mtim.tv_nsec));
+        out += ':';
+        out += QByteArray::number(qint64(st.st_size));
+    }
+    out += '|';
+}
+
+static AppCache &appCache() {
+    static AppCache cache;
+    const QString home = QDir::homePath();
+    QByteArray stamp;
+    stamp.reserve(512);
+    stamp += QByteArray::number(s_appCacheEpoch);
+    stamp += '|';
+    stamp += qgetenv("HOME");
+    stamp += '|';
+    stamp += qgetenv("PATH");
+    stamp += '|';
+    stamp += qgetenv("XDG_CONFIG_HOME");
+    stamp += '|';
+    stamp += qgetenv("XDG_DATA_HOME");
+    stamp += '|';
+    stamp += qgetenv("XDG_DATA_DIRS");
+    stamp += '|';
+    appendStatStamp(stamp, home + "/.local/state/omarchy/defaults/editor");
+    for (const QString &dir : QStandardPaths::standardLocations(QStandardPaths::GenericConfigLocation))
+        appendStatStamp(stamp, dir + "/mimeapps.list");
+    for (const QString &dir : QStandardPaths::standardLocations(QStandardPaths::GenericDataLocation)) {
+        appendStatStamp(stamp, dir + "/applications");
+        appendStatStamp(stamp, dir + "/applications/mimeapps.list");
+    }
+    if (cache.stamp != stamp) {
+        cache.stamp = stamp;
+        cache.editorName.clear();
+        cache.hasEditorName = false;
+        cache.defaultNames.clear();
+        cache.appsByMime.clear();
+    }
+    return cache;
+}
+
+// An app's name, except Omarchy's editor handler, which opens text files in
+// the editor picked under Setup > Default > Editor: it's named after that
+// editor (Visual Studio Code, Neovim), found as the app that runs it, rather
+// than its own "Editor".
+static QString appName(GAppInfo *app) {
+    const QString own = QString::fromUtf8(g_app_info_get_name(app));
+    if (qstrcmp(g_app_info_get_id(app), "omarchy-launch-editor.desktop") != 0)
+        return own;
+    AppCache &cache = appCache();
+    if (!cache.hasEditorName) {
+        QVariantList visible;
+        GList *all = g_app_info_get_all();
+        for (GList *l = all; l; l = l->next) {
+            auto *info = G_APP_INFO(l->data);
+            if (const char *executable = g_app_info_get_executable(info); executable && g_app_info_should_show(info))
+                visible << QVariantMap{{"executable", QString::fromUtf8(executable)},
+                                       {"name", QString::fromUtf8(g_app_info_get_name(info))}};
+        }
+        g_list_free_full(all, g_object_unref);
+        cache.editorName = FileOps::editorAppName(visible);
+        cache.hasEditorName = true;
+    }
+    return cache.editorName.isEmpty() ? own : cache.editorName;
+}
+
 QString FileOps::defaultAppName(const QString &mime) {
     if (mime.isEmpty() || mime == "inode/directory")
         return {};
-    char *type = g_content_type_from_mime_type(mime.toUtf8().constData());
-    if (!type)
-        return {};
-    GAppInfo *app = g_app_info_get_default_for_type(type, FALSE);
-    g_free(type);
-    if (!app)
-        return {};
-    const QString name = QString::fromUtf8(g_app_info_get_name(app));
-    g_object_unref(app);
+    AppCache &cache = appCache();
+    if (const auto it = cache.defaultNames.constFind(mime); it != cache.defaultNames.cend())
+        return *it;
+    QString name;
+    if (char *type = g_content_type_from_mime_type(mime.toUtf8().constData())) {
+        if (GAppInfo *app = g_app_info_get_default_for_type(type, FALSE)) {
+            name = appName(app);
+            g_object_unref(app);
+        }
+        g_free(type);
+    }
+    cache.defaultNames.insert(mime, name);
     return name;
 }
 
@@ -1999,9 +2242,12 @@ QString FileOps::openInDefaultApp(const QString &path) {
     return problem;
 }
 
-QVariantList FileOps::appsFor(const QString &path) const {
+QVariantList FileOps::appsFor(const QString &path, const QString &knownMime) const {
+    const QString mime = knownMime.isEmpty() ? mimeFor(path) : knownMime;
+    AppCache &cache = appCache();
+    if (const auto it = cache.appsByMime.constFind(mime); it != cache.appsByMime.cend())
+        return *it;
     QVariantList apps;
-    const QString mime = mimeFor(path);
     char *type = g_content_type_from_mime_type(mime.toUtf8().constData());
     if (!type)
         return apps;
@@ -2017,8 +2263,7 @@ QVariantList FileOps::appsFor(const QString &path) const {
         // even a hidden one (Omarchy's editor handler), so it can be named.
         if (!g_app_info_should_show(info) && id != defaultId)
             continue;
-        const QVariantMap app{{"id", id}, {"name", QString::fromUtf8(g_app_info_get_name(info))},
-                              {"isDefault", id == defaultId}};
+        const QVariantMap app{{"id", id}, {"name", appName(info)}, {"isDefault", id == defaultId}};
         if (id == defaultId)
             apps.prepend(app);
         else
@@ -2026,6 +2271,11 @@ QVariantList FileOps::appsFor(const QString &path) const {
     }
     g_list_free_full(all, g_object_unref);
     g_free(type);
+    // Named after Neovim, the editor handler and Neovim itself would be two
+    // entries of one name: the handler, which follows the picked editor,
+    // stands for both.
+    apps = foldHandlerRepeats(apps);
+    cache.appsByMime.insert(mime, apps);
     return apps;
 }
 
@@ -2058,6 +2308,8 @@ void FileOps::setDefaultApp(const QString &path, const QString &appId) {
         emit failed(tr("Couldn't make %1 the default app for %2: %3")
                         .arg(QString::fromUtf8(g_app_info_get_name(G_APP_INFO(app))), QMimeDatabase().mimeTypeForName(mime).comment(),
                              QString::fromUtf8(error ? error->message : "")));
+    else
+        ++s_appCacheEpoch;
     if (error)
         g_error_free(error);
     g_free(type);

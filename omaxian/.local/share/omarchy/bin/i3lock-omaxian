@@ -1,36 +1,45 @@
 #!/bin/bash
 
-# omarchy:summary=Omaxian screen locker (screenshot / image / random + effects)
+# omarchy:summary=Omaxian screen locker (screenshot / image / random / slideshow + effects)
 # omarchy:group=system
 # omarchy:name=i3lock-omaxian
-# omarchy:args=[--preview [outfile]] [--mode blur|image|random] [--image PATH] [--folder PATH] [--effect none|blur|pixelate] [--greyscale]
-# omarchy:examples=i3lock-omaxian | i3lock-omaxian --preview | i3lock-omaxian --mode image --image ~/Pictures/lock.png --effect blur
+# omarchy:args=[--preview [outfile]] [--mode blur|image|random|slideshow] [--image PATH] [--folder PATH] [--effect none|blur|pixelate] [--greyscale] [--interval SECONDS]
+# omarchy:examples=i3lock-omaxian | i3lock-omaxian --preview | i3lock-omaxian --mode image --image ~/Pictures/lock.png --effect blur | i3lock-omaxian --mode slideshow --folder ~/Pictures/lock --interval 30
 
 set -euo pipefail
 
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/lock-settings.json"
+THEME_COLORS="$HOME/.local/state/omarchy/current/theme/colors.toml"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/omaxian/lock"
+CACHE_KEEP=40
 RUNTIME="${XDG_RUNTIME_DIR:-/tmp}"
+XSECURELOCK_LIBEXEC=/usr/libexec/xsecurelock
+
 PREVIEW=0
 PREVIEW_OUT=""
+LIST_SLIDESHOW=0
 CLI_MODE=""
 CLI_IMAGE=""
 CLI_FOLDER=""
 CLI_EFFECT=""
 CLI_GREYSCALE=""
+CLI_INTERVAL=""
 
 usage() {
   cat <<'EOF'
 Usage: i3lock-omaxian [options]
 
-  --preview [outfile]   Compose lock image and write PNG (no i3lock)
-  --mode MODE           blur | image | random
+  --preview [outfile]   Compose lock image and write PNG (no lock)
+  --mode MODE           blur | image | random | slideshow
   --image PATH          Fixed wallpaper for mode=image
-  --folder PATH         Folder for mode=random
-  --effect EFFECT       none | blur | pixelate
-  --greyscale           Force greyscale
+  --folder PATH         Folder for mode=random / mode=slideshow
+  --effect EFFECT       none | blur | pixelate (not used by slideshow)
+  --greyscale           Force greyscale (not used by slideshow)
+  --interval SECONDS    Seconds per image for mode=slideshow (5-3600)
   -h, --help            Show this help
 
 Reads ~/.config/omarchy/lock-settings.json when flags are omitted.
+Slideshow locks with xsecurelock + mpv; without them it falls back to random.
 EOF
 }
 
@@ -48,6 +57,11 @@ while (( $# > 0 )); do
       else
         shift
       fi
+      ;;
+    --list-slideshow)
+      # Internal: xsecurelock's saver_mpv runs this to get its playlist.
+      LIST_SLIDESHOW=1
+      shift
       ;;
     --mode)
       CLI_MODE=${2:-}
@@ -69,6 +83,10 @@ while (( $# > 0 )); do
       CLI_GREYSCALE=1
       shift
       ;;
+    --interval)
+      CLI_INTERVAL=${2:-}
+      shift 2
+      ;;
     *)
       echo "i3lock-omaxian: unknown option: $1" >&2
       usage >&2
@@ -77,87 +95,228 @@ while (( $# > 0 )); do
   esac
 done
 
-command -v convert >/dev/null 2>&1 || {
-  echo "i3lock-omaxian: ImageMagick convert not found" >&2
-  exit 1
+# lock-settings.json + theme colors.toml → NUL-separated fields (no eval).
+read_settings() {
+  CONFIG_PATH="$CONFIG" THEME_PATH="$THEME_COLORS" python3 -I - <<'PY'
+import json, os, re, sys
+
+def load_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read(65536)
+        data = json.loads(raw) if raw.strip() else {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def load_colors(path):
+    colors = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f.read(65536).splitlines():
+                m = re.match(r'^\s*([A-Za-z_]+)\s*=\s*"(#[0-9A-Fa-f]{6})"', line)
+                if m:
+                    colors[m.group(1)] = m.group(2).lower()
+    except Exception:
+        pass
+    return colors
+
+data = load_json(os.environ.get("CONFIG_PATH", ""))
+colors = load_colors(os.environ.get("THEME_PATH", ""))
+
+def s(key):
+    v = data.get(key, "")
+    return "" if v is None else str(v).strip()
+
+interval = data.get("interval", 30)
+try:
+    interval = int(interval)
+except Exception:
+    interval = 30
+
+fields = [
+    s("mode"),
+    s("image"),
+    s("folder"),
+    s("effect"),
+    "1" if data.get("greyscale") is True else "0",
+    str(interval),
+    colors.get("background", "#1e1e2e"),
+    colors.get("foreground", "#cdd6f4"),
+    colors.get("accent", "#89b4fa"),
+    colors.get("red", "#f38ba8"),
+]
+sys.stdout.write("\0".join(f.replace("\0", "") for f in fields) + "\0")
+PY
 }
 
-# Parse lock-settings.json into shell vars (python keeps this dependency-light).
-eval "$(
-  CONFIG_PATH="$CONFIG" python3 - <<'PY'
-import json, os, shlex
-path = os.environ.get("CONFIG_PATH", "")
-data = {}
-try:
-    with open(path, "r", encoding="utf-8") as f:
-        raw = f.read(65536)
-    parsed = json.loads(raw) if raw.strip() else {}
-    if isinstance(parsed, dict):
-        data = parsed
-except Exception:
-    data = {}
+settings=()
+mapfile -d '' -t settings < <(read_settings 2>/dev/null || true)
+(( ${#settings[@]} == 10 )) || settings=("" "" "" "" 0 30 "#1e1e2e" "#cdd6f4" "#89b4fa" "#f38ba8")
 
-def s(key, default=""):
-    v = data.get(key, default)
-    if v is None:
-        v = default
-    return str(v).strip()
-
-def b(key, default=False):
-    v = data.get(key, default)
-    return "1" if bool(v) else "0"
-
-mode = s("mode", "blur") or "blur"
-if mode not in ("blur", "image", "random"):
-    mode = "blur"
-effect = s("effect", "")
-if effect not in ("none", "blur", "pixelate"):
-    effect = "blur" if mode == "blur" else "none"
-
-print("CFG_MODE=" + shlex.quote(mode))
-print("CFG_IMAGE=" + shlex.quote(s("image")))
-print("CFG_FOLDER=" + shlex.quote(s("folder")))
-print("CFG_EFFECT=" + shlex.quote(effect))
-print("CFG_GREYSCALE=" + b("greyscale", False))
-PY
-)"
-
-MODE=${CLI_MODE:-$CFG_MODE}
-IMAGE=${CLI_IMAGE:-$CFG_IMAGE}
-FOLDER=${CLI_FOLDER:-$CFG_FOLDER}
-EFFECT=${CLI_EFFECT:-$CFG_EFFECT}
+MODE=${CLI_MODE:-${settings[0]}}
+IMAGE=${CLI_IMAGE:-${settings[1]}}
+FOLDER=${CLI_FOLDER:-${settings[2]}}
+EFFECT=${CLI_EFFECT:-${settings[3]}}
 if [[ $CLI_GREYSCALE == "1" ]]; then
   GREYSCALE=1
 else
-  GREYSCALE=$CFG_GREYSCALE
+  GREYSCALE=${settings[4]}
 fi
+INTERVAL=${CLI_INTERVAL:-${settings[5]}}
+COLOR_BG=${settings[6]}
+COLOR_FG=${settings[7]}
+COLOR_ACCENT=${settings[8]}
+COLOR_RED=${settings[9]}
 
 case "$MODE" in
-  blur|image|random) ;;
+  blur|image|random|slideshow) ;;
   *) MODE=blur ;;
 esac
-case "$EFFECT" in
-  none|blur|pixelate) ;;
-  *)
-    if [[ $MODE == "blur" ]]; then
-      EFFECT=blur
-    else
-      EFFECT=none
-    fi
-    ;;
-esac
+[[ $INTERVAL =~ ^[0-9]+$ ]] || INTERVAL=30
+(( INTERVAL < 5 )) && INTERVAL=5
+(( INTERVAL > 3600 )) && INTERVAL=3600
+[[ $GREYSCALE == "1" ]] || GREYSCALE=0
 
-IMAGE_TMP=$(mktemp --suffix=.png)
-trap 'rm -f "$IMAGE_TMP"' EXIT
+# Default effect follows the final mode (blur for screenshots, none for wallpapers).
+resolve_effect() {
+  case "$EFFECT" in
+    none|blur|pixelate) ;;
+    *)
+      if [[ $MODE == "blur" ]]; then
+        EFFECT=blur
+      else
+        EFFECT=none
+      fi
+      ;;
+  esac
+}
+resolve_effect
 
-screen_geom() {
-  local dims
-  dims=$(xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2; exit}')
-  if [[ $dims =~ ^([0-9]+)x([0-9]+) ]]; then
-    printf '%s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
-    return 0
+list_images() {
+  local dir=$1 f
+  [[ -n $dir && -d $dir ]] || return 0
+  shopt -s nullglob nocaseglob
+  for f in "$dir"/*.{png,jpg,jpeg,webp}; do
+    # mpv reads its playlist line by line; skip names it cannot represent.
+    [[ -f $f && $f != *$'\n'* ]] && printf '%s\n' "$f"
+  done
+  shopt -u nullglob nocaseglob
+}
+
+if (( LIST_SLIDESHOW )); then
+  list_images "${OMAXIAN_LOCK_SLIDESHOW_FOLDER:-$FOLDER}"
+  exit 0
+fi
+
+# ---- slideshow: xsecurelock + saver_mpv --------------------------------------
+
+slideshow_ready() {
+  command -v xsecurelock >/dev/null 2>&1 || {
+    echo "i3lock-omaxian: xsecurelock not found; slideshow falls back to random" >&2
+    return 1
+  }
+  [[ -x $XSECURELOCK_LIBEXEC/saver_mpv ]] || {
+    echo "i3lock-omaxian: $XSECURELOCK_LIBEXEC/saver_mpv missing; slideshow falls back to random" >&2
+    return 1
+  }
+  command -v mpv >/dev/null 2>&1 || {
+    echo "i3lock-omaxian: mpv not found; slideshow falls back to random" >&2
+    return 1
+  }
+  local first
+  first=$(list_images "$FOLDER")
+  [[ -n $first ]] || {
+    echo "i3lock-omaxian: no images in folder ($FOLDER); slideshow falls back to random" >&2
+    return 1
+  }
+}
+
+run_slideshow() {
+  local self font
+  self=$(command -v i3lock-omaxian 2>/dev/null || true)
+  [[ -n $self ]] || self=$(readlink -f -- "$0")
+  # saver_mpv runs this through `sh -c`: single-quote the path for POSIX sh,
+  # and pass the folder through the environment so it is never parsed.
+  export OMAXIAN_LOCK_SLIDESHOW_FOLDER=$FOLDER
+  export XSECURELOCK_LIST_VIDEOS_COMMAND="'${self//\'/\'\\\'\'}' --list-slideshow"
+  export XSECURELOCK_SAVER=saver_mpv
+  export XSECURELOCK_IMAGE_DURATION_SECONDS=$INTERVAL
+  # Fill each monitor (crop) instead of letterboxing.
+  : "${XSECURELOCK_VIDEOS_FLAGS:=--panscan=1.0}"
+  # Ignore the user's mpv.conf (osd-playing-msg, resume/watch-later) and keep
+  # the OSD off so no filename or status text is drawn over the slideshow.
+  XSECURELOCK_VIDEOS_FLAGS="--no-config --osd-level=0 --osd-playing-msg= $XSECURELOCK_VIDEOS_FLAGS"
+  : "${XSECURELOCK_AUTH_BACKGROUND_COLOR:=$COLOR_BG}"
+  : "${XSECURELOCK_AUTH_FOREGROUND_COLOR:=$COLOR_FG}"
+  : "${XSECURELOCK_AUTH_WARNING_COLOR:=$COLOR_RED}"
+  : "${XSECURELOCK_SHOW_DATETIME:=1}"
+  : "${XSECURELOCK_PASSWORD_PROMPT:=asterisks}"
+  if [[ -z ${XSECURELOCK_FONT:-} ]]; then
+    font=$(fc-match -f '%{family[0]}' sans 2>/dev/null || true)
+    [[ -n $font ]] && XSECURELOCK_FONT="$font:size=14"
   fi
-  printf '1920 1080\n'
+  export XSECURELOCK_VIDEOS_FLAGS XSECURELOCK_AUTH_BACKGROUND_COLOR \
+    XSECURELOCK_AUTH_FOREGROUND_COLOR XSECURELOCK_AUTH_WARNING_COLOR \
+    XSECURELOCK_SHOW_DATETIME XSECURELOCK_PASSWORD_PROMPT
+  [[ -n ${XSECURELOCK_FONT:-} ]] && export XSECURELOCK_FONT
+  # Foreground until unlock (like i3lock -n) so i3_lock can clean up after.
+  # XSS_SLEEP_LOCK_FD from xss-lock -l is inherited and handled by xsecurelock.
+  exec xsecurelock
+}
+
+if [[ $MODE == "slideshow" ]]; then
+  if (( ! PREVIEW )) && slideshow_ready; then
+    run_slideshow
+  fi
+  # Preview (one random frame) or fallback lock.
+  MODE=random
+fi
+
+# ---- compose (ImageMagick) ---------------------------------------------------
+
+if command -v magick >/dev/null 2>&1; then
+  IM=(magick)
+elif command -v convert >/dev/null 2>&1; then
+  IM=(convert)
+else
+  echo "i3lock-omaxian: ImageMagick (magick / convert) not found" >&2
+  exit 1
+fi
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/i3lock-omaxian.XXXXXX")
+trap 'rm -rf -- "$WORK"' EXIT
+
+SCREEN_W=0
+SCREEN_H=0
+MONITORS=()   # "w h x y"
+
+read_layout() {
+  local out line
+  out=$(xrandr --listactivemonitors 2>/dev/null || true)
+  while IFS= read -r line; do
+    if [[ $line =~ ([0-9]+)/[0-9]+x([0-9]+)/[0-9]+\+([0-9]+)\+([0-9]+) ]]; then
+      MONITORS+=("${BASH_REMATCH[1]} ${BASH_REMATCH[2]} ${BASH_REMATCH[3]} ${BASH_REMATCH[4]}")
+    fi
+  done <<<"$out"
+
+  out=$(xdpyinfo 2>/dev/null || true)
+  if [[ $out =~ dimensions:[[:space:]]+([0-9]+)x([0-9]+) ]]; then
+    SCREEN_W=${BASH_REMATCH[1]}
+    SCREEN_H=${BASH_REMATCH[2]}
+  fi
+
+  if (( ${#MONITORS[@]} == 0 )); then
+    (( SCREEN_W > 0 )) || { SCREEN_W=1920; SCREEN_H=1080; }
+    MONITORS=("$SCREEN_W $SCREEN_H 0 0")
+  elif (( SCREEN_W == 0 )); then
+    local m w h x y
+    for m in "${MONITORS[@]}"; do
+      read -r w h x y <<<"$m"
+      (( x + w > SCREEN_W )) && SCREEN_W=$(( x + w ))
+      (( y + h > SCREEN_H )) && SCREEN_H=$(( y + h ))
+    done
+  fi
 }
 
 capture_screenshot() {
@@ -167,92 +326,53 @@ capture_screenshot() {
   elif command -v import >/dev/null 2>&1; then
     import -silent -window root "$out"
   else
-    echo "i3lock-omaxian: need maim or ImageMagick import for screenshot mode" >&2
-    return 1
+    "${IM[@]}" import -silent -window root "$out"
   fi
 }
 
-cover_image() {
-  local src=$1
-  local dest=$2
-  local w h
-  read -r w h < <(screen_geom)
-  convert "$src" -resize "${w}x${h}^" -gravity center -extent "${w}x${h}" "$dest"
-}
-
-pick_random_image() {
-  local dir=$1
-  [[ -d $dir ]] || return 1
-  local -a files=()
-  local f
-  shopt -s nullglob nocaseglob
-  for f in "$dir"/*.{png,jpg,jpeg,webp}; do
-    [[ -f $f ]] && files+=("$f")
-  done
-  shopt -u nullglob nocaseglob
-  (( ${#files[@]} > 0 )) || return 1
-  printf '%s\n' "${files[RANDOM % ${#files[@]}]}"
-}
-
-prepare_base() {
-  case "$MODE" in
-    image)
-      if [[ -n $IMAGE && -f $IMAGE ]]; then
-        cover_image "$IMAGE" "$IMAGE_TMP"
-        return 0
-      fi
-      echo "i3lock-omaxian: image missing ($IMAGE); falling back to screenshot" >&2
-      MODE=blur
-      [[ $EFFECT == "none" ]] && EFFECT=blur
-      capture_screenshot "$IMAGE_TMP"
-      ;;
-    random)
-      local pick
-      if pick=$(pick_random_image "$FOLDER"); then
-        cover_image "$pick" "$IMAGE_TMP"
-        return 0
-      fi
-      echo "i3lock-omaxian: no images in folder ($FOLDER); falling back to screenshot" >&2
-      MODE=blur
-      [[ $EFFECT == "none" ]] && EFFECT=blur
-      capture_screenshot "$IMAGE_TMP"
-      ;;
-    *)
-      capture_screenshot "$IMAGE_TMP"
-      ;;
-  esac
-}
-
-apply_effect() {
-  local hue=()
-  local effect_args=()
-
-  if (( GREYSCALE )); then
-    hue=(-level "0%,100%,0.6" -set colorspace Gray -average)
-  else
-    hue=(-level "0%,100%,0.6")
-  fi
-
+# Level / greyscale / effect for an image already at w x h.
+effect_args() {
+  local w=$1 h=$2
+  local -n _args=$3
+  _args=(-level "0%,100%,0.6")
+  (( GREYSCALE )) && _args+=(-colorspace Gray -colorspace sRGB)
   case "$EFFECT" in
-    blur)
-      effect_args=(-filter Gaussian -resize 20% -define "filter:sigma=1.5" -resize 500.5%)
-      ;;
-    pixelate)
-      effect_args=(-scale 10% -scale 1000%)
-      ;;
-    none)
-      effect_args=()
-      ;;
+    blur) _args+=(-scale 20% -blur 0x2 -resize "${w}x${h}!") ;;
+    pixelate) _args+=(-scale 10% -scale "${w}x${h}!") ;;
   esac
-
-  if (( ${#effect_args[@]} > 0 )); then
-    convert "$IMAGE_TMP" "${hue[@]}" "${effect_args[@]}" "$IMAGE_TMP"
-  elif (( GREYSCALE )); then
-    convert "$IMAGE_TMP" "${hue[@]}" "$IMAGE_TMP"
-  fi
 }
 
-# l10n unlock prompt (same idea as i3lock-fancy)
+prune_cache() {
+  local -a old=()
+  mapfile -t old < <(
+    find "$CACHE_DIR" -maxdepth 1 -type f -name '*.png' -printf '%T@ %p\n' 2>/dev/null \
+      | sort -rn | tail -n +$(( CACHE_KEEP + 1 )) | cut -d' ' -f2-
+  )
+  (( ${#old[@]} == 0 )) || rm -f -- "${old[@]}"
+}
+
+# Cover-cropped, effected tile for one monitor; cached by source + size + look.
+monitor_tile() {
+  local src=$1 w=$2 h=$3
+  local -n _tile=$4
+  local key stamp tmp
+  local -a fx=()
+  stamp=$(stat -c '%Y:%s' -- "$src")
+  key=$(printf '%s\0' v1 "$src" "$stamp" "$w" "$h" "$EFFECT" "$GREYSCALE" | sha1sum)
+  key=${key%% *}
+  _tile="$CACHE_DIR/$key.png"
+  if [[ -s $_tile ]]; then
+    touch -- "$_tile"
+    return 0
+  fi
+  mkdir -p -- "$CACHE_DIR"
+  effect_args "$w" "$h" fx
+  tmp="$WORK/tile-$key.png"
+  "${IM[@]}" "$src" -resize "${w}x${h}^" -gravity center -extent "${w}x${h}" \
+    "${fx[@]}" -define png:compression-level=1 "$tmp"
+  mv -f -- "$tmp" "$_tile"
+}
+
 unlock_text() {
   case "${LANG:-}" in
     de_*) printf '%s\n' "Bitte Passwort eingeben" ;;
@@ -265,75 +385,165 @@ unlock_text() {
   esac
 }
 
-annotate_lock() {
-  local text bw icon
-  local -a param=()
-  text=$(unlock_text)
+locked_at_text() {
+  local when
+  when=$(date '+%H:%M · %a %-d %b')
+  case "${LANG:-}" in
+    de_*) printf '%s\n' "Gesperrt um $when" ;;
+    es_*) printf '%s\n' "Bloqueado a las $when" ;;
+    fr_*) printf '%s\n' "Verrouillé à $when" ;;
+    it_*) printf '%s\n' "Bloccato alle $when" ;;
+    pt_*) printf '%s\n' "Bloqueado às $when" ;;
+    ru_*) printf '%s\n' "Заблокировано в $when" ;;
+    *) printf '%s\n' "Locked at $when" ;;
+  esac
+}
 
-  local color value=60
-  color=$(convert "$IMAGE_TMP" -gravity center -crop 100x100+0+0 +repage -colorspace hsb \
-    -resize 1x1 txt:- 2>/dev/null | awk -F '[%$]' 'NR==2{gsub(",",""); printf "%.0f\n", $(NF-1)}')
-  [[ $color =~ ^[0-9]+$ ]] || color=0
-
-  if (( color > value )); then
-    bw=black
-    icon="/usr/share/i3lock-fancy/icons/lockdark.png"
-  else
-    bw=white
-    icon="/usr/share/i3lock-fancy/icons/lock.png"
-  fi
-
-  # Prefer a font *file* from fontconfig. Matching ImageMagick's "family:"
-  # list with a substring (i3lock-fancy's trick) can pick Noto Sans Adlam /
-  # Arabic / … which have no Latin glyphs — unlock text then renders blank.
+# A font *file* from fontconfig. Matching ImageMagick's "family:" list by
+# substring can pick Noto Sans Adlam / Arabic / … with no Latin glyphs.
+pick_font() {
   local font lang_tag
   lang_tag=${LANG%%.*}
   lang_tag=${lang_tag%%_*}
-  [[ -n $lang_tag ]] || lang_tag=en
-  font=$(fc-match -f '%{file}\n' "sans:lang=${lang_tag}" 2>/dev/null || true)
-  if [[ ! -f $font ]]; then
-    font=$(fc-match -f '%{file}\n' 'sans:lang=en' 2>/dev/null || true)
-  fi
+  [[ -n $lang_tag && $lang_tag != "C" && $lang_tag != "POSIX" ]] || lang_tag=en
+  font=$(fc-match -f '%{file}' "sans:lang=${lang_tag}" 2>/dev/null || true)
+  [[ -f $font ]] || font=$(fc-match -f '%{file}' 'sans:lang=en' 2>/dev/null || true)
   [[ -f $font ]] || font=DejaVu-Sans
+  printf '%s\n' "$font"
+}
 
-  if [[ -f $icon ]]; then
-    convert "$IMAGE_TMP" -font "$font" -pointsize 26 -fill "$bw" -gravity center \
-      -annotate +0+160 "$text" "$icon" -gravity center -composite "$IMAGE_TMP"
+# Padlock badge + prompt panel, centred on one monitor (i3lock draws its ring
+# at the same centre on each Xinerama screen).
+overlay_args() {
+  local w=$1 h=$2 x=$3 y=$4
+  local -n _ov=$5
+  local s cx cy r bw bh sr sw tw th ty dx dy
+
+  s=$(( h * 100 / 1080 ))
+  (( s < 100 )) && s=100
+  (( s > 300 )) && s=300
+  cx=$(( x + w / 2 ))
+  cy=$(( y + h / 2 ))
+
+  r=$(( 70 * s / 100 ))
+  bw=$(( 26 * s / 100 ))
+  bh=$(( 20 * s / 100 ))
+  sr=$(( 16 * s / 100 ))
+  sw=$(( 6 * s / 100 ))
+  (( sw < 3 )) && sw=3
+  tw=$(( 300 * s / 100 ))
+  th=$(( 52 * s / 100 ))
+  ty=$(( cy + 170 * s / 100 ))
+
+  _ov+=(-gravity northwest -stroke none
+    -fill "${COLOR_BG}b0" -draw "circle $cx,$cy $(( cx + r )),$cy"
+    -fill "${COLOR_BG}b0" -draw "roundrectangle $(( cx - tw )),$(( ty - th )) $(( cx + tw )),$(( ty + th )) $(( 18 * s / 100 )),$(( 18 * s / 100 ))"
+    -fill none -stroke "$COLOR_FG" -strokewidth "$sw"
+    -draw "ellipse $cx,$(( cy - bh / 2 )) $sr,$(( sr + 4 * s / 100 )) 180,360"
+    -draw "line $(( cx - sr )),$(( cy - bh / 2 )) $(( cx - sr )),$(( cy - bh / 4 ))"
+    -draw "line $(( cx + sr )),$(( cy - bh / 2 )) $(( cx + sr )),$(( cy - bh / 4 ))"
+    -stroke none -fill "$COLOR_FG"
+    -draw "roundrectangle $(( cx - bw )),$(( cy - bh / 4 )) $(( cx + bw )),$(( cy + bh + bh / 2 )) $(( 5 * s / 100 )),$(( 5 * s / 100 ))"
+    -fill "$COLOR_BG"
+    -draw "circle $cx,$(( cy + bh / 2 )) $(( cx + 5 * s / 100 )),$(( cy + bh / 2 ))"
+  )
+
+  # -annotate offsets are relative to the canvas centre under -gravity center.
+  dx=$(( cx - SCREEN_W / 2 ))
+  dy=$(( ty - SCREEN_H / 2 ))
+  _ov+=(-gravity center -font "$FONT" -stroke none
+    -fill "$COLOR_FG" -pointsize $(( 26 * s / 100 ))
+    -annotate "$(printf '%+d%+d' "$dx" $(( dy - 14 * s / 100 )))" "$PROMPT"
+    -fill "$COLOR_ACCENT" -pointsize $(( 17 * s / 100 ))
+    -annotate "$(printf '%+d%+d' "$dx" $(( dy + 22 * s / 100 )))" "$LOCKED_AT"
+  )
+}
+
+pick_random_image() {
+  local -a files=()
+  mapfile -t files < <(list_images "$1")
+  (( ${#files[@]} > 0 )) || return 1
+  printf '%s\n' "${files[RANDOM % ${#files[@]}]}"
+}
+
+compose() {
+  local out=$1
+  local -a cmd=("${IM[@]}") fx=()
+  local m w h x y src tile
+
+  case "$MODE" in
+    image)
+      if [[ -z $IMAGE || ! -f $IMAGE ]]; then
+        echo "i3lock-omaxian: image missing ($IMAGE); falling back to screenshot" >&2
+        MODE=blur
+        EFFECT=blur
+      fi
+      ;;
+    random)
+      if [[ -z $(list_images "$FOLDER") ]]; then
+        echo "i3lock-omaxian: no images in folder ($FOLDER); falling back to screenshot" >&2
+        MODE=blur
+        EFFECT=blur
+      fi
+      ;;
+  esac
+
+  if [[ $MODE == "blur" ]]; then
+    capture_screenshot "$WORK/shot.png"
+    effect_args "$SCREEN_W" "$SCREEN_H" fx
+    cmd+=("$WORK/shot.png" "${fx[@]}")
   else
-    convert "$IMAGE_TMP" -font "$font" -pointsize 26 -fill "$bw" -gravity center \
-      -annotate +0+160 "$text" "$IMAGE_TMP"
+    cmd+=(-size "${SCREEN_W}x${SCREEN_H}" "xc:$COLOR_BG" -gravity northwest)
+    for m in "${MONITORS[@]}"; do
+      read -r w h x y <<<"$m"
+      if [[ $MODE == "image" ]]; then
+        src=$IMAGE
+      else
+        src=$(pick_random_image "$FOLDER")
+      fi
+      monitor_tile "$src" "$w" "$h" tile
+      cmd+=("$tile" -geometry "+$x+$y" -composite)
+    done
   fi
 
-  # Soft-fail i3lock-color ring params; stock i3lock ignores unknowns / fails → plain -i.
-  if (( color > value )); then
-    I3LOCK_EXTRA=(
-      --inside-color=0000001c --ring-color=0000003e
-      --line-color=00000000 --keyhl-color=ffffff80 --ringver-color=ffffff00
-      --separator-color=22222260 --insidever-color=ffffff1c
-      --ringwrong-color=ffffff55 --insidewrong-color=ffffff1c
-      --verif-color=ffffff00 --wrong-color=ff000000 --time-color=ffffff00
-      --date-color=ffffff00 --layout-color=ffffff00
-    )
-  else
-    I3LOCK_EXTRA=(
-      --inside-color=ffffff1c --ring-color=ffffff3e
-      --line-color=ffffff00 --keyhl-color=00000080 --ringver-color=00000000
-      --separator-color=22222260 --insidever-color=0000001c
-      --ringwrong-color=00000055 --insidewrong-color=0000001c
-      --verif-color=00000000 --wrong-color=ff000000 --time-color=00000000
-      --date-color=00000000 --layout-color=00000000
+  for m in "${MONITORS[@]}"; do
+    read -r w h x y <<<"$m"
+    overlay_args "$w" "$h" "$x" "$y" cmd
+  done
+
+  cmd+=(-define png:compression-level=1 "$out")
+  "${cmd[@]}"
+}
+
+# i3lock-color takes ring colours; stock i3lock rejects unknown options.
+i3lock_args() {
+  local -n _lock=$1
+  local v bg=${COLOR_BG#\#} fg=${COLOR_FG#\#} ac=${COLOR_ACCENT#\#} red=${COLOR_RED#\#}
+  _lock=(-n -i "$2" -c "$bg")
+  v=$(i3lock --version 2>&1 || true)
+  if [[ $v == *color* || $v =~ [0-9]\.c ]]; then
+    _lock+=(
+      --inside-color="${bg}b0" --ring-color="${ac}ff" --line-color=00000000
+      --keyhl-color="${fg}ff" --bshl-color="${red}ff" --separator-color=00000000
+      --insidever-color="${bg}b0" --ringver-color="${ac}ff"
+      --insidewrong-color="${bg}b0" --ringwrong-color="${red}ff"
+      --verif-color="${fg}ff" --wrong-color="${red}ff"
+      --time-color=00000000 --date-color=00000000 --layout-color=00000000
     )
   fi
 }
 
-prepare_base
-apply_effect
-annotate_lock
+read_layout
+FONT=$(pick_font)
+PROMPT=$(unlock_text)
+LOCKED_AT=$(locked_at_text)
 
 if (( PREVIEW )); then
   out=${PREVIEW_OUT:-$RUNTIME/omaxian-lock-preview.png}
   mkdir -p -- "$(dirname -- "$out")"
-  cp -f -- "$IMAGE_TMP" "$out"
+  compose "$WORK/lock.png"
+  mv -f -- "$WORK/lock.png" "$out"
+  prune_cache
   printf '%s\n' "$out"
   exit 0
 fi
@@ -343,7 +553,9 @@ command -v i3lock >/dev/null 2>&1 || {
   exit 1
 }
 
+compose "$WORK/lock.png"
+lock_args=()
+i3lock_args lock_args "$WORK/lock.png"
 # Foreground lock so callers (i3_lock) can clean up after unlock.
-if ! i3lock -n -i "$IMAGE_TMP" "${I3LOCK_EXTRA[@]}" >/dev/null 2>&1; then
-  i3lock -n -i "$IMAGE_TMP"
-fi
+i3lock "${lock_args[@]}"
+prune_cache

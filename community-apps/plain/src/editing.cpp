@@ -1,5 +1,7 @@
 #include "editing.h"
 
+#include <QRegularExpression>
+
 #include "document.h"
 
 #include <QTextBlock>
@@ -31,12 +33,45 @@ int leadingWhitespace(const QString &text) {
         ++i;
     return i;
 }
+
+int trimmedEnd(const QString &text) {
+    int end = int(text.size());
+    while (end > 0 && text.at(end - 1).isSpace())
+        --end;
+    return end;
+}
 }
 
 Editing::Editing(Document *document, QObject *parent) : QObject(parent), m_document(document) {}
 
 QTextDocument *Editing::document() const {
     return m_document ? m_document->textDocument() : nullptr;
+}
+
+// CSS comments don't nest, so a */ inside a line being commented would end
+// the comment there. Each * followed by backslashes and a / gets one more
+// backslash while commented (*/ becomes *\/, *\/ becomes *\\/) and loses
+// one when uncommented, so nothing that was there is ever lost.
+static const QRegularExpression Closing(QStringLiteral(R"(\*(\\*)/)"));
+
+// Adds (or with `remove`, takes away) that backslash in a line's text from
+// `from` to `to`, last first, so earlier positions stay put.
+static void escapeClosings(QTextCursor &cursor, int block, const QString &text, int from, int to, bool remove) {
+    QList<int> at;
+    for (auto matches = Closing.globalMatch(text.left(to)); matches.hasNext();) {
+        const auto match = matches.next();
+        if (match.capturedStart() >= from && (!remove || match.capturedLength(1) > 0))
+            at.prepend(match.capturedStart() + 1);
+    }
+    for (int position : at) {
+        cursor.setPosition(block + position);
+        if (remove) {
+            cursor.setPosition(block + position + 1, QTextCursor::KeepAnchor);
+            cursor.removeSelectedText();
+        } else {
+            cursor.insertText(QStringLiteral("\\"));
+        }
+    }
 }
 
 void Editing::toggleComment(int start, int end) {
@@ -60,8 +95,16 @@ void Editing::toggleComment(int start, int end) {
         const QString text = block.text();
         const int indent = leadingWhitespace(text);
         column = qMin(column, indent);
-        if (!text.mid(indent).startsWith(prefix))
+        // In CSS, a line only starts with /* when an inline comment opens
+        // it, or ends with */ when another closes it; commented means one
+        // comment wraps the whole line.
+        if (!text.mid(indent).startsWith(prefix)) {
             allCommented = false;
+        } else if (!suffix.isEmpty()) {
+            const int last = trimmedEnd(text);
+            if (text.indexOf(QStringLiteral("*/"), indent + prefix.size()) != last - 2)
+                allCommented = false;
+        }
     }
 
     QTextCursor cursor(doc);
@@ -73,11 +116,16 @@ void Editing::toggleComment(int start, int end) {
             int length = prefix.size();
             if (at + length < text.size() && text.at(at + length) == ' ')
                 ++length;
-            if (!suffix.isEmpty() && text.endsWith("*/")) {
-                const int cut = text.endsWith(suffix) ? suffix.size() : 2;
-                cursor.setPosition(block.position() + text.size() - cut);
-                cursor.setPosition(block.position() + text.size(), QTextCursor::KeepAnchor);
+            if (!suffix.isEmpty()) {
+                const int last = trimmedEnd(text);
+                const int cut = last - (at + length) >= suffix.size()
+                                && QStringView(text).left(last).endsWith(suffix)
+                                ? int(suffix.size()) : 2;
+                cursor.setPosition(block.position() + last - cut);
+                cursor.setPosition(block.position() + last, QTextCursor::KeepAnchor);
                 cursor.removeSelectedText();
+                // The closings inside it, escaped when it was commented.
+                escapeClosings(cursor, block.position(), text, at + length, last - cut, true);
             }
             cursor.setPosition(block.position() + at);
             cursor.setPosition(block.position() + at + length, QTextCursor::KeepAnchor);
@@ -86,6 +134,7 @@ void Editing::toggleComment(int start, int end) {
             if (!suffix.isEmpty()) {
                 cursor.setPosition(block.position() + text.size());
                 cursor.insertText(suffix);
+                escapeClosings(cursor, block.position(), text, column, int(text.size()), false);
             }
             cursor.setPosition(block.position() + column);
             cursor.insertText(prefix + " ");
@@ -176,13 +225,21 @@ QVariantList Editing::find(const QString &text, int from, bool backward, bool ca
 
 int Editing::matchCount(const QString &text, bool caseSensitive) const {
     QTextDocument *doc = document();
-    if (!doc || text.isEmpty())
+    if (!doc || text.isEmpty() || text.contains(u'\n') || text.contains(QChar::ParagraphSeparator))
         return 0;
+    const Qt::CaseSensitivity sensitivity = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
     int count = 0;
-    QTextCursor cursor(doc);
-    const auto flags = caseSensitive ? QTextDocument::FindCaseSensitively : QTextDocument::FindFlags();
-    while (!(cursor = doc->find(text, cursor, flags)).isNull())
-        ++count;
+    for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
+        QString line = block.text();
+        // Match QTextDocument::find(), which treats NBSP as an ordinary space.
+        if (line.contains(QChar::Nbsp))
+            line.replace(QChar::Nbsp, u' ');
+        qsizetype pos = 0;
+        while ((pos = line.indexOf(text, pos, sensitivity)) >= 0) {
+            ++count;
+            pos += text.size();
+        }
+    }
     return count;
 }
 

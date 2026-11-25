@@ -6,6 +6,7 @@
 #include <QFileSystemWatcher>
 #include <QLocale>
 #include <QStringList>
+#include <QThreadPool>
 #include <QTimer>
 #include <QVariantList>
 #include <QSet>
@@ -32,6 +33,12 @@ class FolderModel : public QAbstractListModel {
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     // The items a plugin's view lists, as Plugins::views gives them.
     Q_PROPERTY(QVariantList items READ items WRITE setItems NOTIFY itemsChanged)
+    // A file chooser's filter: only files that fit it are listed (see fits()).
+    Q_PROPERTY(QStringList filter READ filter WRITE setFilter NOTIFY filterChanged)
+    // Whether folders here can be opened in place, as a tree (the list
+    // view's): in a folder, not a search, Recents, the trash or a plugin's
+    // view.
+    Q_PROPERTY(bool expandable READ expandable NOTIFY expandableChanged)
 
 public:
     enum Role {
@@ -46,6 +53,8 @@ public:
         ItemCountRole,
         SelectedRole,
         IconRole,
+        DepthRole,
+        ExpandedRole,
     };
 
     struct Entry {
@@ -58,12 +67,15 @@ public:
         QString mime;
         // A file's extension; a plugin item's subtitle.
         QString extension;
-        // A plugin item's glyph and its rows for the details pane.
+        // A plugin item's glyph and its rows for the details column.
         QString icon;
         QVariantList details;
         int itemCount = -1;
         // The first pictures in a folder, for the preview window.
         QStringList peek;
+        // How deep in the tree: 0 for the folder's own items, 1 for those of
+        // a folder opened in place under them, and so on.
+        int depth = 0;
     };
 
     explicit FolderModel(QObject *parent = nullptr);
@@ -81,10 +93,14 @@ public:
     void setShowHidden(bool show);
     QString sortMode() const { return m_sort; }
     void setSortMode(const QString &sort);
+    // Goes to `path` already in `sort`, listing it once.
+    void setPath(const QString &path, const QString &sort);
     QString query() const { return m_query; }
     void setQuery(const QString &query);
     QVariantList items() const { return m_items; }
     void setItems(const QVariantList &items);
+    QStringList filter() const { return m_filter; }
+    void setFilter(const QStringList &filter);
 
     void setPath(const QString &path);
     Q_INVOKABLE void reload();
@@ -106,6 +122,24 @@ public:
     Q_INVOKABLE bool isSelected(int row) const;
     Q_INVOKABLE QStringList selectedPaths() const;
 
+    // The tree: a folder opened in place lists its items right under it, a
+    // level deeper, read in the background; closed, they go, and so does
+    // any folder opened inside it. Rows keep being rows, so selecting,
+    // file work and the cursor treat them as any other. Going to another
+    // folder closes them all.
+    bool expandable() const;
+    Q_INVOKABLE void setExpanded(int row, bool expanded);
+    Q_INVOKABLE bool isExpanded(int row) const;
+    Q_INVOKABLE void collapseAll();
+    // The row of the folder `row` is listed under, or -1 at the top.
+    Q_INVOKABLE int parentRow(int row) const;
+    // A folder's items with the open folders' own under them, `depth` deep.
+    static QVector<Entry> flatten(const QVector<Entry> &entries, const QHash<QString, QVector<Entry>> &open, int depth = 0);
+
+    // Listings run here, not on the global pool, so folder counts and file
+    // transfers can't hold up the folder just opened.
+    static QThreadPool &listingPool();
+
     // Synchronous building blocks, used by the background passes and tests.
     // A listing stops, empty, as soon as `stop` returns true. Names sort
     // by `locale`'s alphabet; a background pass passes the one it was
@@ -119,10 +153,12 @@ public:
     // A folder's item count and first pictures, for the preview window.
     static void summarize(Entry &entry, bool showHidden);
     // Only how many items a folder holds, for the folder counts, which have
-    // no use for its pictures or their order.
-    static int itemCount(const QString &folder, bool showHidden);
+    // no use for its pictures or their order. Stopped partway, it's -1 (unknown).
+    static int itemCount(const QString &folder, bool showHidden, const std::function<bool()> &stop = {});
     static QStringList sortModes();
     static void sortEntries(QVector<Entry> &entries, const QString &sort, const QLocale &locale = QLocale());
+    // The order sortEntries() sorts by: whether `a` comes before `b`.
+    static std::function<bool(const Entry &, const Entry &)> before(const QString &sort, const QLocale &locale = QLocale());
     // The Recents view: a path that isn't a folder, listing recently used files.
     static QString recentPath() { return QStringLiteral("recent:"); }
     static QString recentFile();
@@ -133,15 +169,33 @@ public:
     // whose names contain `query` (ignoring case), or all of them.
     static bool isPluginView(const QString &path) { return path.startsWith("plugin:") && !path.contains('/'); }
     static QVector<Entry> listItems(const QVariantList &items, const QString &query = {});
+    // The trash is the home trash's files folder, and it lists every trash's:
+    // what's deleted on another drive goes to that drive's own.
+    static bool isTrash(const QString &path);
+    static QVector<Entry> listTrash(const QStringList &trashDirs, const QString &query, bool showHidden,
+                                    const QString &sort, const std::function<bool()> &stop = {}, int limit = 1000,
+                                    const QLocale &locale = QLocale(), const QStringList &filter = {});
     // Recents and plugins' views: lists of their own, not folders.
     static bool isView(const QString &path) { return path == recentPath() || isPluginView(path); }
     static QString kindForMime(const QString &mime);
+    // Whether an entry fits a filter: folders always do, and a file when any
+    // pattern matches, a MIME type ("image/png", "image/*", or a type it
+    // inherits) when the pattern has a slash, else a glob for its name,
+    // ignoring case. An empty filter fits everything.
+    static bool fits(const QStringList &filter, const Entry &entry);
+    // The type of a file its extension could not name, from what it holds: this opens the file, so never on the UI thread.
+    static QString typeByContent(const QString &path, const QString &mime);
     // Everything under `root` whose name contains `query` (ignoring case),
-    // named by its path from `root`. Stops at `limit` matches, at other
-    // filesystems and at symlinks, and as soon as `stop` returns true.
+    // named by its path from `root`. `ext:jpg,png` keeps only files with
+    // those extensions (alone or beside some text). Stops at `limit`
+    // matches, at other filesystems and at symlinks, and as soon as `stop`
+    // returns true.
+    // `found`, when given, gets the matches as they're found, a batch at a
+    // time (every tenth of a second at most), in no order.
     static QVector<Entry> search(const QString &root, const QString &query, bool showHidden, const QString &sort,
                                  const std::function<bool()> &stop = {}, int limit = 1000,
-                                 const QLocale &locale = QLocale());
+                                 const QLocale &locale = QLocale(), const QStringList &filter = {},
+                                 const std::function<void(const QVector<Entry> &)> &found = {});
 
 signals:
     void pathChanged();
@@ -152,11 +206,22 @@ signals:
     void sortModeChanged();
     void queryChanged();
     void itemsChanged();
+    void filterChanged();
     void selectionChanged();
     void loaded();
+    void expandableChanged();
+    // A folder opened in place couldn't be read (or read again), and was
+    // closed: `message` says which, and why.
+    void expandFailed(const QString &message);
 
 private:
     void setLoading(bool loading);
+    // A search of the folder and below, its matches shown as they're found.
+    void searchHere(quint64 generation);
+    // Matches just found, each put in its place in the folder's order.
+    void insertFound(const QVector<Entry> &found);
+    // The search whose matches are shown (or being found).
+    QString m_shownQuery;
     void setEntries(const QVector<Entry> &entries);
     void clearEntries();
     QString cacheKey() const;
@@ -167,7 +232,21 @@ private:
 
     QString m_path;
     QVector<Entry> m_entries;
+    mutable QHash<QString, int> m_pathIndex;
+    mutable bool m_pathIndexDirty = true;
+    void ensurePathIndex() const;
     QSet<QString> m_selected;
+    // The folders opened in place, by path, and what each was last read to
+    // hold. One just opened is in m_expanded until its listing arrives.
+    QSet<QString> m_expanded;
+    QHash<QString, QVector<Entry>> m_open;
+    // Each opening's own number, while it's read, so a reading from before
+    // the folder was closed and opened again is dropped.
+    QHash<QString, quint64> m_opening;
+    quint64 m_openings = 0;
+    // Closes a folder that couldn't be read, saying why.
+    void failExpanded(const QString &folder, const QString &error);
+    void forgetExpanded();
     void setSelected(const QSet<QString> &paths);
     bool m_loading = false;
     QString m_error;
@@ -175,6 +254,7 @@ private:
     QString m_sort = "name";
     QString m_query;
     QVariantList m_items;
+    QStringList m_filter;
     quint64 m_generation = 0;
     // The newest listing's generation, shared with the background listing,
     // search and folder counts, so work that's been overtaken (more typing,
