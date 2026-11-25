@@ -353,7 +353,9 @@ run_phase_tui() {
 	exec {gfd}>"$fifo"
 	rm -f -- "$fifo"
 
-	OMAXIAN_NESTED=1 OMAXIAN_TUI_SPINNER=1 "$@" >>"$LOG_FILE" 2>&1 </dev/null &
+	# The phase must not inherit the gauge pipe: a daemon it leaves running
+	# (deploy.sh restarts picom) would keep it open, and dialog never gets EOF.
+	OMAXIAN_NESTED=1 OMAXIAN_TUI_SPINNER=1 "$@" >>"$LOG_FILE" 2>&1 </dev/null {gfd}>&- &
 	pid=$!
 
 	# Ctrl-C: background jobs ignore SIGINT, so stop the phase explicitly.
