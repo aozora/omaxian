@@ -181,8 +181,9 @@ QtMultimedia under `~/.local/lib`. Run on the desktop against the real model:
 `flowtunes jazz` made a 2:59 instrumental ("Midnight Rain") in about 2m15s on
 the Krackan GPU, so it renders faster than it plays; it was saved to
 `~/Music/Jazz/` and played. The engine is installed in `~/.local` for this.
-Still to do: add it to `CI_APPS` for a pre-built binary; no audible check (the
-run was headless).
+Flowtunes, Fantasi, and the engine are in `CI_APPS` as of v1.2.4 (the engine
+is packaged as a script tree, not compiled). No audible check (the run was
+headless).
 
 ## Fantasi
 

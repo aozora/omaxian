@@ -14,9 +14,10 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APPS_DIR="$REPO_DIR/community-apps"
 
-# Apps Omaxian builds itself. disktree pins upstream's release instead
-# (its Omaxian changes are packaging-only).
-CI_APPS=(aether cards checkmate folio hype monologue omacalc omacut omareel omarchy-meeting-recorder omaview omawrite plain signed)
+# Apps Omaxian publishes a pre-built payload for. disktree pins upstream's
+# release instead (its Omaxian changes are packaging-only).
+# omarchy-local-ai is a Python tree: CI packages that tree, it does not compile.
+CI_APPS=(aether cards checkmate fantasi flowtunes folio hype monologue omacalc omacut omarchy-local-ai omarchy-meeting-recorder omareel omaview omawrite plain signed)
 
 IGNORE=(
   ':(exclude).omaxian-prebuilt'

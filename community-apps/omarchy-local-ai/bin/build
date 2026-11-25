@@ -1,0 +1,16 @@
+#!/bin/bash
+# Stage the engine tree at build/omarchy-local-ai for the pre-built tarball.
+# There is nothing to compile: the entrypoint is a Python script and it reads
+# the catalog from the directory it runs from.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=../engine-files.sh
+source "$root/engine-files.sh"
+stage="$root/build/omarchy-local-ai"
+rm -rf "$stage"
+mkdir -p "$stage"
+for item in "${ENGINE_FILES[@]}"; do
+  cp -a "$root/$item" "$stage/"
+done
+chmod 755 "$stage/omarchy-local-ai"
