@@ -393,6 +393,10 @@ Standalone Omarchy apps (GTK/Qt/…, not Quickshell plugins) live in
 | [Cards](community-apps/cards/) | Klondike solitaire in four card series |
 | [Checkmate](community-apps/checkmate/) | 3D chess for one or two players |
 | [Aether](community-apps/aether/) | Theme maker: extract a palette from a wallpaper and apply it as an Omarchy theme |
+| [omarchy-local-ai](community-apps/omarchy-local-ai/) | Local model engine for Flowtunes and Fantasi, running models in rootless Podman on the GPU (no pairing or tailnet sharing) |
+| [Flowtunes](community-apps/flowtunes/) | Endless music generated on your machine; needs omarchy-local-ai |
+| [Fantasi](community-apps/fantasi/) | Image, video and music maker; needs omarchy-local-ai (only the music model has been run) |
+| [Omareel](community-apps/omareel/) | Screen recorder and editor; records X11 through the gpu-screen-recorder Flatpak, and its overlays cannot be kept out of the capture |
 
 Details: [`community-apps/README.md`](community-apps/README.md).
 
