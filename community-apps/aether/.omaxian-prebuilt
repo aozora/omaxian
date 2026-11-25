@@ -1,0 +1,8 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/aether-8dd1b71-x86_64-linux.tar.gz
+sha256=93375eb8f5c56ee314676283590a178f44793b4672e471e38060d6fe0f3aefc8
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=3056daac377746564e60bcf3d9bdaca7128981dbf3642a0a7bf53c8e8b97a19e
+bin=aether-8dd1b71-x86_64-linux/aether
+arch=x86_64

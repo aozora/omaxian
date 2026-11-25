@@ -1,0 +1,9 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/hype-8dd1b71-x86_64-linux.tar.gz
+sha256=4d17ac9a123c67a99fd738e8ec8bcc9ba56053d3a2902165f0177345e2069c15
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=dba981ae28fa2af2f06cf58d24a19f4b4bd044fe9ee12b82f97ceb2b42109d40
+bin=hype-8dd1b71-x86_64-linux/hype
+arch=x86_64
+qt=6.8
