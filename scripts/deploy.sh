@@ -187,6 +187,25 @@ else
 	omaxian_err "missing omarchy-keyboard-apply — skip keyboard.json seed"
 fi
 
+# Blueman sends pairing prompts (confirm passkey, authorize service) as
+# notifications with Confirm/Deny actions. dunst advertises "actions" but draws
+# no buttons, so the prompt shows as plain text and pairing times out. Make
+# blueman use its own GTK dialogs, which i3 floats. That fallback turns every
+# blueman notification into a dialog, so also drop the Connected/Disconnected
+# notifier (the bar shows Bluetooth state) unless the user already set it.
+if command -v gsettings >/dev/null 2>&1 \
+	&& gsettings list-schemas 2>/dev/null | grep -qx 'org.blueman.general'; then
+	gsettings set org.blueman.general notification-daemon false || true
+	plugins="$(gsettings get org.blueman.general plugin-list 2>/dev/null)" || plugins=""
+	if [[ -n $plugins && $plugins != *ConnectionNotifier* ]]; then
+		plugins="$(python3 -c 'import ast, sys
+s = sys.argv[1].removeprefix("@as ")
+print(repr(ast.literal_eval(s) + ["!ConnectionNotifier"]))' "$plugins")" \
+			&& gsettings set org.blueman.general plugin-list "$plugins" || true
+	fi
+	omaxian_info "blueman: pairing prompts as dialogs"
+fi
+
 omaxian_phase "3/4  ~/.xsessionrc"
 cp "$SRC/.xsessionrc" "$HOME/.xsessionrc.tmp"
 mv -f "$HOME/.xsessionrc.tmp" "$HOME/.xsessionrc"

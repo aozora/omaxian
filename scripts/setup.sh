@@ -162,6 +162,9 @@ OPTIONAL=(
 	# Use this *or* classic `pulseaudio` (usually already installed on PA-only
 	# hosts). Clients always talk via pactl from REQUIRED pulseaudio-utils.
 	pipewire-pulse wireplumber
+	# PipeWire Bluetooth audio (A2DP/HFP). Without it WirePlumber registers no
+	# endpoints and blueman fails with "No audio endpoints registered".
+	libspa-0.2-bluetooth
 )
 
 # No systemd (Devuan / sysvinit Debian): pull elogind so loginctl / xss-lock /
