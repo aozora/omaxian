@@ -40,9 +40,21 @@ install_rustup() {
   echo "::endgroup::"
 }
 
+# A script tree (omarchy-local-ai): bin/build with no CMake, Cargo or Go
+# stages build/<app>/ holding the entrypoint and the files it runs from.
+# Nothing is compiled, and the payload is not an ELF.
+SCRIPT_TREE=0
+if [[ -x $SRC/bin/build && ! -f $SRC/CMakeLists.txt && ! -f $SRC/Cargo.toml && ! -f $SRC/go.mod ]]; then
+  echo "::group::bin/build (script tree)"
+  "$SRC/bin/build"
+  echo "::endgroup::"
+  TREE="$SRC/build/$APP"
+  [[ -d $TREE && -x $TREE/$APP ]] || { echo "build produced no $TREE/$APP" >&2; exit 1; }
+  SCRIPT_TREE=1
+  QT=""
 # A Cargo.toml with a bin/build beside it is a Qt app with Rust inside (omareel):
 # CMake builds it and links the crates in, so it takes the Qt branch below.
-if [[ -f $SRC/Cargo.toml && ! -x $SRC/bin/build ]]; then
+elif [[ -f $SRC/Cargo.toml && ! -x $SRC/bin/build ]]; then
   install_rustup
   echo "::group::cargo build"
   (cd "$SRC" && cargo build --release --locked)
@@ -68,11 +80,15 @@ else
   QT=${QT%.*}
 fi
 
-[[ -x $BIN ]] || { echo "build produced no $BIN" >&2; exit 1; }
-
-mkdir -p "$OUT/$NAME"
-install -m 0755 "$BIN" "$OUT/$NAME/$APP"
-strip --strip-unneeded "$OUT/$NAME/$APP" || true
+if (( SCRIPT_TREE )); then
+  rm -rf "$OUT/$NAME"
+  cp -a "$TREE" "$OUT/$NAME"
+else
+  [[ -x $BIN ]] || { echo "build produced no $BIN" >&2; exit 1; }
+  mkdir -p "$OUT/$NAME"
+  install -m 0755 "$BIN" "$OUT/$NAME/$APP"
+  strip --strip-unneeded "$OUT/$NAME/$APP" || true
+fi
 tar -C "$OUT" --owner=0 --group=0 --numeric-owner -czf "$OUT/$NAME.tar.gz" "$NAME"
 rm -rf "${OUT:?}/$NAME"
 

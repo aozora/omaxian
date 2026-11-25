@@ -4,9 +4,11 @@
 #
 #   ./install.sh              # apt deps + engine into ~/.local
 #   ./install.sh --skip-apt
+#   ./install.sh --from-source
 #
-# The engine is Python (stdlib only). It is copied to
-# ~/.local/share/omarchy-local-ai and linked as omarchy-local-ai,
+# The engine is Python (stdlib only). With a pin in .omaxian-prebuilt it
+# downloads that tree; otherwise it copies this directory. It lands in
+# ~/.local/share/omarchy-local-ai and is linked as omarchy-local-ai,
 # omarchy-agent-local and omarchy-models in ~/.local/bin.
 
 set -euo pipefail
@@ -17,12 +19,14 @@ BIN_DIR="$PREFIX/bin"
 SHARE_DIR="$PREFIX/share/omarchy-local-ai"
 
 SKIP_APT=0
+FROM_SOURCE=0
 
 usage() {
   cat <<'USAGE'
-Usage: install.sh [--skip-apt]
+Usage: install.sh [--skip-apt] [--from-source]
 
-  --skip-apt   do not apt-get install deps
+  --skip-apt      do not apt-get install deps
+  --from-source   copy this tree instead of a pinned download
 USAGE
   exit 0
 }
@@ -31,8 +35,7 @@ for arg in "$@"; do
   case "$arg" in
     --skip-apt) SKIP_APT=1 ;;
     -h|--help) usage ;;
-    # install-community-apps.sh passes this to every app; the engine is not compiled.
-    --from-source) ;;
+    --from-source) FROM_SOURCE=1 ;;
     *)
       echo "unknown option: $arg" >&2
       usage
@@ -47,6 +50,8 @@ fi
 
 # shellcheck source=../lib/prebuilt.sh
 source "$ROOT/../lib/prebuilt.sh"
+# shellcheck source=engine-files.sh
+source "$ROOT/engine-files.sh"
 app_deps_read
 
 if (( ! SKIP_APT )); then
@@ -66,16 +71,22 @@ fi
 # The engine reads its catalog from the directory it runs from, so the engine and
 # the catalog are always one tree. Replace the tree rather than merging into it, so
 # a recipe dropped upstream does not linger.
+engine_src=$ROOT
+if prebuilt_fetch omarchy-local-ai; then
+  engine_src=$(dirname "$PREBUILT_BIN")
+fi
+
 mkdir -p "$BIN_DIR" "$PREFIX/share"
 staging=$(mktemp -d "$PREFIX/share/.omarchy-local-ai.XXXXXX")
-trap 'rm -rf "$staging"' EXIT
-for item in agent_local.py omaxian_units.py omarchy-local-ai catalog.toml best.toml recipes runtimes reviews measurements docs README.md LICENSE; do
-  cp -a "$ROOT/$item" "$staging/"
+trap 'rm -rf "$staging"; prebuilt_cleanup' EXIT
+for item in "${ENGINE_FILES[@]}"; do
+  cp -a "$engine_src/$item" "$staging/"
 done
 chmod 755 "$staging/omarchy-local-ai"
 rm -rf "$SHARE_DIR"
 mv "$staging" "$SHARE_DIR"
 chmod 755 "$SHARE_DIR"
+prebuilt_cleanup
 trap - EXIT
 
 for name in omarchy-local-ai omarchy-agent-local omarchy-models; do

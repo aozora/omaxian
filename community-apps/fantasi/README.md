@@ -50,8 +50,8 @@ community-apps/omarchy-local-ai/install.sh   # the engine, once
 community-apps/fantasi/install.sh
 ```
 
-There is no pinned pre-built binary yet, so `install.sh` builds with
-`bin/build`. When the local Qt (`~/.local/opt/omaxian-qt6-<mm>`) has no
+CI builds the pre-built binary (`.github/workflows/community-apps.yml`); until its pin
+lands, `install.sh` builds with `bin/build`. When the local Qt (`~/.local/opt/omaxian-qt6-<mm>`) has no
 ShaderTools it builds against Qt 6.8 in a `debian:trixie` container (podman or
 docker) instead; that binary runs on 6.8 and newer. When QtCore, QtMultimedia
 or Effects exist only under `~/.local/lib/qt6/qml`, it installs a wrapper that
