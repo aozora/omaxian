@@ -1,0 +1,5 @@
+# Omaxian: the Rust omareel is built with (rustup). Debian's rustc 1.85 is older than the
+# crates' rust-version (1.86).
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"

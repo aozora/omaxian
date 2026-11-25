@@ -27,3 +27,15 @@ hype/src/Main.qml|Member "hasChecks" not found on type "QQuickMenu"
 checkmate/src/BoardView.qml|Property "style" does not exist
 # Checkmate: Repeater3D.objectAt returns QQuick3DObject; fidget() is on ChessPiece.qml
 checkmate/src/BoardView.qml|Member "fidget" not found on type "QQuick3DObject"
+
+# Omareel: FrameSource (src/render/FrameSource.h, a QQuickItem with cropRect / cornerRadiusRatio)
+omareel/src/ui/qml/CameraOverlay.qml|Property "objectName" does not exist
+omareel/src/ui/qml/CameraOverlay.qml|Property "visible" does not exist
+omareel/src/ui/qml/CameraOverlay.qml|Property "fill" does not exist
+omareel/src/ui/qml/CameraOverlay.qml|Property "cropRect" does not exist
+omareel/src/ui/qml/CameraOverlay.qml|Property "cornerRadiusRatio" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "objectName" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "fill" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "visible" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "cropRect" does not exist
+omareel/src/ui/qml/RoundedFrame.qml|Property "cornerRadiusRatio" does not exist

@@ -67,8 +67,25 @@ raw=$("$engine" run --rm -e APPS="${apps[*]}" -v "$APPS_DIR:/apps:ro,Z" -w /apps
   echo "# Qt $(dpkg-query -W -f "\${Version}" libqt6core6t64)" >&2
   for app in $APPS; do
     [ -d "$app/src" ] || continue
+    # QML modules the app declares only in CMake (qt_add_qml_module, no qmldir in the tree):
+    # <app>/.qmllint-modules lists "<URI> <directory>"; each gets a generated qmldir.
+    mods=""
+    if [ -f "$app/.qmllint-modules" ]; then
+      mods="/tmp/qmlmods/$app"
+      while read -r uri dir; do
+        case "$uri" in ""|\#*) continue ;; esac
+        d="$mods/$(printf %s "$uri" | tr . /)"
+        mkdir -p "$d"
+        echo "module $uri" > "$d/qmldir"
+        for q in "$app/$dir"/*.qml; do
+          n=$(basename "$q" .qml)
+          ln -s "/apps/$q" "$d/$n.qml"
+          echo "$n 1.0 $n.qml" >> "$d/qmldir"
+        done
+      done < "$app/.qmllint-modules"
+    fi
     find "$app/src" -name "*.qml" | sort | while read -r f; do
-      /usr/lib/qt6/bin/qmllint -I "$(dirname "$f")" "$f" 2>&1 | grep -E "\[(missing-property|unqualified)\]" || true
+      /usr/lib/qt6/bin/qmllint -I "$(dirname "$f")" ${mods:+-I "$mods"} "$f" 2>&1 | grep -E "\[(missing-property|unqualified)\]" || true
     done
   done
 ' lint "${packages[@]}" 2>&1 | sed 's/^Warning: //')

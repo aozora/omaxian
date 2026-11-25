@@ -1,0 +1,3 @@
+import Omareel.Ui
+
+OmSlider { }

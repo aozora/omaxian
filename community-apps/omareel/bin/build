@@ -1,0 +1,32 @@
+#!/bin/bash
+# Omaxian: build omareel with rustup's Rust (rust-toolchain.toml) and the system Qt.
+#
+# Debian's rustc is older than the crates' rust-version, so Rust comes from rustup
+# (~/.cargo/bin). Debian's Corrosion 0.5 cannot read newer rustup's toolchain list, so it is
+# pointed at rustup's rustc and cargo directly.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+build_dir="${BUILD_DIR:-$root/build}"
+
+if [[ -f $HOME/.cargo/env ]]; then
+  # shellcheck source=/dev/null
+  source "$HOME/.cargo/env"
+fi
+export PATH="$HOME/.cargo/bin:$PATH"
+if ! command -v rustup >/dev/null; then
+  echo "omareel: building needs rustup (install.sh installs it)" >&2
+  exit 1
+fi
+# Installs the pinned toolchain when missing, from inside the tree so the pin applies.
+(cd "$root" && rustup show active-toolchain >/dev/null)
+rustc_path=$(cd "$root" && rustup which rustc)
+cargo_path=$(cd "$root" && rustup which cargo)
+
+cmake -S "$root" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DOMAREEL_BUILD_HYPRLAND_PLUGIN=OFF \
+  -DRust_RESOLVE_RUSTUP_TOOLCHAINS=OFF \
+  -DRust_COMPILER="$rustc_path" \
+  -DRust_CARGO="$cargo_path" \
+  "$@"
+(cd "$root" && ninja -C "$build_dir")

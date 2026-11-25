@@ -26,6 +26,7 @@ community-apps/
     install.sh             # user-local install for this host
     .omaxian-upstream-commit
     .omaxian-prebuilt      # pinned pre-built binary (optional; see below)
+    .qmllint-modules       # QML modules declared only in CMake (optional; for the lint)
     … upstream / patched sources …
 ```
 
@@ -97,10 +98,7 @@ Plan and rationale:
 | [`omarchy-local-ai`](omarchy-local-ai/) | omarchy-local-ai (local model engine, Podman; no systemd) | [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai) `0.13.0` (`63b3be9`) | Ported (music path; no pairing or tailnet sharing) |
 | [`flowtunes`](flowtunes/) | Flowtunes (Qt Quick endless music; needs omarchy-local-ai) | [omacom/flowtunes](https://github.com/omacom/flowtunes) `0.4.0` (`83dc86f`) | Ported (builds from source; no pre-built binary yet) |
 | [`fantasi`](fantasi/) | Fantasi (Qt Quick image, video and music maker; needs omarchy-local-ai) | [omacom/fantasi](https://github.com/omacom/fantasi) `0.3.0` (`f5a3fec`) | Ported (builds from source; only the music model has been run) |
-
-**Not ported:**
-
-- [omareel](https://github.com/omacom/omareel) — Hyprland plugin + `gpu-screen-recorder` / layer-shell capture; not viable on X11/i3.
+| [`omareel`](omareel/) | Omareel (Qt Quick + Rust screen recorder and editor) | [omacom/omareel](https://github.com/omacom/omareel) `0.5.0` (`b1610ac`) | Ported (builds from source; X11 recording through Flatpak gpu-screen-recorder; overlays cannot be kept out of the capture) |
 
 ## Install
 
@@ -140,7 +138,10 @@ Review the tree before running it; apps run unsandboxed as your user.
    e.g. `Component.onCompleted: if (view.acceptedButtons !== undefined)
    view.acceptedButtons = Qt.NoButton`, and record the 6.8 fallback in the
    app's deltas table. `lib/qmllint-ignore.txt` is only for properties of the
-   app's own C++ types, which qmllint cannot see. Read the property through an
+   app's own C++ types, which qmllint cannot see. When the app's QML imports
+   its own modules (`qt_add_qml_module` with no `qmldir` in the tree), list
+   them in `<app>/.qmllint-modules`, one `<URI> <directory>` per line, and the
+   lint generates their `qmldir` (omareel does). Read the property through an
    id: a bare name 6.8 lacks throws instead of giving `undefined` (the lint
    flags that). Neither the lint nor CI's headless start sees a newer-Qt
    method called on a `Loader.item`, or code that runs only once a file is
