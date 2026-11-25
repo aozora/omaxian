@@ -1,0 +1,8 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-99b69ff/omarchy-local-ai-99b69ff-x86_64-linux.tar.gz
+sha256=b2b3b1ebbd3fbb48f2ac2dda2d26c088a969630842997228790726fceef2b662
+tree=99b69ff96fff6fde416a508d5a597d151ddb23b9
+src=30b8796616a429a61893d34a2fe1e9038d8ce190e9e934ff48c7669db52467bb
+bin=omarchy-local-ai-99b69ff-x86_64-linux/omarchy-local-ai
+arch=x86_64

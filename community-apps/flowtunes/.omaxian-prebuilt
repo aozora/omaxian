@@ -1,0 +1,9 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-99b69ff/flowtunes-99b69ff-x86_64-linux.tar.gz
+sha256=fbac0c2d8b589b9d7bdaaa454f37447ec1e7de39e51d159b5c3d99b58a6a48c8
+tree=99b69ff96fff6fde416a508d5a597d151ddb23b9
+src=5ab4d3ac3fd70489c9394908eda76469e32932ca4e69cf157195d50a7bc6dd7f
+bin=flowtunes-99b69ff-x86_64-linux/flowtunes
+arch=x86_64
+qt=6.8
