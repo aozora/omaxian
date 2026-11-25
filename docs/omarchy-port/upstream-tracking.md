@@ -14,8 +14,8 @@ upstream"* refers to.
 
 Upstream is **not vendored in this git repo**. `setup.sh` / `install.sh` clone
 `https://github.com/omacom/omarchy` into `omarchy-quattro/` at
-`OMARCHY_UPSTREAM_REF` (default in both scripts). The directory is gitignored
-(only `.gitkeep` is tracked). Never `git add` it. Treat it read-only — never
+`OMARCHY_UPSTREAM_REF` (default in both scripts). The directory is gitignored.
+Never `git add` it. Treat it read-only — never
 edit. Script roles and re-run habits:
 [`docs/omaxian/install-scripts.md`](../omaxian/install-scripts.md).
 
@@ -69,11 +69,10 @@ first, then replace.
    cp -a omarchy-quattro/bin   /tmp/omarchy-bin.prev
    ```
 
-3. Wipe the checkout. Keep the tracked placeholder:
+3. Wipe the checkout:
 
    ```
    rm -rf omarchy-quattro
-   git checkout -- omarchy-quattro/.gitkeep
    ```
 
    `install.sh` / `setup.sh` only clone when `omarchy-quattro/.git` is absent.

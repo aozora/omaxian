@@ -58,7 +58,7 @@ refuse_qt_downgrade() {
   local installed candidate inst_mm cand_mm
   installed=$(dpkg-query -W -f '${Version}' libqt6core6t64 2>/dev/null || true)
   [[ -z $installed ]] && return 0
-  candidate=$(apt-cache policy qt6-base-dev 2>/dev/null | awk '/Candidate:/{print $2; exit}')
+  candidate=$(apt-cache policy qt6-base-dev 2>/dev/null | awk '/Candidate:/ && !seen {print $2; seen=1}')
   [[ -z $candidate || $candidate == "(none)" ]] && return 0
   inst_mm=${installed%%+*}
   inst_mm=${inst_mm%.*}
