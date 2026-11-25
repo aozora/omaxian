@@ -1,0 +1,9 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/cards-8dd1b71-x86_64-linux.tar.gz
+sha256=e132877f4bc1c3764a59dd047f70080352d6052f119985e31edaa3ccd9fad9e5
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=b77aed80c8b0236a985286673ea5a4043d20f80faf41b2cad7d495af1ed57335
+bin=cards-8dd1b71-x86_64-linux/cards
+arch=x86_64
+qt=6.8

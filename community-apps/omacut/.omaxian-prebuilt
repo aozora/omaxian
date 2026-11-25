@@ -1,9 +1,9 @@
 # Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
 # Written by .github/workflows/community-apps.yml — do not edit by hand.
-url=https://github.com/aozora/omaxian/releases/download/apps-93d0514/omacut-93d0514-x86_64-linux.tar.gz
-sha256=656ec4bf7bb2296f3e0c2be74dadcb02d0b2a287d8e8ccc306663a3af184822a
-tree=93d0514f23a5c21f39321668a99e7af4a10d3273
-src=6ec4915d40b07f677a34937677d6d32bf8fa5198b837ab8e97758b5b15e94c6d
-bin=omacut-93d0514-x86_64-linux/omacut
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/omacut-8dd1b71-x86_64-linux.tar.gz
+sha256=ee2b221fc6dbf3cdc6a03724a8b3e4c8a55b1cce2459708ccf1dffda49a34603
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=676a79be47fa46ef6bb46c6c0ae0ce867bf42443db8937eeaa4e5469d5e8719c
+bin=omacut-8dd1b71-x86_64-linux/omacut
 arch=x86_64
 qt=6.8

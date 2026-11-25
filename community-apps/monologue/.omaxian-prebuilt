@@ -1,9 +1,9 @@
 # Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
 # Written by .github/workflows/community-apps.yml — do not edit by hand.
-url=https://github.com/aozora/omaxian/releases/download/apps-027bd66/monologue-027bd66-x86_64-linux.tar.gz
-sha256=c3fc4a960fdb4ee8f50d49311ea348b918528529bc2740082bd6f71b8da8e232
-tree=027bd6621e61eca2a10ae2a5d75be53810f0fabc
-src=c1577fdc5f6aeac8d717a916b14d41abc52cf0885eaa17dc86c9314e9ce490b7
-bin=monologue-027bd66-x86_64-linux/monologue
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/monologue-8dd1b71-x86_64-linux.tar.gz
+sha256=6350dd44d930a3c789f47337c605b8e1dc0b91c37f0ee286fcda15019589aaeb
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=f7522309ce455bd6103f05a4ef5fbbb59162c237d60571fc01210e72764d53a7
+bin=monologue-8dd1b71-x86_64-linux/monologue
 arch=x86_64
 qt=6.8

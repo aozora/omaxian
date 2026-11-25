@@ -1,0 +1,9 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/omaview-8dd1b71-x86_64-linux.tar.gz
+sha256=77a45e7ce8b9de47a21dab492f62204367fd9567e781c290acdd0b96cf0ab4ec
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=11ee6f9099bd1f0047e0b5d212e7c0d26cf89c222ec3395287a52423ea7f3ab7
+bin=omaview-8dd1b71-x86_64-linux/omaview
+arch=x86_64
+qt=6.8
