@@ -23,7 +23,9 @@ fi
 rustc_path=$(cd "$root" && rustup which rustc)
 cargo_path=$(cd "$root" && rustup which cargo)
 
+# Tests are off unless asked for (-DBUILD_TESTING=ON): CI and install.sh build only the app.
 cmake -S "$root" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=OFF \
   -DOMAREEL_BUILD_HYPRLAND_PLUGIN=OFF \
   -DRust_RESOLVE_RUSTUP_TOOLCHAINS=OFF \
   -DRust_COMPILER="$rustc_path" \

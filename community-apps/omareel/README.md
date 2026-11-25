@@ -63,7 +63,8 @@ Build: see `apt_build` in `omaxian.deps.json`, plus rustup (`install.sh` install
 community-apps/omareel/install.sh
 ```
 
-There is no pinned pre-built binary yet, so `install.sh` builds with `bin/build`. When the local
+CI builds omareel's pre-built binary (`.github/workflows/community-apps.yml`); until its pin PR
+lands there is none, and `install.sh` builds with `bin/build`. When the local
 Qt (`~/.local/opt/omaxian-qt6-<mm>`) has no ShaderTools, which apt cannot supply for Qt 6.10, it
 builds against Qt 6.8 in a `debian:trixie` container (podman or docker) instead. That binary runs
 on 6.8 and newer. When QtMultimedia exists only under `~/.local/lib/qt6/qml`, it installs a

@@ -98,7 +98,7 @@ Plan and rationale:
 | [`omarchy-local-ai`](omarchy-local-ai/) | omarchy-local-ai (local model engine, Podman; no systemd) | [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai) `0.13.0` (`63b3be9`) | Ported (music path; no pairing or tailnet sharing) |
 | [`flowtunes`](flowtunes/) | Flowtunes (Qt Quick endless music; needs omarchy-local-ai) | [omacom/flowtunes](https://github.com/omacom/flowtunes) `0.4.0` (`83dc86f`) | Ported (builds from source; no pre-built binary yet) |
 | [`fantasi`](fantasi/) | Fantasi (Qt Quick image, video and music maker; needs omarchy-local-ai) | [omacom/fantasi](https://github.com/omacom/fantasi) `0.3.0` (`f5a3fec`) | Ported (builds from source; only the music model has been run) |
-| [`omareel`](omareel/) | Omareel (Qt Quick + Rust screen recorder and editor) | [omacom/omareel](https://github.com/omacom/omareel) `0.5.0` (`b1610ac`) | Ported (builds from source; X11 recording through Flatpak gpu-screen-recorder; overlays cannot be kept out of the capture) |
+| [`omareel`](omareel/) | Omareel (Qt Quick + Rust screen recorder and editor) | [omacom/omareel](https://github.com/omacom/omareel) `0.5.0` (`b1610ac`) | Ported (X11 recording through Flatpak gpu-screen-recorder; overlays cannot be kept out of the capture) |
 
 ## Install
 
