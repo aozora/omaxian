@@ -325,6 +325,31 @@ parse_phase_state() {
 
 TUI_SPIN_FRAMES=('[=    ]' '[ =   ]' '[  =  ]' '[   = ]' '[    =]' '[   = ]' '[  =  ]' '[ =   ]')
 
+# Send one update from stdin to the gauge without blocking. dialog can stop
+# reading (seen after rapid terminal resizes); a blocking write would then
+# freeze the installer. With the pipe full, the update is dropped.
+#   gauge_send <fd>
+gauge_send() {
+	dd bs=65536 iflag=fullblock oflag=nonblock status=none >&"$1" 2>/dev/null || true
+}
+
+# Close the gauge pipe and wait for dialog to exit on EOF. A stalled dialog
+# never gets there, so kill it and restore the terminal.
+#   gauge_close <fd> <dialog pid>
+gauge_close() {
+	local fd="$1" pid="$2" sig _
+	exec {fd}>&-
+	for sig in TERM KILL; do
+		for _ in $(seq 1 20); do
+			kill -0 "$pid" 2>/dev/null || break 2
+			sleep 0.1
+		done
+		kill -"$sig" "$pid" 2>/dev/null || true
+		stty sane 2>/dev/null </dev/tty || true
+	done
+	wait "$pid" 2>/dev/null || true
+}
+
 # Draw a phase as a dialog gauge that updates in place: a spinner, the
 # current step label, elapsed time, overall progress, and the last lines of
 # output. The command's output goes to $LOG_FILE only.
@@ -360,7 +385,7 @@ run_phase_tui() {
 
 	# Ctrl-C: background jobs ignore SIGINT, so stop the phase explicitly.
 	# shellcheck disable=SC2064
-	trap "kill_tree $pid; exec {gfd}>&-; wait $gpid 2>/dev/null; clear; omaxian_err 'interrupted'; exit 130" INT TERM
+	trap "kill_tree $pid; gauge_close $gfd $gpid; clear; omaxian_err 'interrupted'; exit 130" INT TERM
 	# If dialog dies (tiny terminal), keep running instead of dying on SIGPIPE.
 	trap '' PIPE
 
@@ -391,14 +416,13 @@ run_phase_tui() {
 			# dialog expands "\n"; keep other backslashes from forming escapes.
 			msg+="\\n${line//\\//}"
 		done
-		printf 'XXX\n%d\n%s\nXXX\n' "$pct" "$msg" >&"$gfd" 2>/dev/null || true
+		printf 'XXX\n%d\n%s\nXXX\n' "$pct" "$msg" | gauge_send "$gfd"
 		tick=$(( tick + 1 ))
 		sleep 0.2
 	done
 	wait "$pid" || ec=$?
 
-	exec {gfd}>&-
-	wait "$gpid" 2>/dev/null || true
+	gauge_close "$gfd" "$gpid"
 	trap - INT TERM PIPE
 	return "$ec"
 }
