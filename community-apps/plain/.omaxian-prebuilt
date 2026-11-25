@@ -1,9 +1,9 @@
 # Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
 # Written by .github/workflows/community-apps.yml — do not edit by hand.
-url=https://github.com/aozora/omaxian/releases/download/apps-93d0514/plain-93d0514-x86_64-linux.tar.gz
-sha256=86d6d73aa65658e8d6ddeefcc1624dcaebf1054db69f536ac30303b7f8968df6
-tree=93d0514f23a5c21f39321668a99e7af4a10d3273
-src=70260f9557f6496d56ab42ec7c3a889ceafe49ceabd629a9a433bdf15087cbfb
-bin=plain-93d0514-x86_64-linux/plain
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/plain-8dd1b71-x86_64-linux.tar.gz
+sha256=7577253763a11063b1abe64a352306a6096faa0f529fc2d7071b1308704e08d5
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=8c00bcf08a8ae42c8e4ef5695b2fa14378eede6269a10db96a959e86cd9ac3c0
+bin=plain-8dd1b71-x86_64-linux/plain
 arch=x86_64
 qt=6.8

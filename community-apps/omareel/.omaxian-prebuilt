@@ -1,0 +1,9 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/omareel-8dd1b71-x86_64-linux.tar.gz
+sha256=9e676d46da324386e5424ccc0166c905b9c43db191720a7ebf8e655c33f104fd
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=a4a1d48a698ac0cea06ab27d5685283b82779e1a1fe6191b045ded69ec0285df
+bin=omareel-8dd1b71-x86_64-linux/omareel
+arch=x86_64
+qt=6.8

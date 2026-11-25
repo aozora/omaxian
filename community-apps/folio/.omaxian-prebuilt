@@ -1,9 +1,9 @@
 # Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
 # Written by .github/workflows/community-apps.yml — do not edit by hand.
-url=https://github.com/aozora/omaxian/releases/download/apps-027bd66/folio-027bd66-x86_64-linux.tar.gz
-sha256=7ffa02e5a6a4c7e26b2aaaca5e028b6abe96b11f0e4823bd31f4a21aa70769e0
-tree=027bd6621e61eca2a10ae2a5d75be53810f0fabc
-src=00fe16da6ee9f1b47f577e8bb6c7a3c4444ebaa571be508215e011fa1d44b283
-bin=folio-027bd66-x86_64-linux/folio
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/folio-8dd1b71-x86_64-linux.tar.gz
+sha256=f5320ef7ffc02e696bb9e7ae5b730a0d15d49d06a11de3e813c0a1f721524696
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=f5e481cd45614d06406d6d2f88a8e40b405a8669de3d02ba9c83ddbca7b65272
+bin=folio-8dd1b71-x86_64-linux/folio
 arch=x86_64
 qt=6.8

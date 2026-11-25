@@ -24,7 +24,25 @@ apt-get install -y --no-install-recommends "${packages[@]}"
 
 work=$(mktemp -d)
 tar -xzf "$DIST/$file" -C "$work"
-missing=$(ldd "$work/$bin" | grep 'not found' || true)
+payload="$work/$bin"
+
+# shellcheck source=../../community-apps/lib/prebuilt.sh
+source "$REPO_DIR/community-apps/lib/prebuilt.sh"
+if prebuilt_is_script "$payload"; then
+  echo "$APP: script payload, not an ELF"
+  if head -n 1 "$payload" | grep -q python; then
+    log="$work/start.log"
+    if ! python3 "$payload" validate "$(dirname "$payload")" >"$log" 2>&1; then
+      echo "$APP: catalog check failed:" >&2
+      cat "$log" >&2
+      exit 1
+    fi
+    cat "$log"
+  fi
+  exit 0
+fi
+
+missing=$(ldd "$payload" | grep 'not found' || true)
 if [[ -n $missing ]]; then
   echo "$APP: libraries missing with only its runtime packages installed:" >&2
   echo "$missing" >&2

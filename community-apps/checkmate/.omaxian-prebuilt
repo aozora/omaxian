@@ -1,0 +1,9 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-8dd1b71/checkmate-8dd1b71-x86_64-linux.tar.gz
+sha256=2f01fcf6c5c829f8a104a36ff79b4a057f2524a8a36628f886fa80dc58b5878a
+tree=8dd1b71aeb5a741dc1cf68f9c9133460ac2eff63
+src=ea7a01c3f30abbbb07dc53c218852c2be4e1d6183786469b9315b6cba33cd83b
+bin=checkmate-8dd1b71-x86_64-linux/checkmate
+arch=x86_64
+qt=6.8

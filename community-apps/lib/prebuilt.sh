@@ -111,6 +111,27 @@ prebuilt_cleanup() {
   fi
 }
 
+# An ELF binary, or a shebang script in the tree it runs from
+# (omarchy-local-ai). Anything else is not a payload install.sh can use.
+prebuilt_is_elf() {
+  local file="$1" magic
+  [[ -f $file ]] || return 1
+  magic=$(head -c 4 "$file" | od -An -c | tr -d ' ')
+  [[ $magic == "177ELF" ]]
+}
+
+prebuilt_is_script() {
+  local file="$1"
+  [[ -f $file && -x $file ]] || return 1
+  [[ $(head -c 2 "$file") == "#!" ]]
+}
+
+prebuilt_payload_ok() {
+  local file="$1"
+  [[ -x $file ]] || return 1
+  prebuilt_is_elf "$file" || prebuilt_is_script "$file"
+}
+
 # prebuilt_fetch <name> — download, verify and unpack the pinned binary.
 # Sets PREBUILT_BIN on success. Returns 1 (with the reason) to fall back.
 prebuilt_fetch() {
@@ -186,7 +207,7 @@ prebuilt_fetch() {
   else
     bin=$(find "$PREBUILT_TMP/x" -type f -name "$name" -perm -u+x -print -quit)
   fi
-  if [[ -z $bin || ! -f $bin || ! -x $bin || $(head -c 4 "$bin" | od -An -c | tr -d ' ') != '177ELF' ]]; then
+  if ! prebuilt_payload_ok "$bin"; then
     echo ">> tarball has no executable $name — building from source" >&2
     return 1
   fi

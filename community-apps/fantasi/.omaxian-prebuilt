@@ -1,0 +1,9 @@
+# Pre-built binary for install.sh (see community-apps/lib/prebuilt.sh).
+# Written by .github/workflows/community-apps.yml — do not edit by hand.
+url=https://github.com/aozora/omaxian/releases/download/apps-99b69ff/fantasi-99b69ff-x86_64-linux.tar.gz
+sha256=90e935dd7da59a4e4931679fa487fc579af6fbf94243fb46e608c2d52044603c
+tree=99b69ff96fff6fde416a508d5a597d151ddb23b9
+src=44fae14d1184bac56d3d148240641934885a4dec35c0db9116100859f4e0e895
+bin=fantasi-99b69ff-x86_64-linux/fantasi
+arch=x86_64
+qt=6.8

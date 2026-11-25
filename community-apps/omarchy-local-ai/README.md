@@ -39,10 +39,12 @@ NVIDIA's container toolkit (CDI) and have not been tried here.
 ## Install
 
 ```bash
-community-apps/omarchy-local-ai/install.sh        # or --skip-apt
+community-apps/omarchy-local-ai/install.sh        # or --skip-apt, or --from-source
 ```
 
-Nothing is downloaded until you set a model up.
+CI packages this tree (nothing is compiled) as the pre-built payload. Until that
+pin lands, `install.sh` copies this directory. Nothing is downloaded until you
+set a model up.
 
 ## Use
 
