@@ -6,7 +6,7 @@ monospace font. Can also be other
 apps' Open and Save dialogs via `folio chooser` (xdg-desktop-portal).
 
 Port of [omacom/folio](https://github.com/omacom/folio) (upstream commit
-`bd8ea0c`, v0.7.3, pinned in `.omaxian-upstream-commit`). Full upstream docs:
+`c306f24`, v0.7.5, pinned in `.omaxian-upstream-commit`). Full upstream docs:
 [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
@@ -28,6 +28,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Font and text size follow the system's fixed-width font (13px text at Omarchy's 11pt default) | Unchanged. The family is what `fc-match monospace` names. Omaxian sets no Qt font size, so Qt reports 9pt without a platform theme (11px text) and GTK's 10pt under `QT_QPA_PLATFORMTHEME=gtk3` (12px text) |
 | `xdg-terminal-exec` for Open Terminal | Same; Excalibur ships it |
 | Preview PDF error text names Arch `qt6-webengine` | Debian package is `qml6-module-qtquick-pdf` |
+| CMake links `wayland-client` when present, to parent the Open/Save dialog to a Wayland window | Never enabled (`FOLIO_WAYLAND_FOREIGN` unset): X11 only, and `src/foreignparent.cpp` doesn't compile with it on Qt 6.8 |
 | CMake-only build | Same CMake path when `qt6-*-dev` works; `folio.pro` + qmake fallback for `~/.local/opt/omaxian-qt6-<mm>/` (keep its sources and `fontconfig` in step with `CMakeLists.txt`) |
 | Preview `setDesktopFileName("folio-preview")` only | Also `setApplicationName("folio-preview")` so i3 can float Space preview on X11 |
 | Chooser `setDesktopFileName("folio-chooser")` only | Also `setApplicationName("folio-chooser")`; i3 floats/centers `folio-chooser` |

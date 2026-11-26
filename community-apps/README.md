@@ -89,7 +89,7 @@ Plan and rationale:
 | [`omacalc`](omacalc/) | Omacalc (Qt Quick calculator) | [omacom/omacalc](https://github.com/omacom/omacalc) `0.4.2` | Ported |
 | [`omacut`](omacut/) | Omacut (Qt Quick video trimmer) | [omacom/omacut](https://github.com/omacom/omacut) `0.8.4` | Ported |
 | [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.7` | Ported |
-| [`folio`](folio/) | Folio (Qt Quick file manager) | [omacom/folio](https://github.com/omacom/folio) `0.7.3` (`bd8ea0c`) | Ported |
+| [`folio`](folio/) | Folio (Qt Quick file manager) | [omacom/folio](https://github.com/omacom/folio) `0.7.5` (`c306f24`) | Ported |
 | [`omaview`](omaview/) | Omaview (Qt Quick picture viewer / media player) | [omacom/omaview](https://github.com/omacom/omaview) `0.1.2` (`4cd158e`) | Ported |
 | [`hype`](hype/) | Hype (Qt Quick Markdown presentations) | [omacom/hype](https://github.com/omacom/hype) `0.7.1` (`8c347fc`) | Ported |
 | [`cards`](cards/) | Cards (Qt Quick Klondike solitaire) | [omacom/cards](https://github.com/omacom/cards) `0.1.0` (`e1a01bf`) | Ported |

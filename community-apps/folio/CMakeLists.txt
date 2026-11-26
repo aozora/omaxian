@@ -27,7 +27,6 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0 gio-unix-2.0)
 pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
-pkg_check_modules(WAYLAND_CLIENT IMPORTED_TARGET wayland-client)
 find_package(ZLIB REQUIRED)
 
 # Everything but main.cpp, shared by the app and the tests, so a new source
@@ -39,10 +38,8 @@ target_include_directories(folio_core PUBLIC src)
 target_link_libraries(folio_core PUBLIC
   Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::DBus Qt6::Concurrent
   PkgConfig::GIO PkgConfig::FONTCONFIG ZLIB::ZLIB)
-if(WAYLAND_CLIENT_FOUND AND TARGET Qt6::GuiPrivate)
-  target_link_libraries(folio_core PUBLIC Qt6::GuiPrivate PkgConfig::WAYLAND_CLIENT)
-  target_compile_definitions(folio_core PRIVATE FOLIO_WAYLAND_FOREIGN=1)
-endif()
+# Omaxian is X11 only: upstream's Wayland dialog parenting (FOLIO_WAYLAND_FOREIGN)
+# stays off, even where the Wayland headers are installed.
 target_compile_options(folio_core PUBLIC -Wall -Wextra)
 
 # Precompile Folio's QML and JS with qmlcachegen so cold start loads compiled
