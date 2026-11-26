@@ -17,6 +17,8 @@ T.TextArea {
   readonly property real contentInset: Style.spacing.controlPaddingX + Border.left(borderSpec)
   readonly property var borderSpec: Border.controlSpec(activeFocus ? "focus" : hovered ? "hover-cursor" : "normal", foreground, accent)
   signal accepted()
+  // Qt 6.8 TextArea has no textEdited, and newer Qt does, so use another name.
+  signal userEdited()
 
   textFormat: TextEdit.PlainText
   wrapMode: TextEdit.NoWrap
@@ -44,6 +46,8 @@ T.TextArea {
 
   onTextChanged: {
     editRevision++
+    // Assigning text clears the history; user edits leave something to undo or redo.
+    var edited = canUndo || canRedo
     // IME commits are native edits too; reject overflow without trimming the query.
     if (text.length > maximumLength && canUndo) {
       undo()
@@ -55,6 +59,7 @@ T.TextArea {
       text = bounded
       cursorPosition = Math.min(position, text.length)
     }
+    if (edited) userEdited()
   }
 
   function requestPaste(primary) {
@@ -147,7 +152,6 @@ T.TextArea {
       root.remove(start, end)
       root.insert(start, value)
       root.cursorPosition = start + value.length
-      root.textEdited()
     }
   }
 }

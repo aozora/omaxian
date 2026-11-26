@@ -1514,7 +1514,7 @@ Item {
         if (searchField.activeFocus) {
           if (event.key === Qt.Key_Escape) {
             if (searchField.text) {
-              searchField.clear()
+              searchField.text = ""
               root.showWorld()
             }
             else keyCatcher.forceActiveFocus()
@@ -1619,7 +1619,7 @@ Item {
           maximumLength: 128
           foreground: root.foreground
           accent: root.accent
-          onTextEdited: {
+          onUserEdited: {
             if (!root.previewSearch(text)) return
             searchDebounce.restart()
           }
