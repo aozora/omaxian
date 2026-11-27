@@ -128,8 +128,19 @@ Item {
     return Quickshell.iconPath("application-x-executable", true)
   }
 
+  // A request during a running scan is queued: that scan may already have read
+  // past what changed.
+  property bool iconRescanQueued: false
+  property bool hiddenEntryRescanQueued: false
+
+  function refreshHiddenEntries() {
+    if (hiddenEntryScan.running) root.hiddenEntryRescanQueued = true
+    else hiddenEntryScan.running = true
+  }
+
   function refreshIcons() {
-    if (!iconIndexScan.running) iconIndexScan.running = true
+    if (iconIndexScan.running) root.iconRescanQueued = true
+    else iconIndexScan.running = true
   }
 
   // Launch via `setsid -f` + Exec argv (or gtk-launch fallback).
@@ -312,7 +323,12 @@ Item {
     command: ["bash", "-c", root.hiddenEntryScanCommand()]
     stdout: SplitParser { onRead: function(line) { hiddenEntryOutput.text += line + "\n" } }
     onStarted: hiddenEntryOutput.text = ""
-    onExited: root.loadDesktopHiddenEntries(hiddenEntryOutput.text)
+    onExited: {
+      root.loadDesktopHiddenEntries(hiddenEntryOutput.text)
+      if (!root.hiddenEntryRescanQueued) return
+      root.hiddenEntryRescanQueued = false
+      Qt.callLater(root.refreshHiddenEntries)
+    }
   }
 
   // Merge happens in services/icon-index.py — one JSON blob — so the UI
@@ -323,6 +339,11 @@ Item {
     command: ["python3", root.omarchyPath + "/shell/services/icon-index.py"]
     stdout: StdioCollector {
       onStreamFinished: root.applyIconIndexJson(text)
+    }
+    onExited: {
+      if (!root.iconRescanQueued) return
+      root.iconRescanQueued = false
+      Qt.callLater(root.refreshIcons)
     }
   }
 
@@ -342,13 +363,13 @@ Item {
   Timer {
     id: iconIndexDebounce
     interval: 750
-    onTriggered: if (!iconIndexScan.running) iconIndexScan.running = true
+    onTriggered: root.refreshIcons()
   }
 
   Timer {
     id: hiddenEntryDebounce
     interval: 750
-    onTriggered: if (!hiddenEntryScan.running) hiddenEntryScan.running = true
+    onTriggered: root.refreshHiddenEntries()
   }
 
   FileView {
