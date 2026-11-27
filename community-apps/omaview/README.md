@@ -35,7 +35,8 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 - `ffmpeg` (and `ffprobe`)
 - `xdg-desktop-portal` + GTK backend, `xdg-utils` (`xdg-screensaver`)
 - `xclip` (clipboard persistence)
-- Optional: `cups` (`lp` for print), `kimageformat6-plugins` (HEIC/AVIF/JXL), `wpctl` (volume above 100%)
+- `kimageformat6-plugins` (HEIC / AVIF / JPEG XL pictures and thumbnails)
+- Optional: `cups` (`lp` for print), `wpctl` (volume above 100%)
 
 Build: `cmake` + `qt6-base-dev` + `qt6-declarative-dev` + `qt6-multimedia-dev`,
 or `qmake6` against `omaview.pro`. Stock Devuan Excalibur Qt 6.8 is enough.

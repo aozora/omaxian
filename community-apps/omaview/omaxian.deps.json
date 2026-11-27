@@ -9,6 +9,7 @@
     "qt6-qpa-plugins",
     "qt6-svg-plugins",
     "qt6-image-formats-plugins",
+    "kimageformat6-plugins",
     "xdg-desktop-portal",
     "xdg-desktop-portal-gtk",
     "xdg-utils",
@@ -30,7 +31,7 @@
   "manual": [
     "Build with community-apps/omaview/install.sh. Prefers CMake; falls back to omaview.pro + qmake6.",
     "Needs ffmpeg/ffprobe on PATH for probes, scrub previews, and frame extract.",
-    "Optional: cups (lp for print), kimageformat6-plugins (HEIC/AVIF/JPEG XL), wireplumber (wpctl for volume above 100%).",
+    "Optional: cups (lp for print), wireplumber (wpctl for volume above 100%).",
     "Hyprland corner rounding / reshape are skipped when HYPRLAND_INSTANCE_SIGNATURE is unset.",
     "Idle inhibit uses org.freedesktop.ScreenSaver or xdg-screensaver (not Wayland idle-inhibit).",
     "If apt cannot match libqt6core for qml6-module-qtmultimedia, place QtMultimedia under ~/.local/lib/qt6/qml/ — install.sh wraps the binary like Omacut."

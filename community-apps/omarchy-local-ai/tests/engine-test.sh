@@ -77,7 +77,7 @@ variant = {"ctx": 4096, "peak_ram_gib": 16, "peak_gpu_gib": 16}
 artifact = {"repo": "test/model", "revision": "b" * 40, "license": "mit",
             "files": ["model.gguf", "tokenizer/*.json"], "model": "model.gguf"}
 recipe = {"name": "Test model", "runtime": "server",
-          "hardware": [{"gpu": "amd-strix-halo", "ram_class": 64, "measured": "measurements/model.toml"}],
+          "hardware": [{"gpu": "amd-strix-halo", "measured": "measurements/model.toml"}],
           "artifacts": [artifact], "variant": [variant]}
 gpu = {"vendor": "amd", "family": "amd-strix-halo", "memory_gib": 48, "render_node": "/dev/dri/renderD128"}
 profile = {"platform": "x86", "ram_class": 64, "ram_gib": 64, "gpus": [gpu]}
@@ -123,11 +123,19 @@ for role in ("model", "draft"):
   changed["artifacts"][0][role] = "model.gguf"
   changed["artifacts"].append(copy.deepcopy(changed["artifacts"][0]))
   check(f"duplicate {role} role is rejected", any(f".{role}: already named" in e for e in a.validate_recipe("model", changed, {"server": runtime})))
+check("hardware rejects ram_class", any("per chip" in e for e in a.validate_recipe("model", dict(recipe, hardware=[{"gpu": "amd-strix-halo", "ram_class": 64, "measured": "measurements/model.toml"}]), {"server": runtime})))
+check("hardware rejects duplicate chip entries", any("duplicate measurement" in e for e in a.validate_recipe("model", dict(recipe, hardware=[{"gpu": "amd-strix-halo", "measured": "measurements/model.toml"}, {"gpu": "amd-strix-halo", "measured": "measurements/model.toml"}]), {"server": runtime})))
+check("hardware rejects non-string platform without crashing", any(".platform" in e for e in a.validate_recipe("model", dict(recipe, hardware=[{"gpu": "amd-strix-halo", "platform": [], "measured": "measurements/model.toml"}]), {"server": runtime})))
 check("identical best selectors are rejected", any("same selectors" in e for e in a.validate_best({"class": [entry, entry]}, {"model": recipe})))
-check("best cannot recommend an unmeasured class", any("no measured" in e for e in a.validate_best({"class": [dict(entry, ram_class=128)]}, {"model": recipe})))
+check("best accepts another RAM class for a measured GPU", not a.validate_best({"class": [dict(entry, ram_class=128)]}, {"model": recipe}))
+check("best cannot recommend on an unmeasured GPU", any("no measured" in e for e in a.validate_best({"class": [dict(entry, gpu="nvidia-gb10")]}, {"model": recipe})))
 
 catalog = SimpleNamespace(recipes={"model": copy.deepcopy(recipe)}, runtimes={"server": runtime}, best={"class": [entry]})
-check("best requires an exact GPU and RAM pair", a.match_class({"class": [entry]}, profile, dict(gpu, family="other")) is None and a.match_class({"class": [entry]}, dict(profile, ram_class=128), gpu) is None)
+check("best requires the same GPU", a.match_class({"class": [entry]}, profile, dict(gpu, family="other")) is None)
+check("a smaller machine doesn't take a bigger one's best", a.match_class({"class": [dict(entry, ram_class=128)]}, profile, gpu) is None)
+check("a bigger machine takes the nearest smaller class's best", a.match_class({"class": [dict(entry, ram_class=32), entry]}, dict(profile, ram_class=192), gpu)["ram_class"] == 64)
+check("a bigger machine keeps its own best", a.match_class({"class": [entry, dict(entry, ram_class=128, recipes=["other"])]}, dict(profile, ram_class=128), gpu)["recipes"] == ["other"])
+check("a kind a bigger class doesn't list comes from a smaller one", a.match_class({"class": [dict(entry, music=["song"]), dict(entry, ram_class=128, recipes=["other"])]}, dict(profile, ram_class=128), gpu, "music")["music"] == ["song"])
 check("best requires a GPU selector", any(".gpu" in e for e in a.validate_best({"class": [{"ram_class": 64, "recipes": ["model"]}]}, {"model": recipe})))
 check("best rejects platform selectors", any(".platform" in e for e in a.validate_best({"class": [dict(entry, platform="x86")]}, {"model": recipe})))
 catalog.recipes["model"]["variant"] = [variant, dict(variant, ctx=8192), dict(variant, ctx=16384, peak_ram_gib=60)]
@@ -166,18 +174,25 @@ check("explicit GPU resolves a memory tie", a.choose_gpu(tied, "amd-other") == r
 with patch.object(a, "platform_name", return_value="aarch64-n1x"), patch.object(a, "amd_gpus", return_value=[]), patch.object(a, "intel_gpus", return_value=[]), patch.object(a, "meminfo", return_value={"MemTotal": 120 * 2**30}):
   n1x = a.machine_profile()
 check("an N1x laptop has a unified NVIDIA GPU of its own family", n1x["ram_class"] == 128 and [(g["vendor"], g["family"], g["memory_gib"]) for g in n1x["gpus"]] == [("nvidia", "nvidia-n1x", 120)])
-spark = dict(recipe, hardware=[{"gpu": "nvidia-gb10", "ram_class": 128, "measured": "measurements/model.toml"}])
+spark = dict(recipe, hardware=[{"gpu": "nvidia-gb10", "measured": "measurements/model.toml"}])
 check("an N1x runs what a GB10 with the same memory runs", a.runtime_supports(dict(runtime, gpus=["nvidia-gb10"]), n1x["gpus"][0]) and a.match_class({"class": [dict(entry, gpu="nvidia-gb10", ram_class=128)]}, n1x, n1x["gpus"][0]) is not None)
 check("best treats the N1x and GB10 as one class", any("same selectors" in e for e in a.validate_best({"class": [dict(entry, gpu="nvidia-gb10", ram_class=128, recipes=["spark"]), dict(entry, gpu="nvidia-n1x", ram_class=128, recipes=["spark"])]}, {"spark": spark})))
-# Families that share a class may each have a measurement: a machine shows its own family's.
+# Families that share a class may each have a measurement: a machine shows its own family's,
+# and one chip measurement applies across every RAM class.
 shared = Path(os.environ["HOME"]) / "shared-measurements"
 shared.mkdir()
-for family, speed in (("gb10", 60.0), ("n1x", 50.0)):
+for family, speed in (("gb10", 60.0), ("n1x", 50.0), ("halo", 73.3)):
   (shared / f"{family}.toml").write_text(f"[long]\ndecode_tok_s = {speed}\n")
-both_measured = {"hardware": [{"gpu": "nvidia-gb10", "ram_class": 128, "measured": "gb10.toml"}, {"gpu": "nvidia-n1x", "ram_class": 128, "measured": "n1x.toml"}]}
+both_measured = {"hardware": [{"gpu": "nvidia-gb10", "measured": "gb10.toml"}, {"gpu": "nvidia-n1x", "measured": "n1x.toml"}]}
 speeds = [a.load_measurement(SimpleNamespace(root=str(shared)), recipe, {"ram_class": 128, "platform": "aarch64"}, {"family": family})["long"]["decode_tok_s"]
           for recipe, family in ((both_measured, "nvidia-n1x"), (both_measured, "nvidia-gb10"), ({"hardware": both_measured["hardware"][:1]}, "nvidia-n1x"))]
 check("a machine shows its own family's measurement, else its class's", speeds == [50.0, 60.0, 60.0], str(speeds))
+halo_measured = {"hardware": [{"gpu": "amd-strix-halo", "measured": "halo.toml"}]}
+chip_speeds = [
+  a.load_measurement(SimpleNamespace(root=str(shared)), halo_measured, {"ram_class": ram, "platform": "x86"}, {"family": "amd-strix-halo"})["long"]["decode_tok_s"]
+  for ram in (64, 128, 192)
+]
+check("a chip's measurement applies across every RAM class", chip_speeds == [73.3, 73.3, 73.3], str(chip_speeds))
 # An Intel laptop: integrated graphics on the xe driver counts as a GPU.
 drm = Path(os.environ["HOME"]) / "intel-drm"
 for driver in ("xe", "i915"):
@@ -473,8 +488,8 @@ spark = {"vendor": "nvidia", "family": "nvidia-gb10", "memory_gib": 121.9, "unif
 pair_gpu = dict(spark, family="nvidia-gb10-pair", nodes=2, memory_gib=121.7, peer="10.99.0.2")
 pair_profile = {"platform": "aarch64-gb10", "ram_class": 128, "ram_gib": 121.9, "gpus": [spark, pair_gpu]}
 check("a pair outranks its own node", a.choose_gpu(pair_profile)["family"] == "nvidia-gb10-pair")
-single = dict(recipe, hardware=[{"gpu": "nvidia-gb10", "ram_class": 128, "measured": "m.toml"}], runtime="server")
-paired = dict(recipe, hardware=[{"gpu": "nvidia-gb10-pair", "ram_class": 128, "measured": "m.toml"}], runtime="pair",
+single = dict(recipe, hardware=[{"gpu": "nvidia-gb10", "measured": "m.toml"}], runtime="server")
+paired = dict(recipe, hardware=[{"gpu": "nvidia-gb10-pair", "measured": "m.toml"}], runtime="pair",
               variant=[{"ctx": 4096, "peak_ram_gib": 104, "peak_gpu_gib": 104}])
 check("a pair machine runs single-node recipes on its own GPU", a.recipe_gpu(pair_profile, single)["family"] == "nvidia-gb10" and a.recipe_gpu(pair_profile, paired)["family"] == "nvidia-gb10-pair")
 nv_rt = dict(runtime, run={"devices": ["cdi-nvidia"]}, gpus=["nvidia-gb10"])
@@ -1106,6 +1121,81 @@ done_now, total_now, rate_now = resumed.snapshot()
 check("a resumed download's saved bytes count toward the bar", done_now == 4 * 2**20 and total_now == 10 * 2**20)
 check("a resumed download's saved bytes don't count as speed", rate_now == 0)
 
+# Pre-sizing the runtime image reserves its download and unpack share upfront, skipped
+# layers don't spike download speed, and unpacking advances the bar without faking speed.
+planned = a.Progress()
+planned.samples = [(planned.started - 1, 0)]
+planned.expect_image(10 * 2**20)
+planned.grow(20 * 2**20)
+planned.add(20 * 2**20)
+done_w, total_w, rate_w = planned.snapshot()
+extract_share = int(10 * 2**20 * a.IMAGE_EXTRACT_WEIGHT)
+check("pre-sizing reserves image download and unpack on the bar before the pull starts", done_w == 20 * 2**20 and total_w == 30 * 2**20 + extract_share and done_w < total_w, f"{done_w}/{total_w}")
+skipped_prog = a.Progress()
+skipped_prog.samples = [(skipped_prog.started - 1, 0)]
+skipped_prog.pulled(4 * 2**20, 10 * 2**20, skipped=4 * 2**20, extract_done=0, extract_total=extract_share)
+done_s, total_s, rate_s = skipped_prog.snapshot()
+check("skipped image layers advance the bar without counting as network speed", done_s == 4 * 2**20 and total_s == 10 * 2**20 + extract_share and rate_s == 0, f"{done_s}/{total_s}@{rate_s}")
+skipped_prog.samples = [(a.time.time() - 1, 4 * 2**20)]
+skipped_prog.pulled(4 * 2**20, 10 * 2**20, skipped=4 * 2**20, extract_done=extract_share // 2, extract_total=extract_share)
+done_e, total_e, rate_e = skipped_prog.snapshot()
+check("image unpacking advances the bar without reporting a fake network rate", done_e == 4 * 2**20 + extract_share // 2 and rate_e == 0, f"{done_e}/{total_e}@{rate_e}")
+
+# Extraction fraction moves smoothly across layer commits and disk writes, capping below 1 while running.
+f0 = a._extract_fraction(0, 10, 0, 1000)
+f1 = a._extract_fraction(0, 10, 500, 1000)
+f2 = a._extract_fraction(5, 10, 1250, 1000)
+f3 = a._extract_fraction(10, 10, 10000, 1000)
+check("extraction fraction rises smoothly with writes and layer commits", 0 == f0 < f1 < f2 < f3 <= 0.98, f"{f0}, {f1}, {f2}, {f3}")
+
+# Temporary pull byte tracking stays monotonic even if Podman deletes finished blob files.
+with tempfile.TemporaryDirectory() as td:
+  seen = {}
+  p1 = Path(td, "1")
+  p1.write_bytes(b"a" * 100)
+  b1 = a._track_dir_bytes(td, seen)
+  p1.unlink()
+  Path(td, "2").write_bytes(b"b" * 50)
+  b2 = a._track_dir_bytes(td, seen)
+check("pull temp byte tracking never drops when blobs are removed", b1 == 100 and b2 == 150, f"{b1} -> {b2}")
+
+# ensure_image reads exact blob bytes from its private TMPDIR, tracks overlay commits, and cleans up.
+with tempfile.TemporaryDirectory() as fake_overlay:
+  a.clear_installing("puller")
+  a.begin_installing("puller", {"name": "Puller"})
+  pull_prog = a.Progress(rid="puller")
+  pull_prog.expect_image(1024)
+  seen_snapshots = []
+  orig_pulled = pull_prog.pulled
+  def record_pulled(got, total, skipped=0, extract_done=None, extract_total=None):
+    seen_snapshots.append((got, total, skipped, extract_done, extract_total))
+    orig_pulled(got, total, skipped=skipped, extract_done=extract_done, extract_total=extract_total)
+  pull_prog.pulled = record_pulled
+  fake_pull = (
+    "import os, sys, time; "
+    "tmp = os.environ['TMPDIR']; "
+    "print('Copying blob aaaaaaaaaaaa [----] 0.0b / 512b', flush=True); "
+    "open(os.path.join(tmp, '1'), 'wb').write(b'x' * 512); "
+    "time.sleep(0.35); "
+    "print('Copying blob bbbbbbbbbbbb skipped: already exists', flush=True); "
+    "print('Copying blob aaaaaaaaaaaa done   | ', flush=True); "
+    "os.mkdir(os.path.join(os.environ['FAKE_OVERLAY'], 'c' * 64)); "
+    "time.sleep(0.35)"
+  )
+  real_popen = a.subprocess.Popen
+  def fake_popen(argv, **kwargs):
+    env = dict(kwargs.get("env") or {}, FAKE_OVERLAY=fake_overlay)
+    kwargs["env"] = env
+    return real_popen([sys.executable, "-c", fake_pull], **kwargs)
+  with patch.object(a.subprocess, "run", return_value=SimpleNamespace(returncode=1)), \
+       patch.object(a, "_podman_overlay_dir", return_value=fake_overlay), \
+       patch.object(a.subprocess, "Popen", side_effect=fake_popen):
+    a.ensure_image("ghcr.io/example/img@sha256:" + "d" * 64, pull_prog, expected_layers={"aaaaaaaaaaaa": 512, "bbbbbbbbbbbb": 512}, rid="puller")
+  check("ensure_image reaches 100% of download and unpack on completion", seen_snapshots and seen_snapshots[-1][:3] == (1024.0, 1024.0, 512.0) and seen_snapshots[-1][3] == seen_snapshots[-1][4] and seen_snapshots[-1][4] > 0, repr(seen_snapshots[-3:]))
+  check("ensure_image saw intermediate TMPDIR byte progress before PTY done", any(512 <= s[0] < 1024 for s in seen_snapshots) or any(s[3] and s[3] < s[4] for s in seen_snapshots), repr(seen_snapshots))
+  check("ensure_image clears its temp dir after pulling", not list(Path(a.data_dir(), "staging").glob("podman-pull-*")))
+  a.clear_installing("puller")
+
 # A new attempt replaces a failed setup's record rather than inheriting it.
 a.begin_installing("retried", {"name": "Retried"})
 a.fail_installing("retried", "Download failed")
@@ -1122,12 +1212,26 @@ staging.mkdir(parents=True, exist_ok=True)
 mine, other = "a" * 64 + ".part", "b" * 64 + ".part"
 (staging / mine).write_bytes(b"x" * 10)
 (staging / other).write_bytes(b"y" * 10)
+pull_dir = staging / "podman-pull-cancelled"
+pull_dir.mkdir(exist_ok=True)
+(pull_dir / "1").write_bytes(b"z" * 12)
 a.begin_installing("cancelled", {"name": "Cancelled"})
-a.update_installing("cancelled", partials=[mine, "../escape.part"])
+a.update_installing("cancelled", partials=[mine, "../escape.part"], pull_tmp=pull_dir.name)
 with patch.object(a, "systemctl", return_value=SimpleNamespace(returncode=0, stdout="")) as stop, patch.object(a, "known_models", return_value=[]), patch.object(a, "write_unit_files"), patch.object(a, "refresh_list_cache"), patch.object(a, "write_status"):
   a.cmd_remove(["cancelled"])
 check("cancelling a setup stops its model service", ("stop", a.unit_name("cancelled")) in [call.args for call in stop.call_args_list])
-check("cancelling a setup drops only its own partial downloads", not (staging / mine).exists() and (staging / other).exists())
+check("cancelling a setup drops only its own partial downloads and pull temp dir", not (staging / mine).exists() and (staging / other).exists() and not pull_dir.exists())
+
+# Cancelling a background update on an installed model also cleans up its pull temp dir.
+upd_pull = staging / "podman-pull-update"
+upd_pull.mkdir(exist_ok=True)
+(upd_pull / "1").write_bytes(b"u" * 16)
+a.save_model({"schema": 1, "recipe_id": "updating-model", "files": [], "recipe": {}, "runtime": {}, "variant": {}, "image": ""}, started=False)
+a.begin_installing("updating-model", {"name": "Updating"})
+a.update_installing("updating-model", pull_tmp=upd_pull.name)
+with patch.object(a, "systemctl", return_value=SimpleNamespace(returncode=0, stdout="")), patch.object(a, "unit_active", return_value=False), patch.object(a, "known_models", return_value=[]), patch.object(a, "write_unit_files"), patch.object(a, "refresh_list_cache"), patch.object(a, "write_status"), patch.object(a, "_remove_files", return_value=(0, [])):
+  a.cmd_remove(["updating-model"])
+check("removing a model with a cancelled background update drops its pull temp dir", not upd_pull.exists() and a.load_installing("updating-model") is None)
 
 # --detach hands the setup to a transient user unit and returns.
 a.clear_installing(rid)
@@ -1233,8 +1337,33 @@ with patch.object(a, "load_catalog", return_value=trial_catalog), patch.object(a
 shown = {row["id"] for row in json.loads(printed[0])}
 check("list --experimental shows it, and the panel's saved listing still leaves it out",
       shown == {"model", "trial"} and len(saved) == 1 and {row["id"] for row in saved[0]} == {"model"}, repr((shown, saved)))
+# A retired recipe is no longer offered: left out like an experimental one, and kept so a setup keeps working.
+old = dict(copy.deepcopy(recipe), retired=True)
+old_catalog = SimpleNamespace(root=str(repo), recipes={"model": recipe, "trial": trial, "old": old}, runtimes=both, best=images_best)
+check("retired takes only true or false", any(".retired: true or false" in e for e in a.validate_recipe("old", dict(old, retired="yes"), {"server": runtime})))
+check("a retired recipe is otherwise valid", not a.validate_recipe("old", old, {"server": runtime}))
+check("a recipe is experimental or retired, not both", any("experimental or retired, not both" in e for e in a.validate_recipe("old", dict(old, experimental=True), {"server": runtime})))
+check("best.toml can't recommend a retired recipe", any("'old' is retired" in e for e in a.validate_best({"class": [dict(entry, recipes=["old", "model"])]}, {"model": recipe, "old": old})))
+with patch.object(a, "recipe_installed", return_value=False):
+  hidden = {row["id"] for row in a.recipe_listing(old_catalog, profile)}
+  asked = {row["id"]: row for row in a.recipe_listing(old_catalog, profile, retired=True)}
+check("the listing leaves a retired recipe out", hidden == {"model"}, repr(hidden))
+check("asked for retired, it lists that alone and says it's retired", set(asked) == {"model", "old"} and asked["old"]["retired"] and not asked["model"]["retired"], repr(asked))
+with patch.object(a, "recipe_installed", side_effect=lambda rid: rid == "old"):
+  installed = {row["id"] for row in a.recipe_listing(old_catalog, profile)}
+check("once set up, a retired recipe is listed so it can be started, stopped and removed", installed == {"model", "old"}, repr(installed))
+printed, saved = [], []
+with patch.object(a, "load_catalog", return_value=old_catalog), patch.object(a, "machine_profile", return_value=profile), \
+     patch.object(a, "running_models", return_value=set()), patch.object(a, "recipe_installed", return_value=False), \
+     patch.object(a, "write_list_cache", side_effect=saved.append), patch("builtins.print", side_effect=printed.append):
+  a.cmd_list(["--json", "--retired"])
+shown = {row["id"] for row in json.loads(printed[0])}
+check("list --retired shows it, and the panel's saved listing still leaves it out",
+      shown == {"model", "old"} and len(saved) == 1 and {row["id"] for row in saved[0]} == {"model"}, repr((shown, saved)))
 # Video and music models are recommended beside them the same way, each kind its own use best.
 check("best.toml lists video models of their own", not a.validate_best({"class": [dict(entry, videos=["clip"])]}, {"model": recipe, "clip": clip}))
+check("best.toml lists a class with media models but no text one", not a.validate_best({"class": [dict({k: v for k, v in entry.items() if k != "recipes"}, videos=["clip"])]}, {"model": recipe, "clip": clip}))
+check("best.toml rejects a class that recommends nothing", any("at least one model" in e for e in a.validate_best({"class": [dict(entry, recipes=[])]}, {"model": recipe})))
 check("a kind's list takes only that kind", any(".music: 'picture' is of kind image, not music" in e for e in a.validate_best({"class": [dict(entry, music=["picture"])]}, {"model": recipe, "picture": picture})))
 raises("a kind with nothing recommended says so", lambda: a.resolve_best(img_catalog, profile, gpu, field="videos"), "No video model is recommended")
 said = []
@@ -1314,7 +1443,7 @@ sa3_cuda_rt = {"image": "registry.example/test/sa3-cuda@sha256:" + "d" * 64, "ti
                "reserved": ["--port", "SA3_API_KEY"], "run": {"devices": ["cdi-nvidia"], "tmpfs": "/tmp"}, "gpus": ["nvidia-gb10"],
                "inputs": {"model": {"arg": "--models"}, "key": {"env": "SA3_API_KEY"}}}
 sa3_cuda_song = {"name": "Stable Audio 3 Medium", "vendor": "stability", "kind": "music", "vocals": False, "runtime": "sa3-cuda",
-                 "hardware": [{"gpu": "nvidia-n1x", "ram_class": 128, "measured": "measurements/model.toml"}],
+                 "hardware": [{"gpu": "nvidia-n1x", "measured": "measurements/model.toml"}],
                  "artifacts": [{"repo": "test/sa3", "revision": "a" * 40, "license": "other", "files": ["dit.gguf"], "dest": "sa3", "model": "."}],
                  "variant": [picture_variant]}
 check("an sa3 music runtime and instrumental recipe validate",
@@ -1341,7 +1470,7 @@ sa3_rt = {"image": "registry.example/test/sa3@sha256:" + "d" * 64, "tier": "omar
           "inputs": {"model": {"arg": "--models"}, "key": {"env": "SA3_API_KEY"}}}
 sa3_variant = {"peak_ram_gib": 4, "peak_gpu_gib": 0}
 sa3_song = {"name": "Stable Audio 3 Medium", "vendor": "stability", "kind": "music", "vocals": False, "runtime": "sa3",
-            "hardware": [{"gpu": "cpu", "ram_class": 64, "measured": "measurements/model.toml"}],
+            "hardware": [{"gpu": "cpu", "measured": "measurements/model.toml"}],
             "artifacts": [{"repo": "test/sa3", "revision": "a" * 40, "license": "other", "files": ["dit.tflite"], "dest": "sa3", "model": "."}],
             "variant": [sa3_variant]}
 check("a CPU music runtime and instrumental recipe validate",
@@ -1378,7 +1507,7 @@ sa3_vk_rt = {"image": "registry.example/test/sa3-vulkan@sha256:" + "e" * 64, "ti
              "gpus": ["amd"], "inputs": {"model": {"arg": "--models"}, "key": {"env": "SA3_API_KEY"}}}
 sa3_vk_variant = {"peak_ram_gib": 4, "peak_gpu_gib": 4}
 sa3_vk_song = {"name": "Stable Audio 3 Medium", "vendor": "stability", "kind": "music", "vocals": False, "runtime": "sa3-vulkan",
-               "hardware": [{"gpu": "amd-strix-halo", "ram_class": 192, "measured": "measurements/model.toml"}],
+               "hardware": [{"gpu": "amd-strix-halo", "measured": "measurements/model.toml"}],
                "artifacts": [
                  {"repo": "test/sa3-m", "revision": "a" * 40, "license": "other", "files": ["dit.gguf", "same.gguf"], "dest": "sa3", "model": "."},
                  {"repo": "test/t5gemma", "revision": "b" * 40, "license": "gemma", "files": ["t5.gguf", "vocab.gguf"], "dest": "sa3"},

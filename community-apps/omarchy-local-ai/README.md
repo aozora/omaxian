@@ -6,7 +6,7 @@ your GPU, with a key-protected loopback endpoint. Apps such as Flowtunes (music)
 and Fantasi drive it through `omarchy-agent-local`.
 
 Port of [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai)
-(upstream commit `63b3be9`, v0.13.0 packaging, pinned in
+(upstream commit `b2fd797`, v0.16.1, pinned in
 `.omaxian-upstream-commit`). Upstream docs: [`README.upstream.md`](README.upstream.md)
 and [`docs/engine.md`](docs/engine.md).
 
