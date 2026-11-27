@@ -315,8 +315,8 @@ Impact note: [v4_6_0_rc1.md](v4_6_0_rc1.md).
 | `plugins/agents/` | `omarchy.local-models` service | absent; the panel's null checks leave local models out | — | **keep** | Some add-screen copy still mentions local models. |
 | `plugins/panels/tailscale/` | full panel | `TailscaleIcon.qml` only | — | **keep** | Imported by the agents panel. |
 | `Ui/qmldir`, `Ui/ScreenMoveRemap.qml` | removed | kept | `T1` | **keep** | Port bar and dock use it. |
-| `Ui/PluginBarApi.qml` | centre-section reveal properties removed | kept | `local` | **keep** | Port bar and indicators use them. |
-| `plugins/bar/**` (`Bar.qml`, `BarModel.js`, `Indicators`, `Tray`, `Workspaces`, `ScreenRecording`) | bar changes | port version | — | **keep** | Not merged for 4.6.0-rc1. |
+| `plugins/bar/**` (`Bar.qml`, `BarModel.js`, `Tray`, `Workspaces`, `ScreenRecording`) | bar changes | port version | — | **keep** | Only the changes listed in the rows below are merged. |
+| `plugins/bar/widgets/Indicators.qml`, `Bar.qml` | hover zone replaces the centre-section peek; blocks mirror by `fixedEdge` | hover zone merged; `fixedEdge` only places the zone, blocks are not mirrored | `local` | **keep** | `Bar.fixedEdgeFor` derives the edge from the section. |
 | `plugins/panels/monitor/` | rebuilt display panel | port xrandr panel | — | **keep** | |
 | `plugins/menu/Menu.qml`, `services/AppLibrary.qml`, `services/hidden-entries.sh`, `plugins/services/idle/Service.qml`, `shell.qml`, `Ui/KeyboardPanel.qml` | changes | port version | — | **keep** | Not merged for 4.6.0-rc1. |
 | `bin/omarchy-install-ai-cli` | installs from pacman | checks `PATH`, wires dispatcher and instructions | `local` | **keep** | |

@@ -18,11 +18,16 @@ BarWidget {
   property var indicatorActiveStates: ({})
   property bool indicatorAreaHovered: false
   property bool indicatorItemHovered: false
+  // Held a moment after the pointer leaves, so crossing between icons, or a
+  // frame where the widget moves under a still pointer, doesn't flicker them.
+  property bool hoverRevealHeld: false
   readonly property bool alwaysShowIndicators: {
     var _ = settings
     return setting("alwaysShow", false) === true
   }
-  readonly property bool revealInactiveIndicators: alwaysShowIndicators || indicatorAreaHovered || indicatorItemHovered || (bar && bar.centerSectionRevealHeld === true && bar.centerHoverRevealSuppressed !== true)
+  // The tray's drawer already hides them until hovered, and an empty widget
+  // there would leave no room to hover for a second reveal.
+  readonly property bool revealInactiveIndicators: alwaysShowIndicators || inTraySection || hoverRevealHeld
 
   signal refreshRequested()
 
@@ -69,14 +74,18 @@ BarWidget {
 
   function setIndicatorAreaHovered(hovered) {
     indicatorAreaHovered = hovered
-    if (hovered) indicatorHideTimer.stop()
-    else indicatorHideTimer.restart()
+    syncHoverReveal()
   }
 
   function setIndicatorItemHovered(hovered) {
-    if (hovered) {
-      indicatorItemHovered = true
+    indicatorItemHovered = hovered
+    syncHoverReveal()
+  }
+
+  function syncHoverReveal() {
+    if (indicatorAreaHovered || indicatorItemHovered) {
       indicatorHideTimer.stop()
+      hoverRevealHeld = true
     } else {
       indicatorHideTimer.restart()
     }
@@ -183,10 +192,7 @@ BarWidget {
   Timer {
     id: indicatorHideTimer
     interval: 120
-    onTriggered: {
-      if (!root.indicatorAreaHovered)
-        root.indicatorItemHovered = false
-    }
+    onTriggered: if (!root.indicatorAreaHovered && !root.indicatorItemHovered) root.hoverRevealHeld = false
   }
 
   Component.onCompleted: root.refreshRequested()
@@ -199,10 +205,36 @@ BarWidget {
     sourceComponent: root.vertical ? verticalIndicatorsTree : horizontalIndicatorsTree
   }
 
+  // Where the hidden icons would show: hovering there reveals them, and the
+  // rest of the bar leaves them hidden. Hidden, they take no room, so the zone
+  // reaches past the widget on the side they grow toward. Revealed, it keeps
+  // half that reach: in the centered box the widget slides half its growth
+  // back the other way as the box re-centers, and a zone that stopped at the
+  // widget's edge would lose the pointer that opened it, closing and
+  // reopening in a loop. Above the icons, which a hover handler doesn't block.
+  Item {
+    objectName: "hiddenBlockZone"
+
+    readonly property real reach: (orientationLoader.item ? orientationLoader.item.inactiveLength : 0) * (root.revealInactiveIndicators ? 0.5 : 1)
+    readonly property real alongStart: root.fixedEdge === "start" ? 0 : -reach
+    readonly property real alongLength: (root.vertical ? root.implicitHeight : root.implicitWidth) + reach
+
+    x: root.vertical ? 0 : alongStart
+    y: root.vertical ? alongStart : 0
+    width: root.vertical ? (root.implicitWidth || root.barSize) : alongLength
+    height: root.vertical ? alongLength : (root.implicitHeight || root.barSize)
+
+    HoverHandler {
+      onHoveredChanged: root.setIndicatorAreaHovered(hovered)
+    }
+  }
+
   Component {
     id: horizontalIndicatorsTree
 
     Item {
+      readonly property real inactiveLength: inactiveHorizontalBlock.implicitWidth
+
       implicitWidth: activeHorizontalBlock.implicitWidth + inactiveHorizontalArea.implicitWidth
       implicitHeight: Math.max(activeHorizontalBlock.implicitHeight, inactiveHorizontalArea.implicitHeight)
       width: implicitWidth
@@ -212,10 +244,6 @@ BarWidget {
         id: horizontalIndicators
 
         spacing: 0
-
-        HoverHandler {
-          onHoveredChanged: root.setIndicatorAreaHovered(hovered)
-        }
 
         Item {
           id: inactiveHorizontalArea
@@ -235,10 +263,6 @@ BarWidget {
             horizontal: true
             reportActiveState: !root.vertical
           }
-
-          HoverHandler {
-            onHoveredChanged: root.setIndicatorAreaHovered(hovered)
-          }
         }
 
         ActiveIndicatorBlock {
@@ -256,6 +280,8 @@ BarWidget {
     id: verticalIndicatorsTree
 
     Item {
+      readonly property real inactiveLength: inactiveVerticalBlock.implicitHeight
+
       implicitWidth: Math.max(activeVerticalBlock.implicitWidth, inactiveVerticalArea.implicitWidth)
       implicitHeight: activeVerticalBlock.implicitHeight + inactiveVerticalArea.implicitHeight
       width: implicitWidth
@@ -265,10 +291,6 @@ BarWidget {
         id: verticalIndicators
 
         spacing: 0
-
-        HoverHandler {
-          onHoveredChanged: root.setIndicatorAreaHovered(hovered)
-        }
 
         Item {
           id: inactiveVerticalArea
@@ -288,10 +310,6 @@ BarWidget {
             horizontal: false
             reportActiveState: root.vertical
           }
-
-          HoverHandler {
-            onHoveredChanged: root.setIndicatorAreaHovered(hovered)
-          }
         }
 
         ActiveIndicatorBlock {
@@ -303,10 +321,6 @@ BarWidget {
         }
       }
     }
-  }
-
-  HoverHandler {
-    onHoveredChanged: root.setIndicatorAreaHovered(hovered)
   }
 
   component ActiveIndicatorBlock: Item {

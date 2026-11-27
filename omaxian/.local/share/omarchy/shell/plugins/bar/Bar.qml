@@ -70,16 +70,6 @@ Item {
   property bool island: false
   property int islandMargin: 8
   property int islandRadius: 12
-  property bool centerSectionHovered: false
-  // One bar surface exists per monitor and each reports into this count, so a
-  // pointer crossing from one monitor's bar to another's stays counted however
-  // the enter and leave interleave. A single shared bool would be left false by
-  // whichever event landed last.
-  property int barHoverCount: 0
-  // True while the pointer is over any bar, widgets included.
-  readonly property bool barHovered: barHoverCount > 0
-  property bool centerSectionRevealHeld: false
-  property bool centerHoverRevealSuppressed: false
   property int barConfigSerial: 0
   property string position: "top"
   // Resolves through fontconfig at paint time (Style.font.family defaults
@@ -160,8 +150,6 @@ Item {
     api.barSize = Qt.binding(function() { return root.barSize })
     api.transparent = Qt.binding(function() { return root.transparent })
     api.foregroundAnimationEnabled = Qt.binding(function() { return root.foregroundAnimationEnabled })
-    api.centerSectionRevealHeld = Qt.binding(function() { return root.centerSectionRevealHeld })
-    api._centerHoverRevealSuppressed = Qt.binding(function() { return root.centerHoverRevealSuppressed })
     root.syncPluginBarApiObjects(api)
   }
 
@@ -301,10 +289,7 @@ Item {
         return String(requestedId || "") === String(moduleName || "")
           ? root.moduleWidgets(moduleName) : []
       },
-      _run: function(command) { root.run(command) },
-      _setCenterHoverRevealSuppressed: function(value) {
-        root.centerHoverRevealSuppressed = !!value
-      }
+      _run: function(command) { root.run(command) }
     })
     if (!api) return null
     root.bindPluginBarApi(api)
@@ -919,6 +904,18 @@ Item {
     return BarModel.entryIndex(entries, name)
   }
 
+  // Which edge of a widget stays put as it grows: "start" when it grows toward
+  // the end of the bar, "end" when it grows toward the start.
+  function fixedEdgeFor(region, name) {
+    if (region === "left") return "start"
+    if (region === "right") return "end"
+    var entries = root.layoutEntries("center")
+    var anchor = root.entryIndex(entries, root.centerAnchor)
+    var index = root.entryIndex(entries, name)
+    if (anchor < 0 || index < 0 || index === anchor) return "center"
+    return index < anchor ? "end" : "start"
+  }
+
   function entriesBefore(entries, name) {
     return BarModel.entriesBefore(entries, name)
   }
@@ -949,37 +946,6 @@ Item {
   }
 
   Component.onCompleted: applyBarConfig()
-
-  // Revealing the indicators widens their section, which can slide a neighbour
-  // under a stationary pointer. Collapsing on that un-hover would move it back
-  // out and re-open the peek, so hold until the pointer leaves the bar.
-  function setCenterSectionHovered(hovered) {
-    centerSectionHovered = hovered
-    if (hovered) {
-      centerSectionRevealTimer.stop()
-      centerSectionRevealHeld = true
-    } else {
-      centerSectionRevealTimer.restart()
-    }
-  }
-
-  function setBarHovered(hovered) {
-    barHoverCount = Math.max(0, barHoverCount + (hovered ? 1 : -1))
-    if (barHoverCount === 0) centerSectionRevealTimer.restart()
-  }
-
-  function setCenterHoverRevealSuppressed(value) {
-    centerHoverRevealSuppressed = !!value
-  }
-
-  Timer {
-    id: centerSectionRevealTimer
-    interval: 120
-    // Collapse only. Opening the peek is the center section's own gesture, done
-    // in setCenterSectionHovered, so a timer left pending by a pointer that dipped
-    // off the bar and came back cannot reveal indicators it never pointed at.
-    onTriggered: if (!root.centerSectionHovered && !root.barHovered) root.centerSectionRevealHeld = false
-  }
 
   function run(command) {
     if (!command) return
@@ -1559,16 +1525,6 @@ Item {
       Loader {
         anchors.fill: parent
         sourceComponent: root.vertical ? verticalBar : horizontalBar
-
-        // A child of the loader, not a sibling of the sections: an ancestor stays
-        // hovered while the pointer is over a widget, where a sibling would lose
-        // hover to the section the pointer entered.
-        HoverHandler {
-          onHoveredChanged: root.setBarHovered(hovered)
-          // Unplugging a monitor destroys its bar without a leave event, which
-          // would strand this surface's tally and hold the peek open for good.
-          Component.onDestruction: if (hovered) root.setBarHovered(false)
-        }
       }
     }
 
@@ -1736,10 +1692,6 @@ Item {
 
         CenterGestureArea { anchors.fill: parent }
 
-        HoverHandler {
-          onHoveredChanged: root.setCenterSectionHovered(hovered)
-        }
-
         ModuleList {
           visible: !centerRoot.hasAnchor
           entries: centerRoot.entries
@@ -1780,10 +1732,6 @@ Item {
         anchors.fill: parent
 
         CenterGestureArea { anchors.fill: parent }
-
-        HoverHandler {
-          onHoveredChanged: root.setCenterSectionHovered(hovered)
-        }
 
         ModuleList {
           visible: !centerRoot.hasAnchor
@@ -2203,6 +2151,7 @@ Item {
       if ("bar" in target) target.bar = firstParty
         ? root : root.pluginBarApiFor(pluginApiId, moduleName, registered)
       if ("moduleName" in target) target.moduleName = moduleName
+      if ("fixedEdge" in target) target.fixedEdge = root.fixedEdgeFor(region, moduleName)
       if ("settings" in target) target.settings = moduleSettings
     }
 
