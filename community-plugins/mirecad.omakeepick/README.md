@@ -6,7 +6,7 @@ auto-type username, Tab and password into the window you were in. A padlock in
 the bar shows whether the database is unlocked.
 
 Port of [mirecad/omakeepick](https://github.com/mirecad/omakeepick) (upstream
-commit `db112fb`, version 0.1.9).
+commit `0620561`, version 0.1.10).
 
 Plugin id: `mirecad.omakeepick` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md) for the catalog install
@@ -134,7 +134,8 @@ auto-lock countdown. Left click → status panel; right click → lock; middle c
 **Locking:** idle timeout (default 30 min), screen lock, and before
 suspend/hibernate. PIN works after idle/screen lock until 3 wrong attempts,
 suspend, or *Close database*. A lock always wins: in-flight unlocks are
-cancelled, auto-type stops, and copied values are cleared.
+cancelled, auto-type stops, and copied values are cleared. A lock also ends a
+search that is under way.
 
 Settings live on the bar widget entry in `~/.config/omarchy/shell.json`
 (idle lock, clipboard clear, auto-type sequence, delays, recent count, notify
@@ -145,6 +146,10 @@ on copy).
 Upstream 0.1.7–0.1.9 hardened the daemon (helper subprocess for KDF/file read,
 no unlock during suspend, lock ends copy/type, hand-over size cap). This port
 keeps that logic and only swaps the clipboard/typing tools for X11.
+
+0.1.10 stops the database file from deciding how much memory the helper takes:
+it limits itself to 1.5 GiB (`RLIMIT_DATA`) before reading anything, and refuses
+key derivation settings beyond the limits listed below.
 
 - **All key handling is in `omakeepickd`.** Passwords, notes and TOTP secrets
   never reach QML; the daemon types and copies them itself.
@@ -163,6 +168,13 @@ you use a clipboard manager. See [SECURITY.md](SECURITY.md).
 ## Limitations
 
 - KDBX 3.1 / 4.x with password and/or key file. No YubiKey challenge-response.
+  KeePass 1 (`.kdb`) files are refused.
+- Database file up to 128 MiB; opening it can take up to 1.5 GiB of memory.
+  Attachments that compress well fit up to a few hundred MiB unpacked.
+- Argon2 up to 1 GiB of memory, AES key derivation up to 2^31 rounds.
+- Search covers the first 16 KiB of an entry's notes and the first 1 KiB of its
+  title, user name, URL and tags. Group paths over 256 bytes are cut from the
+  start.
 - Screen-lock detection polls Omarchy's lock screen every 10 seconds; suspend
   and `loginctl lock-session` are instant.
 - One database at a time; at most ~32 MiB of entry payload in RAM (upstream cap).

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use keepass::db::{EntryId, EntryRef, GroupId, GroupRef, Times};
 use keepass::error::{DatabaseKeyError, DatabaseOpenError};
@@ -148,7 +149,11 @@ fn map_open_error(err: DatabaseOpenError) -> VaultError {
 
 /// Largest files we read. Real databases and key files are far smaller; without a cap a
 /// device node or a sparse file would be read into memory whole.
-const MAX_DATABASE_BYTES: u64 = 256 << 20;
+///
+/// Opening a database takes five to seven times its size in memory when its contents do not
+/// compress. At this size that is up to 0.9 GiB, which the helper's limit
+/// (`opener::HELPER_MEMORY_BYTES`) has room for.
+pub const MAX_DATABASE_BYTES: u64 = 128 << 20;
 const MAX_KEYFILE_BYTES: u64 = 16 << 20;
 
 /// When the database file was last written and how big it is, as of the moment it was read.
@@ -264,6 +269,21 @@ pub fn strip(db: &mut Database) {
     // not by the tracks, which the line above has left pointing at versions that are gone.
     db.remove_unused_attachments();
     db.deleted_objects.clear();
+    // Tags: a list of strings in memory, each of which costs twenty-four bytes and more
+    // however short it is, and a tag in the file can be one separator. Entries keep the tags
+    // that the index takes; groups keep none, since nothing reads them.
+    db.foreach_entry_mut(|mut entry| {
+        let mut room = MAX_INDEXED_TEXT_BYTES;
+        entry.tags.retain(|tag| {
+            let fits = !tag.is_empty() && tag.len() <= room;
+            if fits {
+                room -= tag.len();
+            }
+            fits
+        });
+        entry.tags.shrink_to_fit();
+    });
+    db.foreach_group_mut(|mut group| group.tags = Vec::new());
 }
 
 /// Runs the KDF, so call it from a blocking thread.
@@ -283,21 +303,33 @@ pub fn parse_database(data: &[u8], key: &KeyMaterial) -> Result<Database, VaultE
 mod header {
     use super::VaultError;
 
-    /// Far above anything KeePassXC offers, well below "forever".
-    const MAX_AES_ROUNDS: u64 = 1 << 34;
-    const MAX_ARGON2_MEMORY: u64 = 4 << 30;
+    /// Half a minute of one core at the 67 million rounds a second measured on a laptop of
+    /// 2023: far above what KeePassXC sets for a derivation of even five seconds, and well
+    /// inside the two minutes after which the daemon gives up on a derivation.
+    const MAX_AES_ROUNDS: u64 = 1 << 31;
+    /// KeePassXC writes 64 MiB unless told otherwise. This much is allocated on the word of a
+    /// header nobody has authenticated yet, so it is a size a desktop can spare, and one that
+    /// fits in what the helper may have (`opener::HELPER_MEMORY_BYTES`).
+    const MAX_ARGON2_MEMORY: u64 = 1 << 30;
     const MAX_ARGON2_ITERATIONS: u64 = 1_000;
     const MAX_ARGON2_PARALLELISM: u32 = 256;
     /// memory × iterations, in bytes·passes: 64 MiB × 1000 passes, about a minute of work.
     const MAX_ARGON2_WORK: u128 = (64 << 20) * 1_000;
 
     const KDBX_SIGNATURE: [u8; 8] = [0x03, 0xd9, 0xa2, 0x9a, 0x67, 0xfb, 0x4b, 0xb5];
+    /// The AES derivation has two names. KDBX 4 files carry the second; the crate takes
+    /// either one in them.
     const AES_KDF: [u8; 16] = *b"\xc9\xd9\xf3\x9a\x62\x8a\x44\x60\xbf\x74\x0d\x08\xc1\x8a\x4f\xea";
+    const AES_KDF_KDBX4: [u8; 16] = *b"\x7c\x02\xbb\x82\x79\xa7\x4a\xc0\x92\x7d\x11\x4a\x00\x64\x82\x38";
     const ARGON2D: [u8; 16] = *b"\xef\x63\x6d\xdf\x8c\x29\x44\x4b\x91\xf7\xa9\xa4\x03\xe3\x0a\x0c";
     const ARGON2ID: [u8; 16] = *b"\x9e\x29\x8b\x19\x56\xdb\x47\x73\xb2\x3d\xfc\x3e\xc6\xf0\xa1\xe6";
 
     fn damaged() -> VaultError {
         VaultError::Format("the header is damaged".into())
+    }
+
+    fn not_kdbx() -> VaultError {
+        VaultError::Format("it is not a KDBX 3.1 or KDBX 4 file".into())
     }
 
     fn too_expensive() -> VaultError {
@@ -313,15 +345,16 @@ mod header {
     }
 
     pub fn check(data: &[u8]) -> Result<(), VaultError> {
-        // Not KDBX 3/4 at all: let the crate name the problem (KDB 1, not a database, …).
+        // Not KDBX 3 or 4. The crate also reads the format of KeePass 1, whose header says
+        // how long to derive as well and is not checked here; nothing but KDBX is let through.
         if data.get(..8) != Some(&KDBX_SIGNATURE[..]) {
-            return Ok(());
+            return Err(not_kdbx());
         }
         let major = u16::from_le_bytes(data.get(10..12).ok_or_else(damaged)?.try_into().expect("2 bytes"));
         let length_bytes = match major {
             3 => 2,
             4 => 4,
-            _ => return Ok(()),
+            _ => return Err(not_kdbx()),
         };
         let mut pos = 12;
         loop {
@@ -348,6 +381,7 @@ mod header {
                     }
                 }
                 // KDBX 4: KDF parameters and public custom data are variant dictionaries.
+                // Should the field come twice, each has to pass, whichever the crate goes by.
                 (4, 11) => check_kdf(&variant_dictionary(field)?)?,
                 (4, 12) => {
                     variant_dictionary(field)?;
@@ -404,10 +438,12 @@ mod header {
         Ok(out)
     }
 
+    /// Settings the crate will refuse (a parameter missing, or of another type than it reads)
+    /// pass here.
     fn check_kdf(params: &[(String, Value)]) -> Result<(), VaultError> {
         let get = |name: &str| params.iter().find(|(k, _)| k == name).map(|(_, v)| v);
         let Some(Value::Bytes(uuid)) = get("$UUID") else { return Ok(()) };
-        if uuid[..] == AES_KDF {
+        if uuid[..] == AES_KDF || uuid[..] == AES_KDF_KDBX4 {
             if let Some(Value::U64(rounds)) = get("R")
                 && *rounds > MAX_AES_ROUNDS
             {
@@ -528,19 +564,25 @@ mod header {
             };
             check(&argon(64 << 20, 10, 2)).unwrap();
             check(&argon(1 << 30, 32, 8)).unwrap();
+            assert_eq!(check(&argon((1 << 30) + 1024, 1, 1)), Err(too_expensive()));
             assert_eq!(check(&argon(1 << 40, 1, 1)), Err(too_expensive()));
             assert_eq!(check(&argon(64 << 20, 100_000, 1)), Err(too_expensive()));
             assert_eq!(check(&argon(64 << 20, 1, 1 << 20)), Err(too_expensive()));
             assert_eq!(check(&argon(4 << 30, 1_000, 1)), Err(too_expensive()));
-            let aes = |rounds: u64| {
-                kdbx4(&[
-                    ("$UUID", Value::Bytes(AES_KDF.to_vec())),
-                    ("S", Value::Bytes(vec![0; 32])),
-                    ("R", Value::U64(rounds)),
-                ])
-            };
-            check(&aes(60_000_000)).unwrap();
-            assert_eq!(check(&aes(u64::MAX)), Err(too_expensive()));
+            // Under either of its two names.
+            for name in [AES_KDF, AES_KDF_KDBX4] {
+                let aes = |rounds: u64| {
+                    kdbx4(&[
+                        ("$UUID", Value::Bytes(name.to_vec())),
+                        ("S", Value::Bytes(vec![0; 32])),
+                        ("R", Value::U64(rounds)),
+                    ])
+                };
+                check(&aes(60_000_000)).unwrap();
+                check(&aes(1 << 31)).unwrap();
+                assert_eq!(check(&aes((1 << 31) + 1)), Err(too_expensive()));
+                assert_eq!(check(&aes(u64::MAX)), Err(too_expensive()));
+            }
             // A u64 parameter that is only 2 bytes long would panic the crate's reader.
             let short = kdbx4(&[("$UUID", Value::Bytes(AES_KDF.to_vec())), ("R", Value::Other)]);
             let mut short = short;
@@ -587,11 +629,69 @@ mod header {
             data.splice(end..end, field);
             assert_eq!(check(&data), Err(repeated_key()));
         }
+
+        /// A header can carry the whole KDF field twice, and the crate goes by the last one.
+        /// Each of them has to pass.
+        #[test]
+        fn checks_every_kdf_field() {
+            let argon = |memory: u64| {
+                kdbx4(&[
+                    ("$UUID", Value::Bytes(ARGON2ID.to_vec())),
+                    ("S", Value::Bytes(vec![0; 32])),
+                    ("M", Value::U64(memory)),
+                    ("I", Value::U64(1)),
+                    ("P", Value::U32(1)),
+                    ("V", Value::U32(0x13)),
+                ])
+            };
+            // Where `kdbx4` puts the KDF field: after the signature, the version and four
+            // fields of 16, 4, 32 and 12 bytes; the end field of 9 bytes follows it.
+            let kdf_at = 12 + (5 + 16) + (5 + 4) + (5 + 32) + (5 + 12);
+            for (first, second, passes) in
+                [(64 << 20, 256 << 20, true), (64 << 20, 1 << 40, false), (1 << 40, 64 << 20, false)]
+            {
+                let mut data = argon(first);
+                let other = argon(second);
+                assert_eq!(other[kdf_at], 11);
+                let end = data.len() - 9;
+                data.splice(end..end, other[kdf_at..other.len() - 9].iter().copied());
+                assert_eq!(check(&data), if passes { Ok(()) } else { Err(too_expensive()) });
+            }
+        }
+
+        /// The crate reads more than KDBX: the format of KeePass 1 as well, whose header is
+        /// not checked here. Nothing but KDBX 3 and 4 gets as far as the crate.
+        #[test]
+        fn lets_nothing_but_kdbx_through() {
+            let keepass1 = [0x03, 0xd9, 0xa2, 0x9a, 0x65, 0xfb, 0x4b, 0xb5, 0, 0, 3, 0];
+            assert_eq!(check(&keepass1), Err(not_kdbx()));
+            assert_eq!(check(b"<?xml version=\"1.0\"?>"), Err(not_kdbx()));
+            assert_eq!(check(b""), Err(not_kdbx()));
+            let mut kdbx2 = KDBX3.to_vec();
+            kdbx2[10] = 2;
+            assert_eq!(check(&kdbx2), Err(not_kdbx()));
+        }
     }
 }
 
+/// The most of a title, a user name, a URL or an entry's tags that the index takes, in bytes.
+/// More than anything has to show or to search; what is longer is cut and ends in "…".
+pub const MAX_INDEXED_TEXT_BYTES: usize = 1024;
+/// The most of an entry's notes that the index takes, and so the most that is searched.
+pub const MAX_INDEXED_NOTES_BYTES: usize = 16 << 10;
+/// The most of a group's path that the index takes. A longer path loses its beginning: the
+/// groups nearest to an entry say most about it.
+pub const MAX_GROUP_PATH_BYTES: usize = 256;
+/// The most of one group's name in such a path.
+const MAX_GROUP_NAME_BYTES: usize = 96;
+
 /// Searchable, secret-free view of one entry. Notes are wiped when the index is dropped: people
 /// keep recovery codes in them.
+///
+/// How long its texts are is not left to the database (see the limits above), and the path
+/// of a group exists once however many entries the group has. Without that a database of a
+/// few megabytes could ask for an index of any size: the name of a group is in the file
+/// once and would be in the index once for every entry under it.
 #[derive(Clone)]
 pub struct IndexedEntry {
     pub id: EntryId,
@@ -601,7 +701,8 @@ pub struct IndexedEntry {
     pub url: String,
     /// URL without scheme and `www.`, which is what people type.
     pub url_match: String,
-    pub group: String,
+    /// The path of the group below the root, e.g. `Personal/Dev`. Shared by its entries.
+    pub group: Arc<str>,
     pub tags: String,
     pub notes: Zeroizing<String>,
     pub has_password: bool,
@@ -616,21 +717,108 @@ fn ancestors<'a>(db: &'a Database, entry: &EntryRef<'_>) -> impl Iterator<Item =
     })
 }
 
-/// KeePass group flags are tri-state: the nearest group with an explicit value decides.
-fn inherited_flag(db: &Database, entry: &EntryRef<'_>, flag: impl Fn(&GroupRef<'_>) -> Option<bool>) -> bool {
-    ancestors(db, entry).find_map(|g| flag(&g)).unwrap_or(true)
+/// The longest beginning of `text` that is at most `max` bytes.
+fn beginning(text: &str, max: usize) -> &str {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
-/// Path below the root group, e.g. `Personal/Dev`.
-fn group_path(db: &Database, entry: &EntryRef<'_>) -> String {
-    let mut names: Vec<String> =
-        ancestors(db, entry).filter(|g| g.parent().is_some()).map(|g| g.name.clone()).collect();
-    names.reverse();
-    names.join("/")
+/// The longest end of `text` that is at most `max` bytes.
+fn ending(text: &str, max: usize) -> &str {
+    let mut start = text.len().saturating_sub(max);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
 }
 
-fn in_group(db: &Database, entry: &EntryRef<'_>, group_id: GroupId) -> bool {
-    ancestors(db, entry).any(|g| g.id() == group_id)
+/// `text` if it is at most `max` bytes, else its beginning with "…" for the rest.
+fn cut(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    format!("{}…", beginning(text, max - "…".len()))
+}
+
+/// The path of a group called `name` in the group at `path`, cut to what the index takes.
+fn path_below(path: &str, name: &str) -> String {
+    let name = cut(name, MAX_GROUP_NAME_BYTES);
+    if path.is_empty() {
+        return name;
+    }
+    let whole = format!("{path}/{name}");
+    if whole.len() <= MAX_GROUP_PATH_BYTES {
+        return whole;
+    }
+    // From a group's name on where there is one, so that it reads `…/Work/Mail`.
+    let kept = ending(&whole, MAX_GROUP_PATH_BYTES - "…".len());
+    format!("…{}", kept.find('/').map_or(kept, |slash| &kept[slash..]))
+}
+
+/// What an entry has from the groups it is in.
+#[derive(Clone)]
+struct Inherited {
+    path: Arc<str>,
+    in_recycle_bin: bool,
+    /// KeePass group flags are tri-state: the nearest group with an explicit value decides.
+    searching: bool,
+    autotype: bool,
+}
+
+/// Works out [`Inherited`] once for each group instead of once for each entry. A database
+/// can put any number of entries at the bottom of any number of nested groups, and asking
+/// every group above every entry is the product of the two.
+struct Groups<'a> {
+    db: &'a Database,
+    recycle_bin: Option<GroupId>,
+    known: HashMap<GroupId, Inherited>,
+}
+
+impl<'a> Groups<'a> {
+    fn new(db: &'a Database) -> Self {
+        Groups { db, recycle_bin: db.recycle_bin().map(|g| g.id()), known: HashMap::new() }
+    }
+
+    fn of(&mut self, group: GroupId) -> Option<Inherited> {
+        // From this group up to the first one that is known already, or to the root.
+        let mut unknown = Vec::new();
+        let mut above = None;
+        let mut next = Some(group);
+        while let Some(id) = next {
+            if let Some(known) = self.known.get(&id) {
+                above = Some(known.clone());
+                break;
+            }
+            unknown.push(id);
+            next = self.db.group(id).and_then(|g| g.parent().map(|p| p.id()));
+        }
+        // And back down, each group from the one above it.
+        for id in unknown.into_iter().rev() {
+            let group = self.db.group(id)?;
+            let in_bin = self.recycle_bin == Some(id);
+            let inherited = match (&above, group.parent().is_some()) {
+                (Some(above), _) => Inherited {
+                    path: path_below(&above.path, &group.name).into(),
+                    in_recycle_bin: above.in_recycle_bin || in_bin,
+                    searching: group.enable_searching.unwrap_or(above.searching),
+                    autotype: group.enable_autotype.unwrap_or(above.autotype),
+                },
+                // The root: its name is not part of a path.
+                (None, is_below_something) => Inherited {
+                    path: if is_below_something { path_below("", &group.name).into() } else { "".into() },
+                    in_recycle_bin: in_bin,
+                    searching: group.enable_searching.unwrap_or(true),
+                    autotype: group.enable_autotype.unwrap_or(true),
+                },
+            };
+            self.known.insert(id, inherited.clone());
+            above = Some(inherited);
+        }
+        above
+    }
 }
 
 fn strip_url(url: &str) -> String {
@@ -639,23 +827,33 @@ fn strip_url(url: &str) -> String {
 }
 
 /// Indexes every searchable entry: skips the Recycle Bin, expired entries and groups with
-/// searching disabled.
+/// searching disabled. The work is in proportion to the entries and groups there are, and the
+/// result to the text they hold; `opener` limits both before a database gets here.
 pub fn build_index(db: &Database) -> Vec<IndexedEntry> {
-    let recycle_bin = db.recycle_bin().map(|g| g.id());
+    let mut groups = Groups::new(db);
     let now = Times::now();
     let mut out = Vec::new();
     for entry in db.iter_all_entries() {
-        if recycle_bin.is_some_and(|bin| in_group(db, &entry, bin)) {
+        let Some(group) = groups.of(entry.parent().id()) else { continue };
+        if group.in_recycle_bin || !group.searching {
             continue;
         }
         if entry.times.expires == Some(true) && entry.times.expiry < now {
             continue;
         }
-        if !inherited_flag(db, &entry, |g| g.enable_searching) {
-            continue;
-        }
-        let field = |name: &str| entry.get(name).unwrap_or_default().trim().to_string();
+        let field = |name: &str| cut(entry.get(name).unwrap_or_default().trim(), MAX_INDEXED_TEXT_BYTES);
         let url = field(keepass::db::fields::URL);
+        let mut tags = String::new();
+        for tag in &entry.tags {
+            if tags.len() > MAX_INDEXED_TEXT_BYTES {
+                break;
+            }
+            if !tags.is_empty() {
+                tags.push(' ');
+            }
+            tags.push_str(beginning(tag, MAX_INDEXED_TEXT_BYTES));
+        }
+        let notes = entry.get(keepass::db::fields::NOTES).unwrap_or_default();
         out.push(IndexedEntry {
             id: entry.id(),
             uuid: entry.id().uuid().to_string(),
@@ -663,17 +861,50 @@ pub fn build_index(db: &Database) -> Vec<IndexedEntry> {
             username: field(keepass::db::fields::USERNAME),
             url_match: strip_url(&url),
             url,
-            group: group_path(db, &entry),
-            tags: entry.tags.join(" "),
-            notes: Zeroizing::new(entry.get(keepass::db::fields::NOTES).unwrap_or_default().to_string()),
+            group: group.path,
+            tags: cut(&tags, MAX_INDEXED_TEXT_BYTES),
+            notes: Zeroizing::new(beginning(notes, MAX_INDEXED_NOTES_BYTES).to_string()),
             has_password: !entry.get_password().unwrap_or_default().is_empty(),
             has_totp: totp::has_totp(&entry),
-            autotype: entry.autotype.as_ref().is_none_or(|a| a.enabled)
-                && inherited_flag(db, &entry, |g| g.enable_autotype),
+            autotype: entry.autotype.as_ref().is_none_or(|a| a.enabled) && group.autotype,
         });
     }
     out.sort_by_cached_key(|e| (e.title.to_lowercase(), e.group.to_lowercase()));
     out
+}
+
+/// The index of a database: its searchable entries by title, and each one by its UUID.
+///
+/// The entries can be shared ([`Index::entries`]). A search that is under way keeps the ones
+/// it started with, for the moment it takes to notice a lock or a reload.
+pub struct Index {
+    entries: Arc<[IndexedEntry]>,
+    by_uuid: HashMap<String, usize>,
+}
+
+impl Index {
+    /// See [`build_index`] for what this costs: run it where the daemon is not kept waiting.
+    pub fn build(db: &Database) -> Index {
+        let entries: Arc<[IndexedEntry]> = build_index(db).into();
+        let by_uuid = entries.iter().enumerate().map(|(i, e)| (e.uuid.clone(), i)).collect();
+        Index { entries, by_uuid }
+    }
+
+    pub fn entries(&self) -> Arc<[IndexedEntry]> {
+        self.entries.clone()
+    }
+
+    pub fn get(&self, uuid: &str) -> Option<&IndexedEntry> {
+        self.by_uuid.get(uuid).map(|&i| &self.entries[i])
+    }
+}
+
+impl std::ops::Deref for Index {
+    type Target = [IndexedEntry];
+
+    fn deref(&self) -> &[IndexedEntry] {
+        &self.entries
+    }
 }
 
 /// The auto-type sequence for an entry: its own, else the nearest group default, else
@@ -696,11 +927,12 @@ pub struct OpenDb {
     pub key: KeyMaterial,
     pub quick: Option<QuickBlob>,
     pub db: Database,
-    pub index: Vec<IndexedEntry>,
-    by_uuid: HashMap<String, usize>,
+    pub index: Index,
 }
 
 impl OpenDb {
+    /// Builds the index as well. The daemon has it built along with taking the database over
+    /// and uses [`OpenDb::with_index`].
     pub fn new(
         path: PathBuf,
         keyfile: Option<PathBuf>,
@@ -708,23 +940,29 @@ impl OpenDb {
         quick: Option<QuickBlob>,
         db: Database,
     ) -> Self {
-        let mut open = OpenDb { path, keyfile, key, quick, db, index: Vec::new(), by_uuid: HashMap::new() };
-        open.reindex();
-        open
+        let index = Index::build(&db);
+        OpenDb::with_index(path, keyfile, key, quick, db, index)
     }
 
-    pub fn replace_database(&mut self, db: Database) {
+    pub fn with_index(
+        path: PathBuf,
+        keyfile: Option<PathBuf>,
+        key: KeyMaterial,
+        quick: Option<QuickBlob>,
+        db: Database,
+        index: Index,
+    ) -> Self {
+        OpenDb { path, keyfile, key, quick, db, index }
+    }
+
+    /// `index` is the index of `db`.
+    pub fn replace_database(&mut self, db: Database, index: Index) {
         self.db = db;
-        self.reindex();
-    }
-
-    fn reindex(&mut self) {
-        self.index = build_index(&self.db);
-        self.by_uuid = self.index.iter().enumerate().map(|(i, e)| (e.uuid.clone(), i)).collect();
+        self.index = index;
     }
 
     pub fn indexed(&self, uuid: &str) -> Option<&IndexedEntry> {
-        self.by_uuid.get(uuid).map(|&i| &self.index[i])
+        self.index.get(uuid)
     }
 
     pub fn entry(&self, uuid: &str) -> Option<EntryRef<'_>> {
@@ -766,6 +1004,133 @@ mod tests {
         let back = KeyMaterial::from_bytes(&nothing.to_bytes()).unwrap();
         assert!(back.is_empty());
         assert!(!back.with_keyfile(Zeroizing::new(vec![1])).is_empty());
+    }
+
+    fn group(db: &mut Database, parent: GroupId, name: &str) -> GroupId {
+        let mut parent = db.group_mut(parent).unwrap();
+        let mut group = parent.add_group();
+        group.name = name.into();
+        group.id()
+    }
+
+    fn entry(db: &mut Database, group: GroupId, title: &str) -> EntryId {
+        let mut group = db.group_mut(group).unwrap();
+        let mut entry = group.add_entry();
+        entry.set_unprotected(keepass::db::fields::TITLE, title);
+        entry.id()
+    }
+
+    /// What an entry has from the groups above it: the nearest one that says whether to
+    /// search or to auto-type decides, the recycle bin counts wherever above it is, and the
+    /// path is the names from below the root down.
+    #[test]
+    fn groups_hand_down_what_they_say() {
+        let mut db = Database::new();
+        let root = db.root().id();
+        let off = group(&mut db, root, "Off");
+        db.group_mut(off).unwrap().enable_searching = Some(false);
+        db.group_mut(off).unwrap().enable_autotype = Some(false);
+        let under = group(&mut db, off, "Under");
+        let on_again = group(&mut db, under, "On again");
+        db.group_mut(on_again).unwrap().enable_searching = Some(true);
+        let below = group(&mut db, on_again, "Below");
+        let bin = group(&mut db, root, "Bin");
+        db.meta.recyclebin_uuid = Some(bin.uuid());
+        let old = group(&mut db, bin, "Old");
+        for (group, title) in [
+            (root, "at the root"),
+            (off, "not searched"),
+            (under, "not searched either"),
+            (on_again, "searched again"),
+            (below, "and below that"),
+            (bin, "thrown away"),
+            (old, "thrown away with its group"),
+        ] {
+            entry(&mut db, group, title);
+        }
+        let found: Vec<(String, String, bool)> =
+            build_index(&db).into_iter().map(|e| (e.title, e.group.to_string(), e.autotype)).collect();
+        assert_eq!(
+            found,
+            [
+                ("and below that".to_string(), "Off/Under/On again/Below".to_string(), false),
+                ("at the root".to_string(), String::new(), true),
+                ("searched again".to_string(), "Off/Under/On again".to_string(), false),
+            ]
+        );
+    }
+
+    /// The index takes a fixed length of every text at most, cut where a character ends, and
+    /// the path of a group once for all its entries. The database decides neither.
+    #[test]
+    fn the_database_does_not_decide_how_long_a_text_in_the_index_is() {
+        let mut db = Database::new();
+        let mut at = db.root().id();
+        for level in 0..30 {
+            at = group(&mut db, at, &format!("Úroveň číslo {level}"));
+        }
+        // A megabyte of name, in characters of two bytes.
+        at = group(&mut db, at, &"ž".repeat(1 << 19));
+        for title in ["first", "second"] {
+            let id = entry(&mut db, at, title);
+            let mut entry = db.entry_mut(id).unwrap();
+            entry.set_unprotected(keepass::db::fields::USERNAME, "ž".repeat(5000));
+            entry.set_unprotected(
+                keepass::db::fields::URL,
+                format!("https://www.example.com/{}", "a".repeat(5000)),
+            );
+            entry.set_unprotected(keepass::db::fields::NOTES, format!("x{}", "ž".repeat(20_000)));
+            entry.tags = (0..500).map(|n| format!("tag-{n}")).collect();
+        }
+        let index = build_index(&db);
+        assert_eq!(index.len(), 2);
+
+        let path = &index[0].group;
+        assert!(Arc::ptr_eq(path, &index[1].group), "one path for both entries");
+        assert!(path.len() <= MAX_GROUP_PATH_BYTES, "{} bytes", path.len());
+        // It lost its beginning and kept the groups nearest to the entry; the long name is cut.
+        assert!(path.starts_with("…/Úroveň číslo "), "{path}");
+        assert!(path.contains("/Úroveň číslo 29/žžž"), "{path}");
+        assert!(path.ends_with("žžž…"), "{path}");
+
+        for e in &index {
+            assert!(
+                e.username.len() <= MAX_INDEXED_TEXT_BYTES && e.username.ends_with("žž…"),
+                "{}",
+                e.username.len()
+            );
+            assert!(e.url.len() <= MAX_INDEXED_TEXT_BYTES && e.url_match.starts_with("example.com/aaa"));
+            assert!(
+                e.tags.len() <= MAX_INDEXED_TEXT_BYTES && e.tags.starts_with("tag-0 tag-1 "),
+                "{}",
+                e.tags.len()
+            );
+            assert!(e.notes.len() <= MAX_INDEXED_NOTES_BYTES && e.notes.len() > MAX_INDEXED_NOTES_BYTES - 2);
+            assert!(e.notes.starts_with("xžž") && e.notes.ends_with("žž"));
+        }
+        // What is short enough is left as it is.
+        assert_eq!((index[0].title.as_str(), index[1].title.as_str()), ("first", "second"));
+    }
+
+    /// Indexing is work in proportion to the entries and groups there are, however deep the
+    /// entries are. Forty thousand entries two thousand groups down are eighty million
+    /// questions if every entry asks every group above it; this has to be done in a moment.
+    #[test]
+    fn indexing_goes_by_how_many_entries_there_are_not_by_how_deep() {
+        let mut db = Database::new();
+        let mut at = db.root().id();
+        for _ in 0..2000 {
+            at = db.group_mut(at).unwrap().add_group().id();
+        }
+        let mut deepest = db.group_mut(at).unwrap();
+        for _ in 0..40_000 {
+            deepest.add_entry();
+        }
+        let started = std::time::Instant::now();
+        let index = build_index(&db);
+        let took = started.elapsed();
+        assert_eq!(index.len(), 40_000);
+        assert!(took < std::time::Duration::from_secs(10), "{took:?}");
     }
 
     #[test]
