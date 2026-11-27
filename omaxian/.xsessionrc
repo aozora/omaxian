@@ -17,7 +17,9 @@
 # back / fail with "command not found".
 
 export OMARCHY_PATH="$HOME/.local/share/omarchy"
-export PATH="$OMARCHY_PATH/bin:$HOME/.local/bin:$HOME/bin:$PATH"
+# The agent account dispatchers (omarchy-agent-account-dispatch) lead PATH, so
+# claude / codex / grok follow the account switched to in the agents panel.
+export PATH="$OMARCHY_PATH/agent-accounts/bin:$OMARCHY_PATH/bin:$HOME/.local/bin:$HOME/bin:$PATH"
 
 # Terminal programs ($EDITOR / git commit / sudoedit) open the editor chosen
 # under Setup → Default → Editor (Plain when installed and selected / default).

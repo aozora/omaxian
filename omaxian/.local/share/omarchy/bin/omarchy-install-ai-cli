@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# omarchy:summary=Check that a coding agent's CLI is installed
+# omarchy:args=[--check] <agent>
+# omarchy:examples=omarchy-install-ai-cli claude | omarchy-install-ai-cli --check codex
+
+# Upstream installs each agent from Omarchy's pacman repository. Omaxian has no
+# such packages, so the user installs the CLI their own way: this answers whether
+# it is there, and wires up the account dispatcher and shared instructions.
+
+mode=install
+if [[ ${1:-} == "--check" ]]; then
+  mode=check
+  shift
+fi
+
+agent=${1:-}
+case "$agent" in
+claude | codex | grok | opencode | copilot | crush | cursor-agent | agy | muse | omp | ori | kimi | qwen | dsh | mcode | freebuff | kilo | devin | amp | pi) ;;
+*)
+  echo "Usage: omarchy-install-ai-cli [--check] <agent>" >&2
+  exit 1
+  ;;
+esac
+
+# An account dispatcher isn't the CLI itself, so its directory doesn't count.
+agent_path=""
+IFS=: read -r -a dirs <<<"$PATH"
+for dir in "${dirs[@]}"; do
+  [[ $dir == "$HOME/.local/share/omarchy/agent-accounts/bin" ]] || agent_path+="${agent_path:+:}$dir"
+done
+
+if PATH=$agent_path type -P "$agent" >/dev/null; then
+  if [[ $mode == "install" ]]; then
+    omarchy-agent-account-dispatch "$agent"
+    omarchy-agent-instructions "$agent" >/dev/null || true
+  fi
+  exit 0
+fi
+
+if [[ $mode == "install" ]]; then
+  echo "$agent is not installed. Install its CLI following the vendor's instructions, then try again." >&2
+fi
+exit 1

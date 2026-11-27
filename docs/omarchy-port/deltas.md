@@ -304,6 +304,27 @@ Historical first meter-only pass. Current state is the 4.5.0-rc2 rows above
 | `default/omarchy/omarchy-menu.jsonc` | `setup.default.agent.*` (branded `iconFont: omarchy`) | **ported** — same actions/checked; Nerd Font `󰚩` / Copilot `` (no omarchy.ttf) | `local` | **keep** | Needed by `omarchy-agent --pick` when no default is set. |
 | `config/i3/config.d/02_keybindings.conf` | Hypr `SUPER+SHIFT+CTRL+A` → `omarchy-agent --pick` | **added** `$MOD+Shift+Ctrl+a` | `local` | **keep** | |
 
+## 4.6.0-rc1 (2026-11-27)
+
+Impact note: [v4_6_0_rc1.md](v4_6_0_rc1.md).
+
+| File | Upstream | omaxian | Transform | Status | Notes |
+|---|---|---|---|---|---|
+| `plugins/agents/Panel.qml` | wlr `ToplevelManager` focus, `uwsm-app` launch | `i3-msg` focus by class, else `gtk-launch` | `T3` | **keep** | |
+| `plugins/agents/Panel.qml` | theme / plugin / app / game starter tiles | theme and plugin only | `local` | **keep** | App and game skills and Game Vibes are not ported. |
+| `plugins/agents/` | `omarchy.local-models` service | absent; the panel's null checks leave local models out | — | **keep** | Some add-screen copy still mentions local models. |
+| `plugins/panels/tailscale/` | full panel | `TailscaleIcon.qml` only | — | **keep** | Imported by the agents panel. |
+| `Ui/qmldir`, `Ui/ScreenMoveRemap.qml` | removed | kept | `T1` | **keep** | Port bar and dock use it. |
+| `Ui/PluginBarApi.qml` | centre-section reveal properties removed | kept | `local` | **keep** | Port bar and indicators use them. |
+| `plugins/bar/**` (`Bar.qml`, `BarModel.js`, `Indicators`, `Tray`, `Workspaces`, `ScreenRecording`) | bar changes | port version | — | **keep** | Not merged for 4.6.0-rc1. |
+| `plugins/panels/monitor/` | rebuilt display panel | port xrandr panel | — | **keep** | |
+| `plugins/menu/Menu.qml`, `services/AppLibrary.qml`, `services/hidden-entries.sh`, `plugins/services/idle/Service.qml`, `shell.qml`, `Ui/KeyboardPanel.qml` | changes | port version | — | **keep** | Not merged for 4.6.0-rc1. |
+| `bin/omarchy-install-ai-cli` | installs from pacman | checks `PATH`, wires dispatcher and instructions | `local` | **keep** | |
+| `bin/omarchy-agent-make` | omarchy skills, app and game | omaxian skill, theme and plugin | `local` | **keep** | |
+| `bin/omarchy-agent-account-add`, `bin/omarchy-default-agent` | `omarchy-agent-launcher` per agent | dropped | `local` | **keep** | Icon sets are not ported. |
+| `.xsessionrc` | `env-bootstrap` leads `PATH` with `agent-accounts/bin` | same, in `.xsessionrc` | `local` | **keep** | |
+| `bin/omarchy-notification-send` | `--sticky` shell hint | also sets expiry 0 for dunst | `local` | **keep** | |
+
 ## Not ported (absent from omaxian by decision — not a divergence to track)
 
 `plugins/{lock,background,clipboard,notifications,image-picker,dev-gallery}`,

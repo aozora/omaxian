@@ -44,7 +44,10 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Upstream Omarchy is not vendored — it is cloned into omarchy-quattro/ (pinned).
 # Override either with an env var: OMARCHY_UPSTREAM_URL=… OMARCHY_UPSTREAM_REF=…
 UPSTREAM_URL="${OMARCHY_UPSTREAM_URL:-https://github.com/omacom/omarchy.git}"
-UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.5.0}"
+UPSTREAM_REF="${OMARCHY_UPSTREAM_REF:-v4.6.0-rc1}"
+# Since 4.6 the stock wallpapers live in their own repository.
+BACKGROUNDS_URL="${OMARCHY_BACKGROUNDS_URL:-https://github.com/omacom/omarchy-themes-backgrounds.git}"
+BACKGROUNDS_REF="${OMARCHY_BACKGROUNDS_REF:-v2026.11.25}"
 
 omaxian_banner
 omaxian_msg "install  $(id -un)  $TARGET_HOME"
@@ -76,6 +79,25 @@ else
 	omaxian_info "ready ($(git -C "$UPSTREAM_DIR" describe --tags --always 2>/dev/null || echo "$UPSTREAM_REF"))"
 fi
 
+# Same rule as above: cloned once, then left alone. A failed fetch is not fatal:
+# themes still apply, only their wallpapers are missing until a re-run.
+BACKGROUNDS_DIR="$REPO_DIR/omarchy-backgrounds"
+if [ -e "$BACKGROUNDS_DIR/.git" ]; then
+	omaxian_info "omarchy-backgrounds/ kept ($(git -C "$BACKGROUNDS_DIR" describe --tags --always 2>/dev/null || echo unknown))"
+else
+	omaxian_step "cloning theme backgrounds ($BACKGROUNDS_REF)"
+	tmp="$BACKGROUNDS_DIR.tmp.$$"
+	rm -rf "$tmp"
+	if git clone --depth 1 --branch "$BACKGROUNDS_REF" "$BACKGROUNDS_URL" "$tmp" 2>/dev/null; then
+		rm -rf "$BACKGROUNDS_DIR"
+		mv "$tmp" "$BACKGROUNDS_DIR"
+		omaxian_info "backgrounds ready"
+	else
+		rm -rf "$tmp"
+		omaxian_err "could not fetch theme backgrounds — re-run install.sh when online"
+	fi
+fi
+
 # --- step 2: sanity-check the checkout ---------------------------------------
 omaxian_phase "2/4  verify layout"
 if [ ! -d "$UPSTREAM_DIR/themes" ] || [ ! -d "$UPSTREAM_DIR/default" ]; then
@@ -98,6 +120,21 @@ rm -rf "$OMARCHY_SHARE"/{themes,default,bin}
 
 cp -r "$UPSTREAM_DIR/themes" "$OMARCHY_SHARE/themes"
 INSTALLED=$(find "$OMARCHY_SHARE/themes" -mindepth 1 -maxdepth 1 -type d | wc -l)
+
+# 4.6 themes ship neither wallpapers nor icons.theme. Add both back, only where
+# the checkout has none (an older pinned ref still carries its own).
+for theme_dir in "$OMARCHY_SHARE/themes"/*/; do
+	name=$(basename "$theme_dir")
+	if [ ! -d "$theme_dir/backgrounds" ] && [ -d "$BACKGROUNDS_DIR/$name" ]; then
+		cp -r "$BACKGROUNDS_DIR/$name" "$theme_dir/backgrounds"
+	fi
+done
+while read -r name icon; do
+	theme_dir="$OMARCHY_SHARE/themes/$name"
+	if [ -d "$theme_dir" ] && [ ! -f "$theme_dir/icons.theme" ]; then
+		printf '%s\n' "$icon" >"$theme_dir/icons.theme"
+	fi
+done <"$SCRIPT_DIR/lib/theme-icons"
 
 # Omaxian-only themes (e.g. nebula-ridge, the default) live under the port tree
 # and are not in upstream. Overlay them so install alone (before deploy) still

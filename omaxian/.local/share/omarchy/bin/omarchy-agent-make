@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# omarchy:summary=Have an agent make a new theme or plugin
+# omarchy:args=[--agent <id> | --provider <id> | --local-model <model>] <theme|plugin>
+# omarchy:examples=omarchy agent make theme | omarchy agent make --agent claude plugin
+
+# A few ways into making Omarchy your own, shared by the agents panel's starter
+# tiles and the make icons on each of its lines. The task goes to the default agent, or to the agent, provider, or
+# local model named first.
+
+target=()
+case "${1:-}" in
+--agent | --provider | --local-model)
+  target=("$1" "${2:?$1 needs a value}")
+  shift 2
+  ;;
+esac
+
+case "${1:-}" in
+theme) prompt="Make me a new Omaxian theme. Ask me what look or inspiration I have in mind, then build it following the omaxian skill (~/.local/share/omarchy/default/agents/skills/omaxian/SKILL.md) and switch to it." ;;
+plugin) prompt="Make me a new Omaxian shell plugin. Ask me what I'd like it to do, then build it following the omaxian skill (~/.local/share/omarchy/default/agents/skills/omaxian/SKILL.md) and enable it." ;;
+*)
+  echo "Usage: omarchy-agent-make [--agent <id> | --provider <id> | --local-model <model>] <theme|plugin>" >&2
+  exit 1
+  ;;
+esac
+
+exec omarchy-agent "${target[@]}" --pick --prompt "$prompt"

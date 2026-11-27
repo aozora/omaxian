@@ -417,6 +417,9 @@ rm -rf omarchy-quattro
 OMARCHY_UPSTREAM_REF=v4.0.6 ./scripts/install.sh
 ```
 
+Theme wallpapers come from a second pinned clone, `omarchy-backgrounds/`
+(`OMARCHY_BACKGROUNDS_REF`); delete it too to fetch a newer set.
+
 ---
 
 ## Credits

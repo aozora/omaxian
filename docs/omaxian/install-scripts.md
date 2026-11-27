@@ -235,6 +235,7 @@ orphans left from older deploys.
 | Path | Role | Written by |
 | --- | --- | --- |
 | `omarchy-quattro/` | Pinned upstream clone (gitignored, read-only) | `setup.sh` / `install.sh` when absent |
+| `omarchy-backgrounds/` | Pinned theme wallpapers (gitignored) | `install.sh` when absent |
 | `~/.local/share/omarchy/` (`$OMARCHY_PATH`) | Stock themes, `default/`, `bin/`, shell after deploy | `install.sh` + `deploy.sh` |
 | `~/.config/omarchy/shell.json` | User bar / Settings layout | `deploy.sh` once if missing |
 | `~/.config/omarchy/keyboard.json` | XKB layouts (Settings → Keyboard) | `deploy.sh` once from `/etc/default/keyboard` if missing |

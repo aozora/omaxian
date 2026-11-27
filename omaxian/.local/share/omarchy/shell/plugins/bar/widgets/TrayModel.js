@@ -34,8 +34,36 @@ function layoutHasWidget(layout, id) {
 // click is a no-op, so Share > Receive is the whole surface. Hiding it by hand
 // doesn't stick either: LocalSend picks a fresh tray id every launch.
 function ownedByOmarchy(item, layout) {
-  return itemNamed(item, "localsend")
-    || (layoutHasWidget(layout, "omarchy.dropbox") && itemNamed(item, "dropbox"))
+  if (itemNamed(item, "localsend")) return true
+  for (var i = 0; i < widgetsForTrayItems.length; i++) {
+    var owner = widgetsForTrayItems[i]
+    if (itemNamed(item, owner.item) && layoutHasWidget(layout, owner.widget)) return true
+  }
+  return false
+}
+
+// Whether a double-click's second click activates the item again. Wine turns
+// two activates in quick succession into a double-click, which Windows apps
+// like Battle.net need before they reopen, so Wine items (Ids "wine-...") get
+// it. A native app that toggles its window on each activate, like qBittorrent,
+// would open and hide again, so it gets one.
+function activatesOnDoubleClick(item) {
+  return !!item && !item.onlyMenu && String(item.id || "").indexOf("wine-") === 0
+}
+
+// The stretch of the tray section, from `start` and `length` long along the
+// bar, that the drawer's clip, from `clipStart` and `clipLength` long, shows:
+// { start, length }, or null while it shows none of it. An empty section
+// shows once it is within a pixel of the clip's edge, as the drawer eases to
+// rest.
+function shownSpan(clipStart, clipLength, start, length) {
+  var from = Math.max(start, clipStart)
+  var to = Math.min(start + length, clipStart + clipLength)
+  if (to < from) {
+    if (from - to > 1) return null
+    from = to
+  }
+  return { start: from, length: to - from }
 }
 
 if (typeof module !== "undefined") {
@@ -43,6 +71,7 @@ if (typeof module !== "undefined") {
     itemNamed: itemNamed,
     entryId: entryId,
     layoutHasWidget: layoutHasWidget,
-    ownedByOmarchy: ownedByOmarchy
+    ownedByOmarchy: ownedByOmarchy,
+    activatesOnDoubleClick: activatesOnDoubleClick
   }
 }

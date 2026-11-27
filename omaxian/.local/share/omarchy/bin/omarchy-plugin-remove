@@ -67,13 +67,14 @@ done
 
 if [[ -z $id ]]; then
   interactive || fail "a plugin-id is required"
-  if omarchy-cmd-present gum; then
-    id=$(find "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) \
-      ! -name '.*' -printf '%f\n' 2>/dev/null |
-      sort |
-      gum choose --header="Remove which plugin?") || fail "cancelled"
+  plugins=$(find "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) \
+    ! -name '.*' -printf '%f\n' 2>/dev/null | sort) || fail "could not read $PLUGINS_DIR"
+
+  if [[ -z $plugins ]]; then
+    fail "no plugins installed"
   else
-    fail "a plugin-id is required (install gum, or pass the id)"
+    omarchy-cmd-present gum || fail "a plugin-id is required (install gum, or pass the id)"
+    id=$(gum choose --header="Remove which plugin?" <<<"$plugins") || fail "cancelled"
   fi
   [[ -n $id ]] || fail "nothing selected"
 fi

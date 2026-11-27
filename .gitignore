@@ -146,6 +146,8 @@ vite.config.ts.timestamp-*
 # Upstream Omarchy — cloned into omarchy-quattro/ by setup.sh / install.sh
 # (pinned via OMARCHY_UPSTREAM_REF), not vendored.
 /omarchy-quattro/
+# Theme wallpapers, cloned by install.sh (pinned via OMARCHY_BACKGROUNDS_REF).
+/omarchy-backgrounds/
 
 # Python bytecode (helpers under bin/ and shell/scripts/ are run, never imported as packages)
 __pycache__/

@@ -63,6 +63,11 @@ Item {
     // CenteredModal re-acquires focus once its popup is mapped.
   }
 
+  function safeIface(value) {
+    var name = String(value || "").trim()
+    return /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(name) ? name : ""
+  }
+
   function close() {
     root.opened = false
     root.pendingShow = false
@@ -70,7 +75,10 @@ Item {
       root.expectedStop = true
       qrProc.running = false
     }
-    if (pwProc.running) pwProc.running = false
+    if (pwProc.running) {
+      root.pwExpectedStop = true
+      pwProc.running = false
+    }
     root.qrSize = 0
     root.qrRows = []
     root.error = ""
@@ -122,8 +130,15 @@ Item {
       pwExpectedStop = true
       pwProc.running = false
     }
-    qrProc.command = requestedIface
-      ? ["omarchy-network-qr", "--meta", requestedIface]
+    var rawIface = String(requestedIface || "").trim()
+    var validIface = safeIface(rawIface)
+    if (rawIface !== "" && validIface === "") {
+      loading = false
+      error = I18n.t("wifiqr.generateFailed")
+      return
+    }
+    qrProc.command = validIface
+      ? ["omarchy-network-qr", "--meta", validIface]
       : ["omarchy-network-qr", "--meta"]
     qrProc.running = true
   }
@@ -133,7 +148,7 @@ Item {
     qrRows = parsed.matrix.rows
     qrSize = parsed.matrix.size
     if (parsed.meta.ssid !== "") ssid = parsed.meta.ssid
-    if (parsed.meta.iface !== "") iface = parsed.meta.iface
+    if (parsed.meta.iface !== "") iface = safeIface(parsed.meta.iface)
     secured = parsed.meta.security !== "" && parsed.meta.security !== "nopass"
     // Good output settles the run: a canceled predecessor's stderr may have
     // landed after this generation started, and must not shadow its result.
@@ -143,12 +158,13 @@ Item {
   function togglePassword() {
     if (passwordVisible) { passwordVisible = false; return }
     if (password !== "") { passwordVisible = true; return }
-    if (pwProc.running || !iface) return
+    var validIface = safeIface(iface)
+    if (pwProc.running || !validIface) return
     passwordError = ""
     // Only a deliberate new lookup lowers the canceled-fetch guard, right as
     // it launches -- see the pwProc comment.
     pwExpectedStop = false
-    pwProc.command = ["omarchy-network-password", iface]
+    pwProc.command = ["omarchy-network-password", validIface]
     pwProc.running = true
   }
 
@@ -284,7 +300,7 @@ Item {
 
                 width: qrCanvas.moduleSize
                 height: qrCanvas.moduleSize
-                color: root.qrRows[matrixRow].charAt(matrixColumn) === "1" ? "#111111" : "transparent"
+                color: (root.qrRows[matrixRow] || "").charAt(matrixColumn) === "1" ? "#111111" : "transparent"
               }
             }
           }
