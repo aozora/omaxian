@@ -43,12 +43,87 @@ mkdir -p "$HOME/.local/state/omarchy/current"
 exec 9>"$THEME_SET_LOCK"
 flock 9
 
+# ---- files a downloaded theme may not supply ------------------------------
+# These run code: i3 includes i3.conf (exec lines), the terminal configs name
+# the program the terminal launches, fastfetch has command modules, Neovim
+# loads .lua, and vscode.json names an extension. A new theme template for
+# anything that can run a command belongs here.
+INSTALLED_THEME_DENIED=(alacritty.toml fastfetch.jsonc foot.ini ghostty.conf i3.conf kitty.conf vscode.json)
+IGNORED_THEME_FILES=()
+
+is_denied_installed_file() {
+  local name="$1" denied
+
+  [[ $name == *.lua ]] && return 0
+
+  for denied in "${INSTALLED_THEME_DENIED[@]}"; do
+    [[ $name == "$denied" ]] && return 0
+  done
+
+  return 1
+}
+
+# Never follows a symlink: in an installed theme one points wherever the theme
+# author chose.
+stage_installed_dir() {
+  local source="$1" dest="$2"
+  local entry name
+
+  mkdir -p "$dest"
+
+  for entry in "$source"/*; do
+    [[ -e $entry && ! -L $entry ]] || continue
+    name=${entry##*/}
+
+    if [[ -d $entry ]]; then
+      stage_installed_dir "$entry" "$dest/$name"
+    else
+      cp "$entry" "$dest/$name"
+    fi
+  done
+}
+
+# omarchy-theme-install clones into ~/.config/omarchy/themes, so a .git
+# directory there means the contents came from someone else. A directory the
+# user wrote, or a symlink to their own working copy, is copied as it is.
+theme_came_from_a_repo() {
+  [[ ! -L $1 && -d $1/.git ]]
+}
+
+stage_installed_theme() {
+  local source="$1"
+  local entry name
+
+  for entry in "$source"/*; do
+    [[ -e $entry || -L $entry ]] || continue
+    name=${entry##*/}
+
+    if [[ -L $entry ]] || is_denied_installed_file "$name"; then
+      case "${name,,}" in
+        readme* | license* | changelog* | *.md | *.txt) ;;
+        *) IGNORED_THEME_FILES+=("$name") ;;
+      esac
+    elif [[ -d $entry ]]; then
+      stage_installed_dir "$entry" "$NEXT_THEME_PATH/$name"
+    else
+      cp "$entry" "$NEXT_THEME_PATH/$name"
+    fi
+  done
+
+  if (( ${#IGNORED_THEME_FILES[@]} > 0 )); then
+    echo "Ignored from the installed theme: ${IGNORED_THEME_FILES[*]}" >&2
+    echo "A theme installed from a git repo cannot supply files that run commands." >&2
+  fi
+}
+
 # ---- stage a clean next-theme dir (atomic swap target) --------------------
 rm -rf "$NEXT_THEME_PATH"
 mkdir -p "$NEXT_THEME_PATH"
 
 cp -r "$OMARCHY_THEMES_PATH/$THEME_NAME/"* "$NEXT_THEME_PATH/" 2>/dev/null || true
-if [[ -d $USER_THEMES_PATH/$THEME_NAME ]]; then
+if theme_came_from_a_repo "$USER_THEMES_PATH/$THEME_NAME"; then
+  stage_installed_theme "$USER_THEMES_PATH/$THEME_NAME"
+elif [[ -d $USER_THEMES_PATH/$THEME_NAME ]]; then
   cp -r "$USER_THEMES_PATH/$THEME_NAME/"* "$NEXT_THEME_PATH/" 2>/dev/null || true
 fi
 
@@ -119,6 +194,8 @@ reload_gtk() {
   local icon="" xs="$HOME/.config/i3/xsettingsd"
   [[ -f $xs ]] || xs="$HOME/.config/xsettingsd/xsettingsd.conf"
   [[ -f $CURRENT_THEME_PATH/icons.theme ]] && icon=$(tr -d '[:space:]' <"$CURRENT_THEME_PATH/icons.theme")
+  # The name goes into sed replacement text, and themes can come from anyone.
+  [[ ${icon:-} =~ ^[A-Za-z0-9._+-]*$ ]] || icon=""
   local prefer_dark=1
   [[ $theme_mode == light ]] && prefer_dark=0
 

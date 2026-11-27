@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# omarchy:summary=Toggle window gaps, borders, and rounding off or back to the default
+
+set -euo pipefail
+
+# ~/.config/i3/config includes this directory last, so it overrides 01_theme.conf.
+FLAG="$HOME/.local/state/omarchy/toggles/i3/window-no-gaps.conf"
+
+if [[ -f $FLAG ]]; then
+  rm -f "$FLAG"
+  size=$(sed -n 's/^set \$i3_border_size  *\([0-9][0-9]*\).*/\1/p' "$HOME"/.config/i3/config.d/*.conf 2>/dev/null | tail -n1)
+  size=${size:-2}
+  # Windows with a border style but no width are the ones turned off below.
+  filter='.current_border_width == 0'
+  message="Window gaps on"
+else
+  mkdir -p "$(dirname "$FLAG")"
+  cat >"$FLAG" <<'CONF'
+# Written by omarchy-toggle-window-gaps. Remove all window gaps and borders.
+gaps inner 0
+gaps outer 0
+for_window [class=".*"] border pixel 0
+CONF
+  size=0
+  filter='.current_border_width > 0'
+  message="Window gaps off"
+fi
+
+i3-msg -q reload
+
+# A reload does not rerun for_window on windows that are already open. Title
+# bars and borderless windows are left as they are.
+i3-msg -t get_tree |
+  jq -r ".. | objects | select(.window != null and .border == \"pixel\" and $filter) | .id" |
+  while read -r id; do
+    i3-msg -q "[con_id=$id] border pixel $size" || true
+  done
+
+omarchy-window-style-apply
+omarchy-notification-send -g 󰘇 "$message" || true

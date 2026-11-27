@@ -36,6 +36,9 @@ include ~/.config/i3/config.d/*.conf
 ## (i3 warns and continues); i3_autostart bootstraps it before the bar starts.
 include ~/.local/state/omarchy/current/theme/i3.conf
 
+# Window toggles (omarchy-toggle-window-gaps). Last, so they win.
+include ~/.local/state/omarchy/toggles/i3/*.conf
+
 ##-- Mod Keys ----------------------------------
 set $MOD Mod4
 set $ALT Mod1

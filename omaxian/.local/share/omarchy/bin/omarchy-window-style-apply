@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# omarchy:summary=Apply the saved window gaps and corners to picom and the shell
+# omarchy:args=[--config-only]
+# omarchy:hidden=true
+
+# With --config-only, only write the files: picom is about to be started. In
+# that mode a picom.conf with nothing toggled is left as the user has it.
+
+set -euo pipefail
+
+TOGGLES_DIR="$HOME/.local/state/omarchy/toggles"
+PICOM_CONF="$HOME/.config/i3/picom.conf"
+config_only=false
+[[ ${1:-} == "--config-only" ]] && config_only=true
+
+gaps=true
+[[ -f $TOGGLES_DIR/i3/window-no-gaps.conf ]] && gaps=false
+corners=$(omarchy-window-corners)
+
+radius=0
+[[ $gaps == "true" && $corners == "rounded" ]] && radius=6
+
+square=false
+[[ $gaps == "false" || $corners == "sharp" ]] && square=true
+
+mkdir -p "$TOGGLES_DIR"
+printf '{"squareCorners":%s,"gaps":%s}\n' "$square" "$gaps" >"$TOGGLES_DIR/window-style.json"
+
+if [[ $config_only == "true" && $gaps == "true" && $corners == "theme" ]]; then
+  exit 0
+fi
+
+picom_changed=false
+if [[ -f $PICOM_CONF ]]; then
+  current=$(sed -n '/^#-cr-start/,/^#-cr-end/ s/^corner-radius *= *\([0-9]*\).*/\1/p' "$PICOM_CONF")
+  if [[ -n $current && $current != "$radius" ]]; then
+    sed -i --follow-symlinks "/^#-cr-start/,/^#-cr-end/ s/^corner-radius *=.*/corner-radius = $radius;/" "$PICOM_CONF"
+    picom_changed=true
+  fi
+fi
+
+[[ $config_only == "true" ]] && exit 0
+
+# picom reloads its config on SIGUSR1. Only the one on this display.
+if [[ $picom_changed == "true" && -n ${DISPLAY:-} ]]; then
+  for pid in $(pgrep -u "$UID" -x picom || true); do
+    display=$(tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | sed -n 's/^DISPLAY=//p' || true)
+    if [[ ${display%.0} == "${DISPLAY%.0}" ]]; then
+      kill -USR1 "$pid" || true
+    fi
+  done
+fi
+
+omarchy-shell -q shell refreshWindowStyle >/dev/null 2>&1 || true

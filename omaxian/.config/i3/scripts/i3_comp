@@ -11,6 +11,12 @@ if pgrep -u "$UID" -x picom >/dev/null; then
 	exit 0
 fi
 
+# Saved window corners (Style > Windows); a deploy resets picom.conf.
+style_apply="${OMARCHY_PATH:-$HOME/.local/share/omarchy}/bin/omarchy-window-style-apply"
+if [[ -x $style_apply ]]; then
+	PATH="${style_apply%/*}:$PATH" "$style_apply" --config-only || true
+fi
+
 # Backend selection. Config defaults to xrender (correct ARGB for QS popups
 # on software GL). Upgrade to glx on real/VirGL GPUs; never use glx with
 # llvmpipe/softpipe/swrast — rounded popup corners become a square fringe.

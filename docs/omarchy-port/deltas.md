@@ -328,6 +328,11 @@ Impact note: [v4_6_0_rc1.md](v4_6_0_rc1.md).
 | `plugins/menu/Menu.qml` (icon sets) | image picker with previews | `icon-sets` menu provider | `local` | **keep** | `omarchy-icons-switcher` and `-preview` not ported. |
 | `bin/omarchy-theme-set-templates` | `--icons` mode | same mode on the port's `sed` renderer | `local` | **keep** | |
 | `bin/omarchy-icons-install` | requires `gum` | falls back to `read` | `local` | **keep** | |
+| `bin/omarchy-theme-install` | requires `gum` | falls back to `read` | `local` | **keep** | |
+| `bin/omarchy-theme-set` (installed themes) | denies `.lua`, terminal configs, `vscode.json` | also denies `i3.conf` and `fastfetch.jsonc` | `local` | **keep** | Add any new template that can run a command. No `alacritty.toml` palette conversion. |
+| `bin/omarchy-theme-set` (`icons.theme`) | no GTK icon theme file | name restricted before it reaches `sed` | `local` | **keep** | |
+| `bin/omarchy-toggle-window-gaps` | `omarchy-hyprland-window-gaps-toggle` | i3 include plus `border pixel` on open windows | `drop-hyprctl` | **keep** | |
+| `bin/omarchy-window-corners`, `bin/omarchy-window-style-apply` | `omarchy-hyprland-corners`, Lua toggles | `picom.conf` radius and `window-style.json` for the shell | `drop-hyprctl` | **keep** | Theme and sharp windows are both square; sharp also squares the shell. |
 | `.xsessionrc` | `env-bootstrap` leads `PATH` with `agent-accounts/bin` | same, in `.xsessionrc` | `local` | **keep** | |
 | `bin/omarchy-notification-send` | `--sticky` shell hint | also sets expiry 0 for dunst | `local` | **keep** | |
 

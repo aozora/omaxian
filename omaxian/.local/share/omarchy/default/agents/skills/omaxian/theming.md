@@ -57,6 +57,28 @@ To change how every theme templates an app, put a template in
 `~/.config/omarchy/themed/<config-name>.tpl`. This port ships `i3.conf.tpl`
 among others. Hyprland `*.lua` templates are unused here.
 
+## Installing themes
+
+```bash
+omarchy-theme-install <git-url>   # also Style → Install Theme
+omarchy-theme-remove [name]
+omarchy-theme-update              # git-installed themes
+```
+
+A theme installed from a git repo cannot supply files that run commands
+(`i3.conf`, terminal configs, `fastfetch.jsonc`, `.lua`, `vscode.json`) or
+symlinks; the generated versions are used instead.
+
+## Window gaps and corners
+
+```bash
+omarchy-toggle-window-gaps                  # gaps, borders, rounding off/on
+omarchy-window-corners theme|sharp|rounded
+```
+
+Both are under **Style → Windows** and survive a deploy and re-login. Do not
+edit the generated files under `~/.local/state/omarchy/toggles/`.
+
 ## App icon sets
 
 An icon set redraws app icons in the theme's colors. It is chosen separately

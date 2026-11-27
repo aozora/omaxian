@@ -1822,6 +1822,11 @@ ShellRoot {
       return "ok"
     }
 
+    function refreshWindowStyle(): string {
+      Style.windowStyleFile.reload()
+      return "ok"
+    }
+
     function applyTheme(colorsB64: string, shellB64: string): string {
       if (shell.bootIntro) shell.bootIntro.cancelTheme()
       var background = shell.firstPartyServiceFor("omarchy.background")

@@ -66,6 +66,15 @@
   "style.theme": {"icon": "󰸌", "label": "Theme", "aliases": ["theme", "themes"], "action": "omarchy-shell -q omaxian.controlpanel showTab theme"},
   "style.background": {"icon": "", "label": "Background", "aliases": ["background", "wallpaper"], "action": "omarchy-shell -q omaxian.controlpanel showTab wallpaper"},
   "style.icons": {"icon": "󰠱", "label": "Icons", "provider": "icon-sets"},
+  "style.theme-install": {"icon": "󰸌", "label": "Install Theme", "action": "omarchy-launch-floating-terminal-with-presentation omarchy-theme-install"},
+  "style.theme-remove": {"icon": "󰸌", "label": "Remove Theme", "when": "compgen -G \"$HOME/.config/omarchy/themes/*/\"", "action": "omarchy-theme-remove"},
+  "style.windows": {"icon": "󰖲", "label": "Windows"},
+  "style.windows.gaps-on": {"icon": "", "label": "Window Gaps On", "when": "[[ -f $HOME/.local/state/omarchy/toggles/i3/window-no-gaps.conf ]]", "action": "omarchy-toggle-window-gaps"},
+  "style.windows.gaps-off": {"icon": "", "label": "Window Gaps Off", "when": "[[ ! -f $HOME/.local/state/omarchy/toggles/i3/window-no-gaps.conf ]]", "action": "omarchy-toggle-window-gaps"},
+  "style.windows.corners": {"icon": "󰘇", "label": "Window Corners"},
+  "style.windows.corners.theme": {"icon": "󰏘", "label": "Theme Corners", "checked": "[[ $(omarchy-window-corners) == \"theme\" ]]", "action": "omarchy-window-corners theme"},
+  "style.windows.corners.sharp": {"icon": "󰝣", "label": "Sharp Corners", "checked": "[[ $(omarchy-window-corners) == \"sharp\" ]]", "action": "omarchy-window-corners sharp"},
+  "style.windows.corners.rounded": {"icon": "󰘇", "label": "Rounded Corners", "checked": "[[ $(omarchy-window-corners) == \"rounded\" ]]", "action": "omarchy-window-corners rounded"},
 
   // Setup
   "setup.settings": {"icon": "", "label": "Settings", "aliases": ["preferences", "config"], "action": "omarchy-shell shell toggle omaxian.settings"},
@@ -148,6 +157,7 @@
   "update.hardware.audio": {"icon": "", "label": "Audio", "action": "omarchy-launch-floating-terminal-with-presentation omarchy-restart-audio"},
   "update.hardware.wifi": {"icon": "󱚾", "label": "Wi-Fi", "action": "omarchy-launch-floating-terminal-with-presentation omarchy-restart-wifi"},
   "update.hardware.bluetooth": {"icon": "󰂯", "label": "Bluetooth", "action": "omarchy-launch-floating-terminal-with-presentation omarchy-restart-bluetooth"},
+  "update.themes": {"icon": "󰸌", "label": "Extra Themes", "when": "omarchy-theme-extras", "action": "omarchy-launch-floating-terminal-with-presentation omarchy-theme-update"},
   "update.icons": {"icon": "󰠱", "label": "Extra Icons", "when": "omarchy-icons-extras", "action": "omarchy-launch-floating-terminal-with-presentation omarchy-icons-update"},
   "update.timezone": {"icon": "", "label": "Timezone", "action": "omarchy-menu-timezone"},
   "update.password": {"icon": "", "label": "Password"},

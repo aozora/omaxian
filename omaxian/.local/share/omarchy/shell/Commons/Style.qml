@@ -1,6 +1,7 @@
 pragma Singleton
 import QtQuick
-import Quickshell  // Quickshell.env only; Quickshell.Io dropped with the hyprctl/fc-match Processes
+import Quickshell
+import Quickshell.Io
 import qs.Commons as Commons
 
 // Shared structural style tokens for the shell. Color is the palette
@@ -29,16 +30,36 @@ import qs.Commons as Commons
 QtObject {
   id: root
 
+  // Set by omarchy-toggle-window-gaps and omarchy-window-corners.
+  property bool squareCorners: false
+  property bool windowGaps: true
+
+  function applyWindowStyle(raw) {
+    var style = {}
+    try { style = JSON.parse(String(raw || "{}")) } catch (e) {}
+    squareCorners = style.squareCorners === true
+    windowGaps = style.gaps !== false
+  }
+
+  property FileView windowStyleFile: FileView {
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/toggles/window-style.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.applyWindowStyle(text())
+    onLoadFailed: root.applyWindowStyle("")
+  }
+
   // Default radius for the generic Ui/ kit's controls (Button, TextField,
   // Dropdown, ConfirmDialog, Toggle, MultiSelect, tooltip). Popup cards
   // override to `radiusPopup`; one-off bar chips/power buttons hardcode
-  // their own radius. Static — no compositor `decoration:rounding` to mirror.
-  property int cornerRadius: 8
-  property int radiusPopup: 12
+  // their own radius. No compositor `decoration:rounding` to mirror.
+  property int cornerRadius: squareCorners ? 0 : 8
+  property int radiusPopup: squareCorners ? 0 : 12
   // Distance between a popup/panel and the bar edge it anchors to
-  // (Ui/PopupCard.qml, Ui/KeyboardPanel.qml). Static — no compositor
+  // (Ui/PopupCard.qml, Ui/KeyboardPanel.qml). No compositor
   // `general:gaps_out` on i3/picom.
-  property int gapsOut: 8
+  property int gapsOut: windowGaps ? 8 : 0
 
   // ---------------------------------------------------------- state tokens
   //
@@ -444,8 +465,8 @@ QtObject {
   // X11 delta (deltas.md `drop-hyprctl`): upstream's `hyprctlProc` /
   // `gapsOutProc` / `animationsProc` / Hyprland `configreloaded` hook /
   // `refreshTimer` / `windowNoGapsToggle` and `fcMatchProc` / `fontconfigFile`
-  // live here. Removed for i3 — `cornerRadius`/`radiusPopup`/`gapsOut` are
-  // the static literals above, `resolvedFontFamily` stays "monospace", and
+  // live here. Removed for i3 — `cornerRadius`/`radiusPopup`/`gapsOut` follow
+  // `windowStyleFile` above, `resolvedFontFamily` stays "monospace", and
   // `reduceMotion` is not driven by the compositor (see above).
 }
 
