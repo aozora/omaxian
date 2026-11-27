@@ -955,15 +955,6 @@ Item {
     }
   }
 
-  function requestDeleteSelected() {
-    if (!root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
-    var row = displayModel.get(root.selectedIndex)
-    if (!row || row.kind !== "app") return
-    root.deleteTarget = { appId: row.appId, label: row.label }
-    deleteConfirm.selectedIndex = 1
-    root.deleteConfirmOpen = true
-  }
-
   function cancelDelete() {
     root.deleteConfirmOpen = false
     root.deleteTarget = null
@@ -1542,10 +1533,9 @@ Item {
           return
         }
 
-        if (event.key === Qt.Key_Delete) {
-          root.requestDeleteSelected()
-          event.accepted = true
-        } else if (event.key === Qt.Key_Escape) {
+        // X11 delta: no Delete binding. The port's app library cannot remove
+        // apps, so upstream's uninstall confirmation would do nothing.
+        if (event.key === Qt.Key_Escape) {
           if (root.filterText) root.setFilter("")
           else root.cancel()
           event.accepted = true
