@@ -12,7 +12,7 @@ endif()
 # Widgets and PrintSupport are for the system print dialog, which is why the
 # app runs a QApplication rather than a QGuiApplication.
 find_package(Qt6 REQUIRED COMPONENTS
-  Core Gui Concurrent Widgets PrintSupport Qml Quick QuickControls2 QuickDialogs2 DBus Test)
+  Core Gui Concurrent Widgets PrintSupport Qml Quick QuickControls2 DBus Test)
 
 # Omaxian: the tests need Qt's private Gui headers; the app does not. Qt 6.9+
 # ships GuiPrivate as its own package, while Debian's Qt 6.8 defines the target
@@ -35,7 +35,7 @@ add_library(omawrite_core STATIC ${omawrite_sources})
 target_include_directories(omawrite_core PUBLIC src)
 target_link_libraries(omawrite_core PUBLIC
   Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Widgets Qt6::PrintSupport
-  Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2 Qt6::DBus)
+  Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::DBus)
 target_compile_options(omawrite_core PUBLIC -Wall -Wextra)
 
 add_executable(omawrite src/main.cpp src/resources.qrc)
@@ -50,6 +50,6 @@ enable_testing()
 add_executable(omawrite_tests tests/omawrite_tests.cpp)
 target_link_libraries(omawrite_tests PRIVATE omawrite_core Qt6::Test Qt6::GuiPrivate)
 add_test(NAME omawrite_tests COMMAND omawrite_tests)
-# An empty platform theme keeps file dialogs in the offscreen window instead
-# of opening the real desktop chooser.
-set_tests_properties(omawrite_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=")
+# An empty platform theme keeps tests independent of the host desktop theme.
+set_tests_properties(omawrite_tests PROPERTIES
+  ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=")

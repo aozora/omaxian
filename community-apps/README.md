@@ -88,7 +88,7 @@ Plan and rationale:
 | [`plain`](plain/) | Plain (Qt Quick config/text editor) | [omacom/plain](https://github.com/omacom/plain) `0.4.2` | Ported |
 | [`omacalc`](omacalc/) | Omacalc (Qt Quick calculator) | [omacom/omacalc](https://github.com/omacom/omacalc) `0.4.2` | Ported |
 | [`omacut`](omacut/) | Omacut (Qt Quick video trimmer) | [omacom/omacut](https://github.com/omacom/omacut) `0.8.4` | Ported |
-| [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.7` | Ported |
+| [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.8` | Ported |
 | [`folio`](folio/) | Folio (Qt Quick file manager) | [omacom/folio](https://github.com/omacom/folio) `0.7.5` (`c306f24`) | Ported |
 | [`omaview`](omaview/) | Omaview (Qt Quick picture viewer / media player) | [omacom/omaview](https://github.com/omacom/omaview) `0.1.2` (`4cd158e`) | Ported |
 | [`hype`](hype/) | Hype (Qt Quick Markdown presentations) | [omacom/hype](https://github.com/omacom/hype) `0.7.1` (`8c347fc`) | Ported |

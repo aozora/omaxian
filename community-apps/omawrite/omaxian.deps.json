@@ -9,9 +9,7 @@
     "qml6-module-qtqml-workerscript",
     "qt6-qpa-plugins",
     "xdg-desktop-portal",
-    "xdg-desktop-portal-gtk",
-    "qml6-module-qtquick-dialogs",
-    "qml6-module-qt-labs-folderlistmodel"
+    "xdg-desktop-portal-gtk"
   ],
   "apt_build": [
     "build-essential",
@@ -23,8 +21,8 @@
   ],
   "manual": [
     "Build with community-apps/omawrite/install.sh. Prefers CMake; falls back to omawrite.pro + qmake6.",
-    "Uses QApplication + PrintSupport for system print; Quick Dialogs for file choosers.",
-    "If apt cannot match libqt6core for qml6-module-qtquick-dialogs, place QtQuick/Dialogs under ~/.local/lib/qt6/qml/ \u2014 install.sh wraps the binary.",
+    "Uses QApplication + PrintSupport for system print; the XDG desktop portal for Open and Save.",
+    "If apt cannot match libqt6core for qml6-module-qtquick-controls, place QtQuick/Controls under ~/.local/lib/qt6/qml/ \u2014 install.sh wraps the binary.",
     "Theme accent from ~/.local/state/omarchy/current/theme/colors.toml."
   ]
 }

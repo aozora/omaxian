@@ -188,7 +188,7 @@ qt_build_ready() {
 }
 
 needs_qml_wrapper() {
-  { [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtQuick/Dialogs ]] && [[ -d $HOME/.local/lib/qt6/qml/QtQuick/Dialogs ]]; }
+  { [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtQuick/Controls ]] && [[ -d $HOME/.local/lib/qt6/qml/QtQuick/Controls ]]; }
 }
 
 install_files() {
@@ -210,8 +210,8 @@ EOF
     echo ">> wrapper $BIN_DIR/$NAME (QML from $qml_extra)"
   else
     install -m 0755 "$BUILT_BIN" "$BIN_DIR/$NAME"
-  if [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtQuick/Dialogs && ! -d $HOME/.local/lib/qt6/qml/QtQuick/Dialogs ]]; then
-    echo "warning: QML module QtQuick/Dialogs missing; omawrite may exit on start" >&2
+  if [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtQuick/Controls && ! -d $HOME/.local/lib/qt6/qml/QtQuick/Controls ]]; then
+    echo "warning: QML module QtQuick/Controls missing; omawrite may exit on start" >&2
   fi
   fi
   install -m 0644 "$ROOT/pkgbuild/$NAME.svg" "$ICON_DIR/$NAME.svg"
