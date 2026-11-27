@@ -328,6 +328,8 @@ Impact note: [v4_6_0_rc1.md](v4_6_0_rc1.md).
 | `plugins/menu/Menu.qml` (icon sets) | image picker with previews | `icon-sets` menu provider | `local` | **keep** | `omarchy-icons-switcher` and `-preview` not ported. |
 | `bin/omarchy-theme-set-templates` | `--icons` mode | same mode on the port's `sed` renderer | `local` | **keep** | |
 | `bin/omarchy-icons-install` | requires `gum` | falls back to `read` | `local` | **keep** | |
+| `plugins/bar/Bar.qml` (`foldedPanel`) | audio and Bluetooth panels sit on the bar | when not placed, their hotkeys and clicks open the Control Panel tab | `local` | **keep** | |
+| `plugins/panels/controlpanel/{Audio,Bluetooth}Tab.qml` | — | follow 4.6.0-rc1: unplugged inputs hidden, BlueZ sink shortcut, `omarchy-bluetooth` | `local` | **keep** | Separate rewrites: re-check on each upstream panel change. List caching, MPRIS stream names and keyboard navigation not ported. |
 | `bin/omarchy-theme-install` | requires `gum` | falls back to `read` | `local` | **keep** | |
 | `bin/omarchy-theme-set` (installed themes) | denies `.lua`, terminal configs, `vscode.json` | also denies `i3.conf` and `fastfetch.jsonc` | `local` | **keep** | Add any new template that can run a command. No `alacritty.toml` palette conversion. |
 | `bin/omarchy-theme-set` (`icons.theme`) | no GTK icon theme file | name restricted before it reaches `sed` | `local` | **keep** | |

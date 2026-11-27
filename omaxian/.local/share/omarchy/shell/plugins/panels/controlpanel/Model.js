@@ -102,6 +102,18 @@ function parseSinkAvailability(raw) {
   return next
 }
 
+// A device whose ports are all unplugged, like a headset microphone with nothing
+// in the jack, stays out of the list. The current device always stays, first.
+function availableDevices(candidates, availability, current) {
+  var list = []
+  for (var i = 0; i < candidates.length; i++) {
+    var name = candidates[i] && candidates[i].name
+    if (!name || availability[String(name)] !== false) list.push(candidates[i])
+  }
+  if (current && list.indexOf(current) < 0) list.unshift(current)
+  return list
+}
+
 // Audio/Source/Virtual (EasyEffects mic, platform monitors) listed by pactl
 // availability but without a PwNode.audio handle.
 function isUntypedSource(node, sourceAvailability) {

@@ -869,7 +869,24 @@ Item {
     return chosen ? chosen.activeItem : null
   }
 
+  // X11 delta: the default bar folds these panels into the Control Panel. While
+  // one isn't on the bar, its hotkey and widget clicks act on the matching tab.
+  readonly property var foldedPanelTabs: ({ "omarchy.audio": "audio", "omarchy.bluetooth": "bluetooth" })
+
+  function foldedPanel(pluginId) {
+    var tab = foldedPanelTabs[String(pluginId || "")]
+    if (!tab || findPanelWidget(pluginId)) return null
+    var host = findPanelWidget("omaxian.controlpanel")
+    if (!host || typeof host.showTab !== "function") return null
+    return { host: host, tab: tab }
+  }
+
   function summonBarWidget(pluginId) {
+    var folded = foldedPanel(pluginId)
+    if (folded) {
+      folded.host.showTab(folded.tab)
+      return true
+    }
     var item = findPanelWidget(pluginId)
     if (!item || typeof item.open !== "function") return false
     item.open()
@@ -877,6 +894,11 @@ Item {
   }
 
   function hideBarWidget(pluginId) {
+    var folded = foldedPanel(pluginId)
+    if (folded) {
+      if (folded.host.activeTab === folded.tab) folded.host.close()
+      return true
+    }
     var item = findPanelWidget(pluginId)
     if (!item || typeof item.close !== "function") return false
     item.close()
@@ -884,6 +906,8 @@ Item {
   }
 
   function isBarWidgetOpen(pluginId) {
+    var folded = foldedPanel(pluginId)
+    if (folded) return folded.host.opened === true && folded.host.activeTab === folded.tab
     var item = findPanelWidget(pluginId)
     return !!item && item.opened === true
   }

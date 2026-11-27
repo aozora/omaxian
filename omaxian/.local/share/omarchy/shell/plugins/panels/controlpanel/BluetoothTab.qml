@@ -73,7 +73,7 @@ Item {
 
   function toggleBluetooth() {
     if (!adapter) return
-    Quickshell.execDetached(["omarchy-bluetooth-power", adapter.enabled ? "off" : "on"])
+    Quickshell.execDetached(["omarchy-bluetooth", adapter.enabled ? "off" : "on"])
   }
 
   function pendingAction(address) { return Model.pendingAction(pendingActions, address) }
@@ -85,7 +85,7 @@ Item {
   }
 
   function deviceCommand(action, address) {
-    return ["omarchy-bluetooth-device", action, address]
+    return ["omarchy-bluetooth", action, "--", address]
   }
 
   function runDeviceAction(device, action, pending) {
