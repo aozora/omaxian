@@ -179,6 +179,11 @@ reload_yazi() {
   fi
 }
 
+# ---- app icons: redraw the current icon set in the new palette -----------
+reload_icons() {
+  omarchy-theme-set-icons || true
+}
+
 # ---- background: pick from the theme, symlink, set with xwallpaper/feh ---
 set_background() {
   local dir="$CURRENT_THEME_PATH/backgrounds" bg
@@ -196,6 +201,7 @@ set_background() {
 }
 
 reload_quickshell
+reload_icons
 reload_i3
 reload_dunst
 reload_gtk

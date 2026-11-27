@@ -323,7 +323,11 @@ Impact note: [v4_6_0_rc1.md](v4_6_0_rc1.md).
 | `plugins/menu/Menu.qml` | Delete on an app asks to uninstall it | Delete unbound | `local` | **keep** | `AppLibrary.qml` has no `remove()`. |
 | `bin/omarchy-install-ai-cli` | installs from pacman | checks `PATH`, wires dispatcher and instructions | `local` | **keep** | |
 | `bin/omarchy-agent-make` | omarchy skills, app and game | omaxian skill, theme and plugin | `local` | **keep** | |
-| `bin/omarchy-agent-account-add`, `bin/omarchy-default-agent` | `omarchy-agent-launcher` per agent | dropped | `local` | **keep** | Icon sets are not ported. |
+| `bin/omarchy-agent-account-add`, `bin/omarchy-default-agent` | `omarchy-agent-launcher` per agent | dropped | `local` | **keep** | `omarchy-agent-launcher` is not ported. |
+| `services/AppLibrary.qml` (icon sets) | drawn icons found by the icon index | lists the hicolor links into `current/icons` and prefers those names | `local` | **keep** | The port asks the icon theme before the index, so Papirus would win. |
+| `plugins/menu/Menu.qml` (icon sets) | image picker with previews | `icon-sets` menu provider | `local` | **keep** | `omarchy-icons-switcher` and `-preview` not ported. |
+| `bin/omarchy-theme-set-templates` | `--icons` mode | same mode on the port's `sed` renderer | `local` | **keep** | |
+| `bin/omarchy-icons-install` | requires `gum` | falls back to `read` | `local` | **keep** | |
 | `.xsessionrc` | `env-bootstrap` leads `PATH` with `agent-accounts/bin` | same, in `.xsessionrc` | `local` | **keep** | |
 | `bin/omarchy-notification-send` | `--sticky` shell hint | also sets expiry 0 for dunst | `local` | **keep** | |
 

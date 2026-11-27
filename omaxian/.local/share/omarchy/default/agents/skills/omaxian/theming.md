@@ -57,6 +57,25 @@ To change how every theme templates an app, put a template in
 `~/.config/omarchy/themed/<config-name>.tpl`. This port ships `i3.conf.tpl`
 among others. Hyprland `*.lua` templates are unused here.
 
+## App icon sets
+
+An icon set redraws app icons in the theme's colors. It is chosen separately
+from the theme, under **Style → Icons** or with these commands:
+
+```bash
+omarchy-icons-list
+omarchy-icons-set Arcade       # Original restores each app's own icon
+omarchy-icons-current
+omarchy-icons-install <git-url>
+omarchy-icons-remove <name>
+omarchy-icons-update
+```
+
+To redraw one icon, add `<Icon= name>.svg.tpl` (or `.svg`) under
+`~/.config/omarchy/icons/<set>/`, for example `papercraft/`, then run
+`omarchy-icons-set <set>`. Stock sets live in `$OMARCHY_PATH/icons/`; do not
+edit them.
+
 ## Fonts
 
 There is no `omarchy font` command. UI size is Settings → Appearance

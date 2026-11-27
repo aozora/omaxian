@@ -400,6 +400,14 @@ Item {
       icon: "\uf1ab",
       volatile: true,
       actionFor: function(value) { return "omarchy-language " + Util.shellQuote(value) }
+    },
+    // X11 delta: upstream picks a set from preview images in the image picker,
+    // which is not ported. The value is the set's directory name.
+    "icon-sets": {
+      script: "current=$(omarchy-icons-current --id 2>/dev/null); omarchy-icons-list 2>/dev/null | while read -r name; do id=${name,,}; id=${id// /-}; printf '%s\\t%s\\t%s\\n' \"$name\" \"$id\" \"$current\"; done",
+      icon: "\udb82\udc31",
+      volatile: true,
+      actionFor: function(value) { return "omarchy-icons-set " + Util.shellQuote(value) }
     }
   })
 

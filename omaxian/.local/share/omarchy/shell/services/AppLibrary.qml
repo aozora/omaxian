@@ -113,11 +113,40 @@ Item {
     ].join(' ')
   }
 
+  // Icons the current icon set draws: name -> true for each hicolor link that
+  // points at one. omarchy-theme-set-icons redraws them in place and then
+  // writes icons.revision, which goes on their URLs so images reload.
+  readonly property string drawnIconsPath: Quickshell.env("HOME") + "/.local/state/omarchy/current/icons"
+  readonly property string iconLinksPath: (Quickshell.env("XDG_DATA_HOME") || Quickshell.env("HOME") + "/.local/share") + "/icons/hicolor/scalable/apps"
+  property var drawnIcons: ({})
+  property string iconRevision: ""
+  // Applied after the rescan, so a removed icon is never asked for again.
+  property string pendingIconRevision: ""
+  property bool drawnIconRescanQueued: false
+
+  function refreshDrawnIcons() {
+    if (drawnIconScan.running) root.drawnIconRescanQueued = true
+    else drawnIconScan.running = true
+  }
+
+  function loadDrawnIcons(raw) {
+    var drawn = {}
+    var lines = String(raw || "").split("\n")
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].slice(-4) === ".svg") drawn[lines[i].slice(0, -4)] = true
+    }
+    root.drawnIcons = drawn
+    root.iconRevision = root.pendingIconRevision
+  }
+
   function iconSource(icon) {
     var value = String(icon || "")
     if (value.length === 0) return Quickshell.iconPath("application-x-executable", true)
     if (value.indexOf("file://") === 0 || value.indexOf("image://") === 0) return value
     if (value.charAt(0) === "/") return Util.fileUrl(value)
+    // An icon the set draws wins over the icon theme and the app's own.
+    if (root.drawnIcons[value] === true)
+      return Util.fileUrl(root.drawnIconsPath + "/" + value + ".svg") + "?revision=" + root.iconRevision
     // Prefer Qt's theme lookup (size-aware) over the filesystem index — the
     // index is first-wins and often latches onto a 16×16 PNG before a larger
     // one, which the dock then upscales into blur.
@@ -390,6 +419,30 @@ Item {
       hiddenEntryDebounce.restart()
       iconIndexDebounce.restart()
       root.appsChanged()
+    }
+  }
+
+  Process {
+    id: drawnIconScan
+    command: ["find", root.iconLinksPath, "-maxdepth", "1", "-lname", root.drawnIconsPath + "/*", "-printf", "%f\\n"]
+    stdout: StdioCollector {
+      onStreamFinished: root.loadDrawnIcons(text)
+    }
+    onExited: {
+      if (!root.drawnIconRescanQueued) return
+      root.drawnIconRescanQueued = false
+      Qt.callLater(root.refreshDrawnIcons)
+    }
+  }
+
+  FileView {
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/icons.revision"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      root.pendingIconRevision = String(text() || "").trim().split("\t")[0]
+      root.refreshDrawnIcons()
     }
   }
 

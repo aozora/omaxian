@@ -116,7 +116,7 @@ omaxian_info "themes/ ($THEME_COUNT) and default/ OK"
 # user-installed overrides (omarchy-theme-list merges it with the share tree).
 omaxian_phase "3/4  seed share"
 mkdir -p "$OMARCHY_SHARE" "$OMARCHY_CONFIG"/{themes,themed}
-rm -rf "$OMARCHY_SHARE"/{themes,default,bin}
+rm -rf "$OMARCHY_SHARE"/{themes,default,bin,icons}
 
 cp -r "$UPSTREAM_DIR/themes" "$OMARCHY_SHARE/themes"
 INSTALLED=$(find "$OMARCHY_SHARE/themes" -mindepth 1 -maxdepth 1 -type d | wc -l)
@@ -179,6 +179,18 @@ if [ -d "$PORT_AGENTS" ]; then
 fi
 
 cp -r "$REPO_DIR/omaxian/.local/share/omarchy/bin" "$OMARCHY_SHARE/bin"
+
+# App icon sets. Draw the current one now when a theme is already active;
+# otherwise the next omarchy-theme-set does it.
+if [ -d "$UPSTREAM_DIR/icons" ]; then
+	cp -r "$UPSTREAM_DIR/icons" "$OMARCHY_SHARE/icons"
+	if [ -f "$TARGET_HOME/.local/state/omarchy/current/theme/colors.toml" ]; then
+		HOME="$TARGET_HOME" OMARCHY_PATH="$OMARCHY_SHARE" PATH="$OMARCHY_SHARE/bin:$PATH" \
+			omarchy-theme-set-icons || omaxian_info "icon set not drawn; it will be on the next theme change"
+	fi
+else
+	omaxian_info "no icons/ in omarchy-quattro/ — remove it and re-run to get the icon sets"
+fi
 
 # Seed applications from upstream (webapp .desktop files), then overlay the
 # port's handler (omarchy-launch-editor.desktop for Setup → Default → Editor).
