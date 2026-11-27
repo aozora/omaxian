@@ -319,6 +319,7 @@ Impact note: [v4_6_0_rc1.md](v4_6_0_rc1.md).
 | `plugins/bar/widgets/Indicators.qml`, `Bar.qml` | hover zone replaces the centre-section peek; blocks mirror by `fixedEdge` | hover zone merged; `fixedEdge` only places the zone, blocks are not mirrored | `local` | **keep** | `Bar.fixedEdgeFor` derives the edge from the section. |
 | `plugins/panels/monitor/` | rebuilt display panel | port xrandr panel | — | **keep** | |
 | `plugins/menu/Menu.qml`, `services/AppLibrary.qml`, `services/hidden-entries.sh`, `plugins/services/idle/Service.qml`, `shell.qml`, `Ui/KeyboardPanel.qml` | changes | port version | — | **keep** | Not merged for 4.6.0-rc1. |
+| `bin/omarchy-tray-context-menu` | `hyprctl cursorpos` + monitor scaling | `xdotool getmouselocation` | `drop-hyprctl` | **keep** | |
 | `bin/omarchy-install-ai-cli` | installs from pacman | checks `PATH`, wires dispatcher and instructions | `local` | **keep** | |
 | `bin/omarchy-agent-make` | omarchy skills, app and game | omaxian skill, theme and plugin | `local` | **keep** | |
 | `bin/omarchy-agent-account-add`, `bin/omarchy-default-agent` | `omarchy-agent-launcher` per agent | dropped | `local` | **keep** | Icon sets are not ported. |
