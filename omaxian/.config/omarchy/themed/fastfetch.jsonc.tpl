@@ -5,10 +5,12 @@
 {
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/master/doc/json_schema.json",
   "logo": {
-    "type": "auto",
+    "type": "file",
+    "source": "~/.config/fastfetch/omaxian.txt",
     "color": {
-      "1": "{{ accent }}",
-      "2": "{{ blue }}"
+      "1": "{{ foreground }}",
+      "2": "{{ accent }}",
+      "3": "{{ cyan }}"
     },
     "padding": {
       "top": 2,

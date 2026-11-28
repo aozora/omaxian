@@ -221,6 +221,7 @@ def describe(cmd: str) -> str:
 		(re.compile(r"toggle omarchy\.bluetooth\b"), "Bluetooth panel"),
 		(re.compile(r"toggle omarchy\.network\b"), "Network panel"),
 		(re.compile(r"toggle omarchy\.power\b"), "Power / battery panel"),
+		(re.compile(r"toggle omaxian\.notifications\b"), "Notification history"),
 		(re.compile(r"toggle local\.monitor\b"), "Monitor panel"),
 		(re.compile(r"i3_screenshot\b"), "Screenshot"),
 		(re.compile(r"i3_lock\b"), "Lock screen"),

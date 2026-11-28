@@ -2,10 +2,14 @@
   "schemaVersion": 1,
   "id": "omaxian.notifications",
   "name": "Notifications",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "omaxian",
-  "description": "Local Notifications widget (interim, pre-Phase-5)",
-  "kinds": ["bar-widget"],
-  "entryPoints": { "barWidget": "Notifications.qml" },
+  "description": "Notification history and Do Not Disturb for dunst",
+  "kinds": ["bar-widget", "service"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "Notifications.qml",
+    "service": "NotificationsService.qml"
+  },
   "barWidget": { "displayName": "Notifications", "category": "Local", "allowMultiple": false }
 }

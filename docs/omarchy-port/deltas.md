@@ -338,6 +338,12 @@ Impact note: [v4_6_0_rc1.md](v4_6_0_rc1.md).
 | `.xsessionrc` | `env-bootstrap` leads `PATH` with `agent-accounts/bin` | same, in `.xsessionrc` | `local` | **keep** | |
 | `bin/omarchy-notification-send` | `--sticky` shell hint | also sets expiry 0 for dunst | `local` | **keep** | |
 
+## Notification history for dunst (2026-11-28)
+
+| File | Upstream | Omaxian | Kind | Verdict | Notes |
+|---|---|---|---|---|---|
+| `plugins/bar/widgets/Notifications*` (`omaxian.notifications`) | `plugins/notifications` is itself the notification daemon (service: pop-ups, stacks, actions, history, Do Not Disturb) | dunst stays the daemon and draws the pop-ups. The widget adds a bell with a new-notification count and a history panel: grouped by app, show again, remove, clear all, Do Not Disturb. The service re-reads `dunstctl` when dunst signals a change (`gdbus monitor`) via `shell/scripts/notifications-state.sh` | `local` | **keep** | No code shared with upstream. Not possible from dunst's history: on-screen and held-back notifications (held-back ones are only counted), action buttons, images sent as data. Bodies are shown as plain text. History is 50 entries (`history_length` in both dunstrcs). `Super+Shift+Alt+,` opens it, as upstream. Replaces the "pop last" button and `scripts/notifications.sh`. |
+
 ## Not ported (absent from omaxian by decision — not a divergence to track)
 
 `plugins/{lock,background,clipboard,notifications,image-picker,dev-gallery}`,

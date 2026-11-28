@@ -179,6 +179,7 @@ When to re-run which script:
 | Alt+Ctrl+T                  | theme picker                                                            |
 | Super+Ctrl+A / B / W / P    | audio / bluetooth / network / power                                     |
 | Super+Ctrl+O / Super+Ctrl+S | Control Panel / Settings                                                |
+| Super+Shift+Alt+,           | notification history                                                    |
 | Super+1…0                   | workspaces (global; see [displays](docs/omaxian/customize/displays.md)) |
 | Super+Tab                   | next workspace on this monitor                                          |
 | Super+Alt+arrows            | move window to adjacent monitor                                         |
