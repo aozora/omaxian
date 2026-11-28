@@ -39,3 +39,19 @@ omareel/src/ui/qml/RoundedFrame.qml|Property "fill" does not exist
 omareel/src/ui/qml/RoundedFrame.qml|Property "visible" does not exist
 omareel/src/ui/qml/RoundedFrame.qml|Property "cropRect" does not exist
 omareel/src/ui/qml/RoundedFrame.qml|Property "cornerRadiusRatio" does not exist
+
+# Omareel: PortalFilePicker (C++, src/ui/PortalFilePicker.h)
+omareel/src/ui/qml/BackgroundPanel.qml|Property "objectName" does not exist
+omareel/src/ui/qml/BackgroundPanel.qml|Property "title" does not exist
+omareel/src/ui/qml/BackgroundPanel.qml|Property "nameFilters" does not exist
+omareel/src/ui/qml/ExportDialog.qml|Property "objectName" does not exist
+omareel/src/ui/qml/ExportDialog.qml|Property "mode" does not exist
+omareel/src/ui/qml/ExportDialog.qml|Property "title" does not exist
+omareel/src/ui/qml/ExportDialog.qml|Property "suggestedPath" does not exist
+omareel/src/ui/qml/ExportDialog.qml|Property "nameFilters" does not exist
+omareel/src/ui/qml/InsertClipDialog.qml|Property "objectName" does not exist
+omareel/src/ui/qml/InsertClipDialog.qml|Property "title" does not exist
+omareel/src/ui/qml/InsertClipDialog.qml|Property "nameFilters" does not exist
+omareel/src/ui/qml/Launcher.qml|Property "objectName" does not exist
+omareel/src/ui/qml/Launcher.qml|Property "mode" does not exist
+omareel/src/ui/qml/Launcher.qml|Property "title" does not exist

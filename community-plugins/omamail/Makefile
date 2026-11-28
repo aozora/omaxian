@@ -40,10 +40,13 @@ QML_FILES := ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryContr
 	ui/components/MenuActionRow.qml ui/components/MenuSeparatorLine.qml \
 	ui/components/KeyRouter.qml \
 	ui/components/WheelScroller.qml \
+	ui/i3/WindowFocus.qml \
 	ui/components/ActionIcon.qml \
+	ui/components/AppTitle.qml \
 	ui/components/IconButton.qml \
 	ui/components/IconTextButton.qml \
 	ui/components/ImagePopover.qml \
+	ui/components/MessageImages.qml \
 	ui/components/AttachmentRow.qml \
   ui/components/KeyHints.qml \
 	ui/components/MessageReader.qml \
@@ -64,7 +67,7 @@ QML_FILES := ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryContr
 	ui/components/SearchBar.qml \
 	ui/components/AppMenu.qml \
 	ui/components/AccountSwitcher.qml \
-	ui/components/AgentPrompt.qml ui/agent/PendingMessages.qml \
+	ui/components/AgentPrompt.qml ui/components/AssistantDock.qml ui/agent/PendingMessages.qml \
 	ui/components/LabelMenu.qml \
 	ui/components/LabelMovePicker.qml \
 	ui/components/NamePrompt.qml \
@@ -166,6 +169,7 @@ test-js:
 	node ui/tests/test_mailto.js
 	node ui/tests/test_html.js
 	node ui/tests/test_html_tables.js
+	node ui/tests/test_images.js
 	node ui/tests/test_direction.js
 	node ui/tests/test_appearance.js
 	node ui/tests/test_model.js

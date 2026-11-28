@@ -1,6 +1,6 @@
 [package]
 name = "omakeepickd"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 rust-version = "1.89"
 description = "Helper daemon for the OmaKeePick shell plugin (Omaxian/X11 port): opens a KeePass KDBX database and serves search, copy and auto-type requests"
@@ -31,6 +31,9 @@ zbus = { version = "6", default-features = false, features = ["tokio", "proxy"] 
 zeroize = { version = "1", features = ["derive", "serde"] }
 
 [dev-dependencies]
+# These two write the test database that unpacks to gigabytes (tests/kdbx4).
+chacha20 = "0.10"
+flate2 = "1"
 keepass = { version = "0.17", features = ["save_kdbx4", "serialization"] }
 rust_argon2 = { package = "rust-argon2", version = "3" }
 tempfile = "3"

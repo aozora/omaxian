@@ -2,8 +2,8 @@
 
 Markdown writing app with auto-save, find/replace, print, and Omarchy theme/language.
 
-Port of [omacom/omawrite](https://github.com/omacom/omawrite) 0.7.6
-(upstream commit `2f27bdc`, pinned in `.omaxian-upstream-commit`). Full upstream
+Port of [omacom/omawrite](https://github.com/omacom/omawrite) 0.7.8
+(upstream commit `1c09d42`, pinned in `.omaxian-upstream-commit`). Full upstream
 docs: [`README.upstream.md`](README.upstream.md).
 
 This is a **standalone app**, not a Quickshell plugin. It lives under
@@ -14,7 +14,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 | Upstream (Omarchy / Hyprland) | This port |
 | ----------------------------- | --------- |
 | `omarchy pkg add omawrite` / Arch package | Debian `install.sh` → `~/.local` |
-| Qt Quick Dialogs / Widgets / PrintSupport | Same; needs `qml6-module-qtquick-dialogs` at runtime |
+| Portal file chooser / Widgets / PrintSupport | Same; needs `xdg-desktop-portal` and the GTK backend |
 | Theme from `colors.toml`; language from `~/.config/omarchy/language` | Unchanged |
 | Bundled IBM Plex Mono | Unchanged (embedded via resources.qrc, SIL OFL) |
 | Runtime dep `qt6-wayland` | Not installed. Uses XCB via `qt6-qpa-plugins` |
@@ -23,7 +23,7 @@ This is a **standalone app**, not a Quickshell plugin. It lives under
 
 ## Requirements
 
-- Qt 6 Quick / Controls / Dialogs, Widgets, PrintSupport
+- Qt 6 Quick / Controls, Widgets, PrintSupport
 - `xdg-desktop-portal` + GTK backend
 
 Build: `cmake` + `qt6-base-dev` + `qt6-declarative-dev`, or `qmake6` against `omawrite.pro`.
@@ -45,8 +45,7 @@ major.minor does not match the already-installed `libqt6core6t64`.
 
 | Path | Role |
 | ---- | ---- |
-| `~/.local/bin/omawrite` | app (wrapper when QML modules live under `~/.local/lib/qt6/qml`) |
-| `~/.local/libexec/omawrite` | real binary when the wrapper is used |
+| `~/.local/bin/omawrite` | app |
 | `~/.local/share/applications/omawrite.desktop` | launcher |
 | `~/.local/share/icons/hicolor/scalable/apps/omawrite.svg` | icon |
 

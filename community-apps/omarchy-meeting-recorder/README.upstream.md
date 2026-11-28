@@ -50,7 +50,7 @@ Your microphone and whatever your computer plays are recorded as two separate tr
 
 ### Records your webcam too, if you like
 
-Turn on **Webcam** and your camera is recorded next to the audio, as `webcam.mp4` (picture only) in the meeting folder, and a small live picture in its row shows what it sees. The video keeps time with the audio: with the camera on, a recording (or a resume) starts its audio once the first frame is in, pauses are left out as in the audio, and you can turn the camera on or off during the recording, black filling the time it was off. The toggle is remembered, and so is the camera, which is the first real one the system has. Open the meeting later and the video plays small in the corner of the transcript, in step with the audio.
+Turn on **Webcam** and your camera is recorded next to the audio, as `webcam.mp4` (picture only) in the meeting folder, and a small live picture in its row shows what it sees. The video keeps time with the audio: with the camera on, a recording (or a resume) starts its audio once the first frame is in, pauses are left out as in the audio, and you can turn the camera on or off during the recording, black filling the time it was off. The toggle is remembered, and so is the camera: the first real one the system has, or the one you pick under **Camera** when there are more (OBS's virtual camera, for instance, to record the picture OBS makes). Open the meeting later and the video plays small in the corner of the transcript, in step with the audio.
 
 ### Keeps your meeting notes next to the recording
 
@@ -84,7 +84,9 @@ Drop an audio file on the window, or click **Import an audio file**: a phone mem
 
 ### Gives you a transcript you can listen to
 
-The done screen puts the transcript on the right: the time, the speaker and the text in their own columns, one paragraph per turn. Above it sits a player with a waveform of both sides, your side above the line and the other side below it. Click or drag in the waveform to seek, or click any line to play from there. The line that is playing is highlighted and the transcript scrolls along.
+The done screen puts the transcript on the right: the time, the speaker and the text in their own columns, one paragraph per turn. Above it sits a player with a waveform of both sides, your side above the line and the other side below it. Click in the waveform to seek, or click any line to play from there. The line that is playing is highlighted and the transcript scrolls along.
+
+Recorded too early, or forgot to stop? Drag across the waveform to select the part that matters and press the scissors next to it. That part becomes a new meeting, with its audio, webcam video, transcript and chapters, without transcribing again. The meeting you cut it from stays as it is.
 
 On the left: the meeting name and one row per speaker, which you can rename at any time (the folder, the transcript and the manifest follow, and your own name is remembered for next time; give two speakers the same name and they become one), the chapters, **Copy transcript** (also Enter), Open folder, New recording, and the language to transcribe again in.
 

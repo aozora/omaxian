@@ -4,6 +4,10 @@
 //! tags, or notes). A word's score is its best weighted field score; an entry's score is the
 //! sum over words plus a "frecency" bonus for entries used often and recently. The query uses
 //! fzf syntax: `'exact`, `^prefix`, `suffix$`, `!exclude`.
+//!
+//! How long a search takes goes by how much text the database has, which is the database's
+//! to say. So a search can be done a part at a time ([`Searcher::score`]): the daemon gives
+//! way between the parts, and a lock does not wait for a search to end.
 
 use std::collections::HashMap;
 
@@ -39,22 +43,52 @@ pub fn frecency(usage: Option<&(u32, i64)>, now: i64) -> u32 {
     (f64::from(count).ln_1p() * 120.0 * 0.5f64.powf(age_days / 30.0)) as u32
 }
 
-/// `text` in lower case, in a buffer that is wiped and that never moves while it is filled,
-/// which would leave the beginning of the text behind in freed memory: a character's lower
-/// case is never more than twice as long as the character.
-fn lower_case(text: &str) -> Zeroizing<String> {
-    let mut lower = Zeroizing::new(String::with_capacity(text.len() * 2));
+/// Put after a text in which a substring is looked for, because of two faults in nucleo
+/// 0.3.1. In a text that is not plain ASCII it does not try the last place a substring can
+/// start at, so it never finds a word that the text ends with. In a text that is plain ASCII
+/// it looks for some words (`24h`, `10gb`: a letter after two or more other characters)
+/// without folding case and short of the end. With this after it no word is at the end, and
+/// no text is plain ASCII. A query cannot contain the line feed: the daemon takes queries
+/// apart at white space.
+const END: &str = "\n¶";
+
+/// `text` in lower case, with [`END`] after it if `end` says so, in a buffer that is wiped and
+/// that never moves while it is filled, which would leave the beginning of the text behind in
+/// freed memory: a character's lower case is never more than twice as long as the character.
+fn lower_case(text: &str, end: bool) -> Zeroizing<String> {
+    let mut lower = Zeroizing::new(String::with_capacity(text.len() * 2 + END.len()));
     lower.extend(text.chars().flat_map(char::to_lowercase));
+    if end {
+        lower.push_str(END);
+    }
     lower
 }
 
-/// A `Searcher` holds no entry text between searches. `buf` is where nucleo wants a text that
-/// is not plain ASCII spelled out, a note as much as a title: it is wiped after every search.
-/// The matcher has scratch memory of its own, which cannot be reached from here; it sees the
-/// fields that are matched fuzzily (never the notes), and a lock replaces the whole `Searcher`.
+/// A query taken apart: each word as it is matched in the short fields, and as it is matched
+/// in notes.
+pub struct Query(Vec<(Atom, Atom)>);
+
+impl Query {
+    pub fn parse(query: &str) -> Query {
+        let pattern = Pattern::parse(query, CaseMatching::Ignore, Normalization::Smart);
+        Query(pattern.atoms.iter().map(|a| (a.clone(), substring_variant(a))).collect())
+    }
+
+    /// No words: the search is for what was used lately ([`recently_used`]).
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// A `Searcher` is made for one search and holds no entry text after it. `buf` is where
+/// nucleo wants a text that is not plain ASCII spelled out, a note as much as a title: it is
+/// wiped when the `Searcher` is dropped. The matcher has scratch memory of its own, which
+/// cannot be reached from here; it sees the fields that are matched fuzzily (never the notes).
 pub struct Searcher {
     matcher: Matcher,
     buf: Vec<char>,
+    /// The entries that matched so far, by their place in the index, with their scores.
+    hits: Vec<(usize, u32)>,
 }
 
 impl Drop for Searcher {
@@ -67,22 +101,23 @@ impl Default for Searcher {
     fn default() -> Self {
         let mut config = Config::DEFAULT;
         config.prefer_prefix = true;
-        Searcher { matcher: Matcher::new(config), buf: Vec::new() }
+        Searcher { matcher: Matcher::new(config), buf: Vec::new(), hits: Vec::new() }
     }
 }
 
 impl Searcher {
-    fn score(&mut self, atom: &Atom, haystack: &str) -> Option<u32> {
+    fn score_text(&mut self, atom: &Atom, haystack: &str) -> Option<u32> {
         if haystack.is_empty() {
             return if atom.negative { Some(0) } else { None };
         }
         // nucleo folds case only for some non-ASCII letters (`Ž` stays unmatched by `z`), so
         // lowercase those haystacks first; its normalization then maps `ž` to `z`.
         let folded;
-        let haystack = if haystack.is_ascii() {
+        let substring = atom.kind == AtomKind::Substring;
+        let haystack = if haystack.is_ascii() && !substring {
             haystack
         } else {
-            folded = lower_case(haystack);
+            folded = lower_case(haystack, substring);
             folded.as_str()
         };
         atom.score(Utf32Str::new(haystack, &mut self.buf), &mut self.matcher).map(u32::from)
@@ -95,21 +130,23 @@ impl Searcher {
                 (entry.title.as_str(), TITLE),
                 (entry.username.as_str(), USERNAME),
                 (entry.url_match.as_str(), URL),
-                (entry.group.as_str(), GROUP),
+                (&*entry.group, GROUP),
                 (entry.tags.as_str(), TAGS),
             ];
             if atom.negative {
                 // A negative atom scores `None` on any field containing the excluded text.
-                let excluded = fields.iter().any(|(text, _)| self.score(atom, text).is_none())
-                    || self.score(notes_atom, &entry.notes).is_none();
+                let excluded = fields.iter().any(|(text, _)| self.score_text(atom, text).is_none())
+                    || self.score_text(notes_atom, &entry.notes).is_none();
                 if excluded {
                     return None;
                 }
                 continue;
             }
-            let mut best =
-                fields.iter().filter_map(|&(text, weight)| self.score(atom, text).map(|s| s * weight)).max();
-            if let Some(notes) = self.score(notes_atom, &entry.notes) {
+            let mut best = fields
+                .iter()
+                .filter_map(|&(text, weight)| self.score_text(atom, text).map(|s| s * weight))
+                .max();
+            if let Some(notes) = self.score_text(notes_atom, &entry.notes) {
                 best = best.max(Some(notes * NOTES));
             }
             total += best?;
@@ -117,7 +154,54 @@ impl Searcher {
         Some(total)
     }
 
-    /// Returns indices into `index`, best first, and the number of matches before `limit`.
+    /// Makes room for the longest text in `index`, while `buf` is empty. It then never grows
+    /// with a text in it, which would leave a copy of that text behind in freed memory. Call
+    /// this before [`score`](Self::score).
+    pub fn begin(&mut self, index: &[IndexedEntry]) {
+        let longest = index
+            .iter()
+            .flat_map(|e| [&*e.title, &*e.username, &*e.url_match, &*e.group, &*e.tags, &**e.notes])
+            .map(str::len)
+            .max();
+        // A text has no more characters than bytes, in lower case too; two more for `END`.
+        self.buf.reserve(longest.unwrap_or(0) + 2);
+    }
+
+    /// Scores the entries of `index` from `from` on and keeps the ones that match. `enough`
+    /// is asked after every entry; when it says so, this stops. Returns where to go on from:
+    /// `index.len()` when all of them are done, and [`best`](Self::best) has the result.
+    pub fn score(
+        &mut self,
+        query: &Query,
+        index: &[IndexedEntry],
+        from: usize,
+        usage: &Usage,
+        now: i64,
+        mut enough: impl FnMut() -> bool,
+    ) -> usize {
+        for (at, entry) in index.iter().enumerate().skip(from) {
+            if let Some(score) = self.score_entry(entry, &query.0) {
+                self.hits.push((at, score + frecency(usage.get(&entry.uuid), now)));
+            }
+            if enough() {
+                return at + 1;
+            }
+        }
+        index.len()
+    }
+
+    /// The `limit` best of the entries that matched, best first, and how many matched.
+    pub fn best(&mut self, index: &[IndexedEntry], limit: usize) -> (Vec<usize>, usize) {
+        let mut hits = std::mem::take(&mut self.hits);
+        // Ties go to the shorter (more specific) title; `index` is sorted by title, so the
+        // stable sort keeps remaining ties alphabetical.
+        hits.sort_by(|a, b| b.1.cmp(&a.1).then(index[a.0].title.len().cmp(&index[b.0].title.len())));
+        let total = hits.len();
+        (hits.into_iter().take(limit).map(|(i, _)| i).collect(), total)
+    }
+
+    /// The whole of a search in one go. Returns indices into `index`, best first, and the
+    /// number of matches before `limit`.
     pub fn search(
         &mut self,
         index: &[IndexedEntry],
@@ -127,54 +211,34 @@ impl Searcher {
         recent: usize,
         now: i64,
     ) -> (Vec<usize>, usize) {
-        // Room for the longest text there is, taken while `buf` is empty: it then never grows
-        // with a text in it, which would leave a copy of that text behind in freed memory.
-        let longest = index
-            .iter()
-            .flat_map(|e| [&e.title, &e.username, &e.url_match, &e.group, &e.tags, &*e.notes])
-            .map(String::len)
-            .max();
-        self.buf.reserve(longest.unwrap_or(0));
-        let found = self.find(index, query, usage, limit, recent, now);
-        self.buf.zeroize();
-        found
-    }
-
-    fn find(
-        &mut self,
-        index: &[IndexedEntry],
-        query: &str,
-        usage: &Usage,
-        limit: usize,
-        recent: usize,
-        now: i64,
-    ) -> (Vec<usize>, usize) {
-        let pattern = Pattern::parse(query, CaseMatching::Ignore, Normalization::Smart);
-        if pattern.atoms.is_empty() {
-            let mut used: Vec<(usize, u32, i64)> = index
-                .iter()
-                .enumerate()
-                .filter_map(|(i, e)| usage.get(&e.uuid).map(|u| (i, frecency(Some(u), now), u.1)))
-                .collect();
-            used.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
-            let total = used.len();
-            return (used.into_iter().take(recent.min(limit)).map(|(i, ..)| i).collect(), total);
+        let query = Query::parse(query);
+        if query.is_empty() {
+            return recently_used(index, usage, limit, recent, now);
         }
-        let atoms: Vec<(Atom, Atom)> =
-            pattern.atoms.iter().map(|a| (a.clone(), substring_variant(a))).collect();
-        let mut hits: Vec<(usize, u32)> = index
-            .iter()
-            .enumerate()
-            .filter_map(|(i, e)| {
-                self.score_entry(e, &atoms).map(|s| (i, s + frecency(usage.get(&e.uuid), now)))
-            })
-            .collect();
-        // Ties go to the shorter (more specific) title; `index` is sorted by title, so the
-        // stable sort keeps remaining ties alphabetical.
-        hits.sort_by(|a, b| b.1.cmp(&a.1).then(index[a.0].title.len().cmp(&index[b.0].title.len())));
-        let total = hits.len();
-        (hits.into_iter().take(limit).map(|(i, _)| i).collect(), total)
+        self.begin(index);
+        self.score(&query, index, 0, usage, now, || false);
+        self.buf.zeroize();
+        self.best(index, limit)
     }
+}
+
+/// The entries of `index` that were used, the ones used most and latest first: what a search
+/// for nothing shows. Returns at most `recent` (and `limit`) of them and how many there are.
+pub fn recently_used(
+    index: &[IndexedEntry],
+    usage: &Usage,
+    limit: usize,
+    recent: usize,
+    now: i64,
+) -> (Vec<usize>, usize) {
+    let mut used: Vec<(usize, u32, i64)> = index
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| usage.get(&e.uuid).map(|u| (i, frecency(Some(u), now), u.1)))
+        .collect();
+    used.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
+    let total = used.len();
+    (used.into_iter().take(recent.min(limit)).map(|(i, ..)| i).collect(), total)
 }
 
 #[cfg(test)]
@@ -242,9 +306,58 @@ mod tests {
         }
         // The ones that grow: two bytes become three.
         let text = "İstanbul ȺȾ Žilina";
-        let lower = lower_case(text);
+        let lower = lower_case(text, false);
         assert_eq!(lower.as_str(), "i\u{307}stanbul ⱥⱦ žilina");
-        assert_eq!(lower.capacity(), text.len() * 2);
+        assert_eq!(lower.capacity(), text.len() * 2 + END.len());
+        let ended = lower_case(text, true);
+        assert_eq!(ended.as_str(), "i\u{307}stanbul ⱥⱦ žilina\n¶");
+        assert_eq!(ended.capacity(), text.len() * 2 + END.len());
+    }
+
+    /// A word that a text ends with is found, in a text that is not plain ASCII as much as in
+    /// one that is: in notes, where every word is looked for as a substring, and in the other
+    /// fields when the query asks for one (`'word`).
+    #[test]
+    fn a_word_at_the_end_of_a_text_is_found() {
+        let index = vec![
+            entry("Kancelária Žilina", "", "", "", "kľúč je pod rohožkou"),
+            entry("Office", "", "", "", "the key is under the doormat"),
+        ];
+        let found = |query: &str| Searcher::default().search(&index, query, &Usage::new(), 10, 0, 0).0;
+        // In the notes: at the end, in the middle, a single letter that only the end has.
+        assert_eq!(found("rohozkou"), [0]);
+        assert_eq!(found("rohožkou"), [0]);
+        assert_eq!(found("pod"), [0]);
+        assert_eq!(found("doormat"), [1]);
+        // In a title, as a substring.
+        assert_eq!(found("'zilina"), [0]);
+        assert_eq!(found("'žilina"), [0]);
+        assert_eq!(found("'office"), [1]);
+        // Asked for at the end, the end is still where the text ends.
+        assert_eq!(found("zilina$"), [0]);
+        assert_eq!(found("kancelaria$"), Vec::<usize>::new());
+        // And what is not there is not found.
+        assert_eq!(found("rohozkoux"), Vec::<usize>::new());
+
+        // In plain ASCII: words with a letter after two or more other characters, at the end
+        // of a text, in another case, and asked not to be there.
+        let index = vec![
+            entry("Open 24h", "", "", "", "open 24h"),
+            entry("Shop", "", "", "", "Open 24H daily, limit 10GB per day"),
+            entry("Genes", "", "", "", "my 23andMe login"),
+            entry("İstanbul", "", "", "", ""),
+        ];
+        let found = |query: &str| {
+            let mut hits = Searcher::default().search(&index, query, &Usage::new(), 10, 0, 0).0;
+            hits.sort();
+            hits
+        };
+        assert_eq!(found("24h"), [0, 1]);
+        assert_eq!(found("'24h"), [0, 1]);
+        assert_eq!(found("10gb"), [1]);
+        assert_eq!(found("23andme"), [2]);
+        assert_eq!(found("!24h"), [2, 3]);
+        assert_eq!(found("'istanbul"), [3]);
     }
 
     #[test]

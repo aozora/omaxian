@@ -187,33 +187,9 @@ qt_build_ready() {
   exit 1
 }
 
-needs_qml_wrapper() {
-  { [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtQuick/Dialogs ]] && [[ -d $HOME/.local/lib/qt6/qml/QtQuick/Dialogs ]]; }
-}
-
 install_files() {
   mkdir -p "$BIN_DIR" "$APP_DIR" "$ICON_DIR"
-  if needs_qml_wrapper; then
-    mkdir -p "$PREFIX/libexec"
-    install -m 0755 "$BUILT_BIN" "$PREFIX/libexec/$NAME"
-    local lib_extra="$HOME/.local/lib"
-    local qml_extra="$lib_extra/qt6/qml"
-    local plugin_extra="$lib_extra/qt6/plugins"
-    cat > "$BIN_DIR/$NAME" <<EOF
-#!/bin/bash
-export LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}$lib_extra"
-export QML_IMPORT_PATH="\${QML_IMPORT_PATH:+\$QML_IMPORT_PATH:}$qml_extra"
-export QT_PLUGIN_PATH="\${QT_PLUGIN_PATH:+\$QT_PLUGIN_PATH:}$plugin_extra"
-exec "$PREFIX/libexec/$NAME" "\$@"
-EOF
-    chmod 0755 "$BIN_DIR/$NAME"
-    echo ">> wrapper $BIN_DIR/$NAME (QML from $qml_extra)"
-  else
-    install -m 0755 "$BUILT_BIN" "$BIN_DIR/$NAME"
-  if [[ ! -d /usr/lib/x86_64-linux-gnu/qt6/qml/QtQuick/Dialogs && ! -d $HOME/.local/lib/qt6/qml/QtQuick/Dialogs ]]; then
-    echo "warning: QML module QtQuick/Dialogs missing; omawrite may exit on start" >&2
-  fi
-  fi
+  install -m 0755 "$BUILT_BIN" "$BIN_DIR/$NAME"
   install -m 0644 "$ROOT/pkgbuild/$NAME.svg" "$ICON_DIR/$NAME.svg"
   sed -e "s|^Exec=$NAME|Exec=$BIN_DIR/$NAME|" \
     "$ROOT/pkgbuild/$NAME.desktop" > "$APP_DIR/$NAME.desktop"

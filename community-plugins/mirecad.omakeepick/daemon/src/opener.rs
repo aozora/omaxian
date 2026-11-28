@@ -33,6 +33,14 @@
 //! KDF. That key and the credentials travel on the same pipe, ahead of the data; a pipe is
 //! kernel memory shared by nothing but these two processes.
 //!
+//! The file does not decide how much memory the child takes either. A database unpacks to
+//! whatever its contents unpack to (a megabyte of zeros is a kilobyte of file), and the
+//! parser unpacks it whole before anything here can look at it. So the first thing the child
+//! does, before it reads a byte of anything, is to put a limit on its own memory that it
+//! cannot lift (see `memory`): [`HELPER_MEMORY_BYTES`], the same for every file. The kernel
+//! refuses what goes past that, wherever in the parser it is asked for, and the child ends
+//! with an error that says so.
+//!
 //! Taking that hand-over apart is the one piece of work on the database that the daemon does
 //! itself, on a thread that a lock cannot stop. So its size is not left to the file either.
 //! The child first takes out what the daemon never uses (attachments, the earlier versions of
@@ -59,8 +67,8 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use zeroize::Zeroizing;
 
-use crate::harden;
 use crate::vault::{self, KeyMaterial, Stamp, VaultError};
+use crate::{harden, memory};
 
 const SECRET_LEN: usize = 32;
 
@@ -117,8 +125,39 @@ pub const MAX_HANDOVER_DATABASE_BYTES: usize = 32 << 20;
 /// The whole hand-over: `[len32][key material][one-time key][database]`.
 const MAX_HANDOVER_BYTES: usize = 4 + MAX_CREDENTIAL_BYTES + SECRET_LEN + MAX_HANDOVER_DATABASE_BYTES;
 
-const TOO_LARGE: &str =
-    "The database is too large: more than 32 MiB even without its attachments and entry histories";
+/// These two go after "Not a readable KeePass database: ", like every `VaultError::Format`.
+const TOO_LARGE: &str = "it has more than 32 MiB of entries, not counting attachments and entry histories";
+
+/// The writable memory the child may have: one number, whatever the file says. An ordinary
+/// database takes a few megabytes of it beside its key derivation. Two things take more, and
+/// both fit with room to spare when they are as large as `vault` lets them be (measured by
+/// lowering the limit until the child fails):
+///
+/// - The key derivation: Argon2 at its 1 GiB, with the file (128 MiB), a key file (16 MiB)
+///   and the stacks of 256 threads, comes to about 1.2 GiB. The derivation's memory is given
+///   back before the database is unpacked.
+/// - Attachments, which have to be unpacked before they can be left out. A file takes five
+///   to seven times its size when they do not compress: 0.9 GiB for the largest one. When
+///   they do compress, it is up to three times what they unpack to.
+pub const HELPER_MEMORY_BYTES: u64 = 3 << 29;
+
+/// What a thread of the key derivation gets as its stack, as `RUST_MIN_STACK` takes it. There
+/// is one thread for each lane the header asks for, up to 256, and their stacks count against
+/// the limit. They use a few kilobytes. Left alone they would get 2 MiB each, or whatever
+/// the session this was started from has set.
+const THREAD_STACK_BYTES: &str = "262144";
+
+/// The error a child ends with when it runs into its limit. As a macro, so that the line
+/// the allocator writes for it can be put together at compile time: nothing can be put
+/// together once memory has run out.
+macro_rules! out_of_room {
+    () => {
+        "it takes more memory to open than the 1.5 GiB this app gives it"
+    };
+}
+
+/// [`out_of_room`] as the child reports it: one line, a [`WireError`].
+const OUT_OF_ROOM_REPORT: &str = concat!(r#"{"code":"format_error","message":""#, out_of_room!(), "\"}\n");
 
 /// `[len32][database path][len32][key file path]`: the first thing the daemon writes to the
 /// child's stdin. An empty key file path means there is none. No secrets.
@@ -224,6 +263,8 @@ fn test_hold(name: &str) {
 /// `omakeepickd open-db`: the child. Speaks the protocol in the module documentation on stdin
 /// and stdout; a failure is a JSON [`WireError`] on stderr with exit status 1.
 pub fn open_db_main() -> ExitCode {
+    // SAFETY: this process has one thread so far.
+    unsafe { std::env::set_var("RUST_MIN_STACK", THREAD_STACK_BYTES) };
     // No core dumps, no ptrace by our other processes.
     harden::harden_process();
     unsafe {
@@ -234,7 +275,10 @@ pub fn open_db_main() -> ExitCode {
         // Started as /proc/self/exe, which ps and top would list as "exe".
         libc::prctl(libc::PR_SET_NAME, c"omakeepickd".as_ptr(), 0, 0, 0);
     }
-    match serve_request() {
+    // Before anything is read. Without the limit this process does nothing at all.
+    let limited = memory::limit(HELPER_MEMORY_BYTES, OUT_OF_ROOM_REPORT.as_bytes())
+        .map_err(|e| VaultError::Io(format!("Cannot limit the memory of the database helper: {e}")));
+    match limited.and_then(|()| serve_request()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             let wire = serde_json::to_string(&WireError::from(&err)).unwrap_or_default();
@@ -524,6 +568,19 @@ mod tests {
             assert_eq!(wire.into_error(), Some(err));
         }
         assert!(WireError { code: "nope".into(), message: String::new() }.into_error().is_none());
+    }
+
+    /// The report of a child that ran out of memory is written by hand, since nothing can be
+    /// serialized at that point. The daemon has to read it as the error it stands for.
+    #[test]
+    fn the_out_of_room_report_is_a_wire_error() {
+        let (line, rest) = OUT_OF_ROOM_REPORT.split_once('\n').unwrap();
+        assert_eq!(rest, "");
+        let wire: WireError = serde_json::from_str(line).unwrap();
+        assert_eq!(wire.into_error(), Some(VaultError::Format(out_of_room!().into())));
+        // The number in the message is the limit.
+        assert!(out_of_room!().contains("1.5 GiB"));
+        assert_eq!(HELPER_MEMORY_BYTES, 1536 << 20);
     }
 
     #[test]

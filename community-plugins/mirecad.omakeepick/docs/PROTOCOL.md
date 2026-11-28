@@ -91,14 +91,18 @@ A `state` event is sent right after a client connects and after every state chan
 | `quickUnlock` | `pin` | `{}` | `no_quick_unlock`, `bad_pin` (+ `attemptsLeft`), `busy`, `cancelled` |
 | `lock` | `reason` (optional, `manual` default; `screen` from the lock-screen watcher) | `{}` | — |
 | `close` | — | `{}` | — |
-| `search` | `query` (string, at most 256 bytes; only the first 16 words count), `limit` (int, default 50, at most 500) | `{"entries": [Entry…], "total": n}` | `locked`, `bad_request` |
+| `search` | `query` (string, at most 256 bytes; only the first 16 words count), `limit` (int, default 50, at most 500) | `{"entries": [Entry…], "total": n}` | `locked`, `bad_request`, `cancelled` |
 | `act` | `entry` (entry id), `action` (see below) | `{}`; copy actions: `{"clearsIn": seconds, "copied": "password"}` | `locked`, `not_found`, `no_field`, `autotype_disabled`, `tool_missing`, `failed`, `cancelled` |
 | `pickFile` | `kind`: `db` or `keyfile` | `{"path": "/abs/path", "keyfile": "/abs/path" \| null}` (for `db`: the key file last used with that database) | `cancelled`, `failed` |
 | `touch` | — | `{}` | — |
 | `quit` | — | `{}` (the daemon locks, wipes and exits) | — |
 
 `search` with an empty query returns the most recently / frequently used entries
-(at most `recentCount` of them, possibly none).
+(at most `recentCount` of them, possibly none). A search over a large database is done a
+little at a time, and other requests are answered in between: the replies to two searches
+can arrive in either order, so go by `id`. A lock that arrives while a search is under way
+ends it, and it fails with `locked`. A newer search, from any client, ends it too, and it
+fails with `cancelled`.
 
 A lock always wins over an unlock that is still running. If `lock`, `close` or an automatic
 lock (idle, screen lock, suspend) arrives while an `unlock` or `quickUnlock` is in progress, the
@@ -116,7 +120,12 @@ is not killed (it could leave a key held down) and types the burst it was given,
 a second's worth, or a single key if keys are set slower than that. A copied value is taken off
 the clipboard by the lock itself, by killing the the clipboard tool that holds it.
 
-An unlock whose database or key file cannot be read within 30 s fails with `failed`.
+An unlock whose database or key file cannot be read within 30 s fails with `failed`, and so
+does one whose database file is over 128 MiB. A database fails with `format_error` if it is
+not KDBX 3.1 or 4, if its key derivation settings are beyond what is accepted (Argon2 over
+1 GiB of memory, AES over 2^31 rounds), if it takes more than 1.5 GiB of memory to open, or if
+it has more than 32 MiB of entries. A reload that fails keeps the database that was open and sends a `warning`
+notice.
 From the moment logind announces a sleep until it reports the wake-up, `unlock` and
 `quickUnlock` are refused with `cancelled`: such a request starts after the sleep's lock, which
 therefore could not stop it.
@@ -127,7 +136,10 @@ it waits the same way for up to 2 s.
 
 ### Entry (search result)
 
-Never contains secrets: no password, notes, custom field values or TOTP secret.
+Never contains secrets: no password, notes, custom field values or TOTP secret. `title` and
+`username` are at most 1 KiB and `group` at most 256 bytes long: what is longer in the
+database is cut and marked with `…` (a group path at its beginning, the others at their end;
+within a path, a single group's name is cut at 96 bytes).
 
 ```json
 {

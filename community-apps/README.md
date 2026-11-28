@@ -88,7 +88,7 @@ Plan and rationale:
 | [`plain`](plain/) | Plain (Qt Quick config/text editor) | [omacom/plain](https://github.com/omacom/plain) `0.4.2` | Ported |
 | [`omacalc`](omacalc/) | Omacalc (Qt Quick calculator) | [omacom/omacalc](https://github.com/omacom/omacalc) `0.4.2` | Ported |
 | [`omacut`](omacut/) | Omacut (Qt Quick video trimmer) | [omacom/omacut](https://github.com/omacom/omacut) `0.8.4` | Ported |
-| [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.7` | Ported |
+| [`omawrite`](omawrite/) | Omawrite (Qt Quick Markdown writer) | [omacom/omawrite](https://github.com/omacom/omawrite) `0.7.8` | Ported |
 | [`folio`](folio/) | Folio (Qt Quick file manager) | [omacom/folio](https://github.com/omacom/folio) `0.7.5` (`c306f24`) | Ported |
 | [`omaview`](omaview/) | Omaview (Qt Quick picture viewer / media player) | [omacom/omaview](https://github.com/omacom/omaview) `0.1.2` (`4cd158e`) | Ported |
 | [`hype`](hype/) | Hype (Qt Quick Markdown presentations) | [omacom/hype](https://github.com/omacom/hype) `0.7.1` (`8c347fc`) | Ported |
@@ -98,7 +98,7 @@ Plan and rationale:
 | [`omarchy-local-ai`](omarchy-local-ai/) | omarchy-local-ai (local model engine, Podman; no systemd) | [omacom/omarchy-local-ai](https://github.com/omacom/omarchy-local-ai) `0.13.0` (`63b3be9`) | Ported (music path; no pairing or tailnet sharing). CI packages the engine tree |
 | [`flowtunes`](flowtunes/) | Flowtunes (Qt Quick endless music; needs omarchy-local-ai) | [omacom/flowtunes](https://github.com/omacom/flowtunes) `0.4.0` (`83dc86f`) | Ported. Pre-built binary from CI |
 | [`fantasi`](fantasi/) | Fantasi (Qt Quick image, video and music maker; needs omarchy-local-ai) | [omacom/fantasi](https://github.com/omacom/fantasi) `0.3.0` (`f5a3fec`) | Ported (only the music model has been run). Pre-built binary from CI |
-| [`omareel`](omareel/) | Omareel (Qt Quick + Rust screen recorder and editor) | [omacom/omareel](https://github.com/omacom/omareel) `0.5.0` (`b1610ac`) | Ported (X11 recording through Flatpak gpu-screen-recorder; overlays cannot be kept out of the capture) |
+| [`omareel`](omareel/) | Omareel (Qt Quick + Rust screen recorder and editor) | [omacom/omareel](https://github.com/omacom/omareel) `0.5.0` (`006ce2d`) | Ported (X11 recording through Flatpak gpu-screen-recorder; overlays cannot be kept out of the capture) |
 
 ## Install
 

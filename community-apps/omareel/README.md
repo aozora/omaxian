@@ -50,7 +50,7 @@ Not yet checked: a region or window pick through slop, clicks and keys (evdev) i
 
 ## Requirements
 
-- Qt 6 Quick / Controls / Dialogs / Effects / Shapes / Layouts / Multimedia, `qt6-svg-plugins`, `qt6-qpa-plugins`, `ffmpeg`
+- Qt 6 Quick / Controls / Dialogs / Effects / Shapes / Layouts / Multimedia, `qt6-svg-plugins`, `qt6-qpa-plugins`, `ffmpeg`, `xdg-desktop-portal` + GTK backend (file choosers)
 - gpu-screen-recorder: the Flatpak Omaxian's recorder uses (`flatpak install flathub com.dec05eba.gpu_screen_recorder`), or one on `PATH`. The Flatpak cannot write to `/tmp`, so keep the output folder under your home (default `~/Videos/omareel`)
 - `xrandr`, `setxkbmap`, `slop` (installed by `scripts/setup.sh`), `pactl` for audio
 - Membership in the `input` group for clicks and keys (`sudo adduser $USER input`, then log in again)

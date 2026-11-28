@@ -2,7 +2,7 @@
 
 Email client for the Omaxian bar and shell. Port of
 [huacnlee/omamail](https://github.com/huacnlee/omamail)
-(upstream commit `ad4ac3b`, plugin version `0.11.3`).
+(upstream commit `f7c8d69`, plugin version `0.12.0`).
 
 Plugin id: `omamail` (unchanged). Optional — not installed by `./deploy.sh`.
 See [`../README.md`](../README.md) for the catalog install pattern.
@@ -19,6 +19,7 @@ keyboard navigation, AI assistance and your desktop theme.
 | `default-mail.sh` → Hyprland `bindings.lua` + compositor reload | `~/.config/i3/config.d/99-omamail-default-mail.conf` + `i3-msg reload` |
 | Hyprland bind example | i3 bind example below |
 | Standalone Qt host under `app/` | Omitted; [`standalone/`](standalone/) runs the plugin UI in its own Quickshell window instead |
+| `ui/hyprland/WindowFocus.qml` (focus the window from a notification) | [`ui/i3/WindowFocus.qml`](ui/i3/WindowFocus.qml) with `i3-msg` |
 | `omarchy-mise-install` for `hey` | [hey-cli](https://github.com/basecamp/hey-cli) / setup-page install line |
 | `omarchy plugin add` / `make install` | rsync into `~/.config/omarchy/plugins/`; later `omarchy-plugin-update --from` |
 
@@ -141,6 +142,17 @@ See [mailbox setup](docs/MAILBOXES.md) for provider instructions and limitations
 including Microsoft 365 and Proton Mail Bridge.
 
 Press `?` in Omamail for the shortcut sheet, or see the [keyboard guide](docs/KEYS.md).
+
+## Text size
+
+Omamail follows the Omarchy font settings, so the whole window (text, icons and spacing) scales with `base-size` in `~/.config/omarchy/shell.toml`:
+
+```toml
+[font]
+base-size = 14
+```
+
+The change applies without a restart. To enlarge only the message body, use `Ctrl+=` / `Ctrl+-` / `Ctrl+0` in the reader; the zoom is remembered. Prefer these over `QT_SCALE_FACTOR`, which scales the window like an image, halves the usable space at `2` and blurs at fractional values.
 
 ## Help and contributing
 

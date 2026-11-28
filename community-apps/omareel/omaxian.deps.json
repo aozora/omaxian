@@ -1,5 +1,7 @@
 {
   "apt": [
+    "xdg-desktop-portal",
+    "xdg-desktop-portal-gtk",
     "qml6-module-qtquick",
     "qml6-module-qtquick-controls",
     "qml6-module-qtquick-dialogs",

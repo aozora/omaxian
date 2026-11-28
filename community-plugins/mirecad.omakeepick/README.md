@@ -6,7 +6,7 @@ auto-type username, Tab and password into the window you were in. A padlock in
 the bar shows whether the database is unlocked.
 
 Port of [mirecad/omakeepick](https://github.com/mirecad/omakeepick) (upstream
-commit `db112fb`, version 0.1.9).
+commit `0620561`, version 0.1.10).
 
 Plugin id: `mirecad.omakeepick` (unchanged). Optional — not installed by
 `./deploy.sh`. See [`../README.md`](../README.md) for the catalog install
@@ -143,7 +143,7 @@ on copy).
 ## Security
 
 Upstream 0.1.7–0.1.9 hardened the daemon (helper subprocess for KDF/file read,
-no unlock during suspend, lock ends copy/type, hand-over size cap). This port
+no unlock during suspend, lock ends copy/type, hand-over size cap); 0.1.10 limits the helper's memory and bounds search. This port
 keeps that logic and only swaps the clipboard/typing tools for X11.
 
 - **All key handling is in `omakeepickd`.** Passwords, notes and TOTP secrets
@@ -166,6 +166,11 @@ you use a clipboard manager. See [SECURITY.md](SECURITY.md).
 - Screen-lock detection polls Omarchy's lock screen every 10 seconds; suspend
   and `loginctl lock-session` are instant.
 - One database at a time; at most ~32 MiB of entry payload in RAM (upstream cap).
+- The database file can be up to 128 MiB, and opening it can take up to 1.5 GiB of
+  memory. Argon2 is accepted with up to 1 GiB, AES-KDF with up to 2^31 rounds.
+- KeePass 1 (`.kdb`) files are refused.
+- Search looks at the first 16 KiB of an entry's notes and the first 1 KiB of its
+  title, user name, URL and tags. A long group path is searched from its end.
 
 ## Development
 

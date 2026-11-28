@@ -123,6 +123,7 @@ used to exist, and they had.
 | `trash` | `d` | mail | Move to trash (in the trash: restore) |
 | `star` | `s` | mail | Star or unstar |
 | `moveToLabel` | `v` | mail | Move to |
+| `openInBrowser` | `b` | mail | Open in browser |
 | `markRead` | `Shift+I` | mail | Mark read |
 | `markUnread` | `Shift+U` | mail | Mark unread |
 | `toggleCheck` | `x`, `Space` | mail | Select or deselect the message |
@@ -256,6 +257,11 @@ find a mailbox.
 `ui/tests/qml/tst_account_switcher.qml` exercises this on the production popup, and
 `Model.wrappedIndex` holds the only decision in it — the cursor wraps, where the
 message list clamps.
+
+The image viewer is the same kind of popup. While it is open `Left` and `Right` page
+through the message's pictures (wrapping at either end), `+` and `-` zoom, `0` fits
+the picture to the window again, and `Escape` closes it; none of these reach the
+reader underneath. `ui/tests/qml/tst_image_viewer.qml` covers them.
 
 ## The cursor
 
